@@ -1,0 +1,31 @@
+name: Backend CI/CD
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "develop"]
+    paths:
+      - "backend/api/**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    branches: ["main", "develop"]
+    paths:
+      - "backend/api/**"
+      - ".github/workflows/backend.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Backend CI Skeleton
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "Backend workflow scaffold only. No implementation commands configured."

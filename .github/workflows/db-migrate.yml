@@ -1,0 +1,26 @@
+name: DB Migrate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "backend/database/**"
+      - ".github/workflows/db-migrate.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-migrate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migrate:
+    name: DB Migration Skeleton
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "DB migration workflow scaffold only. No implementation commands configured."

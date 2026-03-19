@@ -1,0 +1,31 @@
+name: Mobile CI/CD
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "develop"]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile.yml"
+  pull_request:
+    branches: ["main", "develop"]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Mobile CI Skeleton
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "Mobile workflow scaffold only. No implementation commands configured."

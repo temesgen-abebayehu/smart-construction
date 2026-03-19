@@ -1,0 +1,31 @@
+name: ML CI/CD
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "develop"]
+    paths:
+      - "backend/ml/**"
+      - ".github/workflows/ml.yml"
+  pull_request:
+    branches: ["main", "develop"]
+    paths:
+      - "backend/ml/**"
+      - ".github/workflows/ml.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: ML CI Skeleton
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "ML workflow scaffold only. No implementation commands configured."
