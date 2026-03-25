@@ -1,0 +1,88 @@
+from pydantic import BaseModel, ConfigDict
+from uuid import UUID
+from datetime import datetime
+from app.models.commons import LogStatus
+
+# Daily Log Sub-Entities
+class ShiftBase(BaseModel):
+    shift_type: str
+
+class ShiftCreate(ShiftBase):
+    pass
+
+class ShiftResponse(ShiftBase):
+    id: UUID
+    log_id: UUID
+    model_config = ConfigDict(from_attributes=True)
+
+class LaborBase(BaseModel):
+    worker_type: str
+    hours_worked: float
+    cost: float
+
+class LaborCreate(LaborBase):
+    pass
+
+class LaborResponse(LaborBase):
+    id: UUID
+    log_id: UUID
+    model_config = ConfigDict(from_attributes=True)
+
+class MaterialBase(BaseModel):
+    name: str
+    quantity: float
+    unit: str
+    cost: float
+
+class MaterialCreate(MaterialBase):
+    pass
+
+class MaterialResponse(MaterialBase):
+    id: UUID
+    log_id: UUID
+    model_config = ConfigDict(from_attributes=True)
+
+class EquipmentBase(BaseModel):
+    name: str
+    hours_used: float
+    cost: float
+
+class EquipmentCreate(EquipmentBase):
+    pass
+
+class EquipmentResponse(EquipmentBase):
+    id: UUID
+    log_id: UUID
+    model_config = ConfigDict(from_attributes=True)
+
+class EquipmentIdleBase(BaseModel):
+    reason: str
+    hours_idle: float
+
+class EquipmentIdleCreate(EquipmentIdleBase):
+    pass
+
+class EquipmentIdleResponse(EquipmentIdleBase):
+    id: UUID
+    equipment_id: UUID
+    model_config = ConfigDict(from_attributes=True)
+
+# Daily Log Main Schema
+class DailyLogBase(BaseModel):
+    date: datetime | None = None
+    notes: str | None = None
+
+class DailyLogCreate(DailyLogBase):
+    task_id: UUID
+
+class DailyLogUpdate(BaseModel):
+    notes: str | None = None
+    status: LogStatus | None = None
+
+class DailyLogResponse(DailyLogBase):
+    id: UUID
+    project_id: UUID
+    task_id: UUID
+    created_by_id: UUID
+    status: LogStatus
+    model_config = ConfigDict(from_attributes=True)
