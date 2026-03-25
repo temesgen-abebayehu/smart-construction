@@ -12,10 +12,7 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = ["*"]
     
     # Defaults to Neon URL if not found in environment
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL",
-        "postgresql://neondb_owner:npg_9fWw5LYPJOEz@ep-still-mud-a8co92ij-pooler.eastus2.azure.neon.tech/smart-construction?sslmode=require&channel_binding=require"
-    )
+    DATABASE_URL: str = os.getenv("DATABASE_URL")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
