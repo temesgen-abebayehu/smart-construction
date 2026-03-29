@@ -21,9 +21,6 @@ async def register_user(
     db: DbSession,
     user_in: UserCreate,
 ) -> Any:
-    """
-    Register a new user.
-    """
     return await UserService.create_user(db=db, user_in=user_in)
 
 @router.post("/login", response_model=Token)
@@ -31,9 +28,6 @@ async def login_access_token(
     db: DbSession,
     form_data: OAuth2PasswordRequestForm = Depends()
 ) -> Any:
-    """
-    OAuth2 compatible token login, get an access token for future requests.
-    """
     return await UserService.authenticate_user(
         db=db, email=form_data.username, password=form_data.password
     )

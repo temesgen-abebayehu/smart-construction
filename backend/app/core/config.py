@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     
     # Defaults to Neon URL if not found in environment
     DATABASE_URL: str = os.getenv("DATABASE_URL")
+    
+    # Email settings
+    SMTP_EMAIL: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

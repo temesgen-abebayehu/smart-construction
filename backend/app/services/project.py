@@ -1,10 +1,17 @@
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
-
-from app.models.project import Project, ProjectMember
+from sqlalchemy import select
+from sqlalchemy import select, func
+from app.models.task import Task
+from app.models.commons import TaskStatus
+from app.models.project import Project, ProjectMember, ProjectInvitation
 from app.models.commons import ProjectRole
-from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectMemberCreate, ProjectMemberUpdate, ProjectDashboard
+from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectMemberCreate, ProjectMemberUpdate, ProjectDashboard, ProjectInvitationCreate
+from app.repositories.project import ProjectRepository, ProjectMemberRepository
+import secrets
+from app.core.email import send_invitation_email
+import asyncio
 from app.repositories.project import ProjectRepository, ProjectMemberRepository
 
 project_repo = ProjectRepository()
@@ -19,16 +26,17 @@ class ProjectService:
             status=project_in.status.value if project_in.status else "planning",
             total_budget=project_in.total_budget,
             client_id=project_in.client_id,
+            owner_id=creator_id,
         )
         db.add(db_obj)
         await db.commit()
         await db.refresh(db_obj)
         
-        # Creator automatically becomes project_manager
+        # Creator automatically becomes OWNER
         member = ProjectMember(
             project_id=db_obj.id,
             user_id=creator_id,
-            role=ProjectRole.PROJECT_MANAGER.value,
+            role=ProjectRole.OWNER.value,
         )
         db.add(member)
         await db.commit()
@@ -48,9 +56,7 @@ class ProjectService:
 
     @staticmethod
     async def get_dashboard(db: AsyncSession, project_id: UUID) -> ProjectDashboard:
-        from sqlalchemy import select, func
-        from app.models.task import Task
-        from app.models.commons import TaskStatus
+        
 
         project = await project_repo.get_by_id(db, project_id)
         if not project:
@@ -120,3 +126,71 @@ class ProjectMemberService:
         await db.delete(member)
         await db.commit()
         return True
+
+class ProjectInvitationService:
+    @staticmethod
+    async def create_invitation(db: AsyncSession, project_id: UUID, invite_in: ProjectInvitationCreate) -> ProjectInvitation:
+        project = await project_repo.get_by_id(db, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Check if already invited and pending
+        
+        existing_result = await db.execute(select(ProjectInvitation).where(
+            ProjectInvitation.project_id == project_id,
+            ProjectInvitation.email == invite_in.email,
+            ProjectInvitation.status == "pending"
+        ))
+        if existing_result.scalars().first():
+            raise HTTPException(status_code=400, detail="User already has a pending invitation")
+
+        token = secrets.token_urlsafe(32)
+        db_obj = ProjectInvitation(
+            project_id=project_id,
+            email=invite_in.email,
+            role=invite_in.role.value,
+            token=token
+        )
+        db.add(db_obj)
+        await db.commit()
+        await db.refresh(db_obj)
+        
+        # Send email in background using asyncio
+        # Note: In production you would use Celery/arq for reliable background tasks
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, send_invitation_email, invite_in.email, project.name, token)
+
+        return db_obj
+
+    @staticmethod
+    async def get_invitations(db: AsyncSession, project_id: UUID):
+        result = await db.execute(select(ProjectInvitation).where(
+            ProjectInvitation.project_id == project_id,
+            ProjectInvitation.status == "pending"
+        ))
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def accept_invitation(db: AsyncSession, token: str, user_id: UUID) -> ProjectMember:
+        result = await db.execute(select(ProjectInvitation).where(ProjectInvitation.token == token))
+        invitation = result.scalars().first()
+        
+        if not invitation:
+            raise HTTPException(status_code=404, detail="Invalid invitation token")
+        if invitation.status != "pending":
+            raise HTTPException(status_code=400, detail="Invitation already processed or expired")
+            
+        # Add the user as a project member
+        new_member = ProjectMember(
+            project_id=invitation.project_id,
+            user_id=user_id,
+            role=invitation.role,
+        )
+        db.add(new_member)
+        
+        invitation.status = "accepted"
+        db.add(invitation)
+        
+        await db.commit()
+        await db.refresh(new_member)
+        return new_member

@@ -84,6 +84,7 @@ class ProjectUpdate(BaseModel):
 
 class ProjectResponse(ProjectBase):
     id: UUID
+    owner_id: UUID
     progress_percentage: float
     budget_spent: float
     client_id: UUID | None = None
@@ -97,3 +98,21 @@ class ProjectDashboard(BaseModel):
     budget_spent: float
     task_summary: dict
     delay_risk_status: str
+
+# Project Invitation Schemas
+class ProjectInvitationBase(BaseModel):
+    email: EmailStr
+    role: ProjectRole
+
+class ProjectInvitationCreate(ProjectInvitationBase):
+    pass
+
+class ProjectInvitationResponse(ProjectInvitationBase):
+    id: UUID
+    project_id: UUID
+    token: str
+    status: str
+    model_config = ConfigDict(from_attributes=True)
+    
+class ProjectInvitationAccept(BaseModel):
+    token: str

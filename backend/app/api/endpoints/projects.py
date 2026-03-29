@@ -8,8 +8,9 @@ from app.models.commons import ProjectRole
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectDashboard,
     ProjectMemberCreate, ProjectMemberUpdate, ProjectMemberResponse,
+    ProjectInvitationCreate, ProjectInvitationResponse, ProjectInvitationAccept
 )
-from app.services.project import ProjectService, ProjectMemberService
+from app.services.project import ProjectService, ProjectMemberService, ProjectInvitationService
 from app.repositories.project import ProjectRepository, ProjectMemberRepository
 from sqlalchemy import select
 from app.models.project import ProjectMember
@@ -45,14 +46,14 @@ async def get_project(
     return project
 
 @router.put("/{project_id}", response_model=ProjectResponse,
-            dependencies=[Depends(require_project_role([ProjectRole.PROJECT_MANAGER]))])
+            dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def update_project(
     *, db: DbSession, project_id: UUID, project_in: ProjectUpdate,
 ) -> Any:
     return await ProjectService.update_project(db, project_id, project_in)
 
 @router.delete("/{project_id}", status_code=204,
-               dependencies=[Depends(require_project_role([ProjectRole.PROJECT_MANAGER]))])
+               dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def delete_project(project_id: UUID, db: DbSession) -> None:
     await ProjectService.delete_project(db, project_id)
 
@@ -68,7 +69,7 @@ async def get_project_dashboard(
 # ── Project Members ──
 
 @router.post("/{project_id}/members", response_model=ProjectMemberResponse, status_code=201,
-             dependencies=[Depends(require_project_role([ProjectRole.PROJECT_MANAGER]))])
+             dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def add_member(
     *, db: DbSession, project_id: UUID, member_in: ProjectMemberCreate,
 ) -> Any:
@@ -83,13 +84,36 @@ async def list_members(
     return list(result.scalars().all())
 
 @router.patch("/{project_id}/members/{user_id}", response_model=ProjectMemberResponse,
-              dependencies=[Depends(require_project_role([ProjectRole.PROJECT_MANAGER]))])
+              dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def update_member_role(
     *, db: DbSession, project_id: UUID, user_id: UUID, update_in: ProjectMemberUpdate,
 ) -> Any:
     return await ProjectMemberService.update_member_role(db, project_id, user_id, update_in)
 
 @router.delete("/{project_id}/members/{user_id}", status_code=204,
-               dependencies=[Depends(require_project_role([ProjectRole.PROJECT_MANAGER]))])
+               dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def remove_member(project_id: UUID, user_id: UUID, db: DbSession) -> None:
     await ProjectMemberService.remove_member(db, project_id, user_id)
+
+# ── Project Invitations ──
+
+@router.post("/{project_id}/invitations", response_model=ProjectInvitationResponse, status_code=201,
+             dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
+async def create_invitation(
+    *, db: DbSession, project_id: UUID, invite_in: ProjectInvitationCreate,
+) -> Any:
+    return await ProjectInvitationService.create_invitation(db, project_id, invite_in)
+
+@router.get("/{project_id}/invitations", response_model=List[ProjectInvitationResponse],
+            dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
+async def list_invitations(
+    project_id: UUID, db: DbSession,
+) -> Any:
+    return await ProjectInvitationService.get_invitations(db, project_id)
+
+@router.post("/invitations/accept", response_model=ProjectMemberResponse)
+async def accept_invitation(
+    *, db: DbSession, accept_in: ProjectInvitationAccept,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    return await ProjectInvitationService.accept_invitation(db, accept_in.token, current_user.id)

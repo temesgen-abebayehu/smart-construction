@@ -38,7 +38,11 @@ class Project(Base):
     client_id = Column(SQL_UUID(as_uuid=True), ForeignKey("clients.id"))
     client = relationship("Client", back_populates="projects")
     
+    owner_id = Column(SQL_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    owner = relationship("User", foreign_keys=[owner_id])
+    
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
+    invitations = relationship("ProjectInvitation", back_populates="project", cascade="all, delete-orphan")
 
 class ProjectMember(Base):
     __tablename__ = "project_members"
@@ -49,3 +53,14 @@ class ProjectMember(Base):
     
     project = relationship("Project", back_populates="members")
     user = relationship("User")
+
+class ProjectInvitation(Base):
+    __tablename__ = "project_invitations"
+    id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    project_id = Column(SQL_UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
+    email = Column(String(255), nullable=False, index=True)
+    role = Column(String(50), nullable=False)
+    token = Column(String(255), unique=True, nullable=False, index=True)
+    status = Column(String(50), default="pending") # pending, accepted, expired
+    
+    project = relationship("Project", back_populates="invitations")
