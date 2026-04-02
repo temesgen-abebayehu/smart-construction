@@ -1,0 +1,183 @@
+'use client'
+
+import { useRouter } from 'next/navigation'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { 
+  Building2, 
+  Plus, 
+  MapPin, 
+  Calendar, 
+  TrendingUp,
+  Users,
+  ArrowRight,
+} from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
+import { 
+  getUserProjects, 
+  canCreateProject, 
+  roleLabels, 
+  statusColors,
+  type Project,
+  type ProjectRole,
+} from '@/lib/mock-data'
+
+interface ProjectSelectionModalProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionModalProps) {
+  const router = useRouter()
+  const { user } = useAuth()
+  
+  if (!user) return null
+  
+  const userProjects = getUserProjects(user.id)
+  const canCreate = canCreateProject(user.id)
+  
+  const handleProjectSelect = (project: Project & { role: ProjectRole }) => {
+    // Navigate to dashboard with project and role context
+    router.push(`/dashboard/${project.id}?role=${project.role}`)
+    onOpenChange(false)
+  }
+  
+  const handleCreateProject = () => {
+    router.push('/dashboard/new-project')
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] p-0 gap-0">
+        <DialogHeader className="px-6 py-4 border-b border-border">
+          <DialogTitle className="text-xl flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-primary" />
+            Select a Project
+          </DialogTitle>
+          <DialogDescription>
+            Choose a project to open in your dashboard, or create a new one.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="p-6">
+          {/* Create Project Button - Only for authorized users */}
+          {canCreate && (
+            <Button 
+              onClick={handleCreateProject}
+              className="w-full mb-6 h-auto py-4 justify-start gap-4"
+              variant="outline"
+            >
+              <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Plus className="h-6 w-6 text-primary" />
+              </div>
+              <div className="text-left">
+                <div className="font-semibold">Create New Project</div>
+                <div className="text-sm text-muted-foreground font-normal">
+                  Start a new construction project
+                </div>
+              </div>
+            </Button>
+          )}
+          
+          {/* Project List */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-medium text-sm text-muted-foreground">
+                Your Projects ({userProjects.length})
+              </h3>
+            </div>
+            
+            {userProjects.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Building2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>{"You're not assigned to any projects yet."}</p>
+                {canCreate && (
+                  <p className="text-sm mt-2">
+                    Create your first project to get started.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <ScrollArea className="h-100 pr-4 -mr-4">
+                <div className="space-y-3">
+                  {userProjects.map((project) => (
+                    <button
+                      key={project.id}
+                      onClick={() => handleProjectSelect(project)}
+                      className="w-full p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-all text-left group"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className="font-semibold text-foreground truncate">
+                              {project.name}
+                            </h4>
+                            <Badge 
+                              variant="secondary" 
+                              className={`${statusColors[project.status]} shrink-0`}
+                            >
+                              {project.status.replace('_', ' ')}
+                            </Badge>
+                          </div>
+                          
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
+                            <span className="flex items-center gap-1">
+                              <MapPin className="h-3.5 w-3.5" />
+                              {project.location}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Calendar className="h-3.5 w-3.5" />
+                              {new Date(project.planned_end_date).toLocaleDateString('en-US', {
+                                month: 'short',
+                                year: 'numeric'
+                              })}
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-primary" />
+                              <Badge variant="outline" className="font-normal">
+                                {roleLabels[project.role]}
+                              </Badge>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                              <TrendingUp className="h-4 w-4 text-accent" />
+                              <span className="text-sm font-medium">
+                                {project.overall_progress_pct.toFixed(1)}% complete
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <ArrowRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors shrink-0 mt-1" />
+                      </div>
+                      
+                      {/* Progress Bar */}
+                      <div className="mt-3 h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-primary rounded-full transition-all"
+                          style={{ width: `${project.overall_progress_pct}%` }}
+                        />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
