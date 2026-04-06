@@ -65,12 +65,12 @@ const getNavItems = (projectId: string, role: ProjectRole) => {
       icon: FileText,
       roles: ['project_manager'] as ProjectRole[],
     },
-    {
-      label: 'Budget',
-      href: `/dashboard/${projectId}/budget`,
-      icon: DollarSign,
-      roles: ['project_manager'] as ProjectRole[],
-    },
+    // {
+    //   label: 'Budget',
+    //   href: `/dashboard/${projectId}/budget`,
+    //   icon: DollarSign,
+    //   roles: ['project_manager'] as ProjectRole[],
+    // },
     {
       label: 'Settings',
       href: `/dashboard/${projectId}/settings`,
