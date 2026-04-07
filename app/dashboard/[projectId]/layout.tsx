@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { DashboardSidebar } from '@/components/dashboard/sidebar'
 import { DashboardHeader } from '@/components/dashboard/header'
-import { DashboardFooter } from '@/components/dashboard/footer'
+import { FooterBar } from '@/components/shared/footer-bar'
 import { mockProjects, getUserRoleInProject, type ProjectRole } from '@/lib/mock-data'
 
 interface DashboardLayoutProps {
@@ -74,12 +74,10 @@ export default function DashboardLayout({ children, params }: DashboardLayoutPro
           projectName={project.name}
           userRole={userRole}
         />
-        <main className="flex-1 overflow-auto">
-          <div className="p-6">
-            {children}
-          </div>
-          <DashboardFooter />
+        <main className="flex-1 overflow-auto p-6">
+          {children}
         </main>
+        <FooterBar />
       </div>
     </div>
   )

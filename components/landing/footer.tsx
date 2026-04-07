@@ -1,8 +1,9 @@
 import { Building2 } from 'lucide-react'
+import { FooterBar } from '@/components/shared/footer-bar'
 
-export function Footer() {
+export function FooterLarge() {
   return (
-    <footer className="bg-primary text-primary-foreground">
+    <div className="bg-primary text-primary-foreground">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid gap-8 md:grid-cols-4">
           <div className="space-y-4">
@@ -14,7 +15,7 @@ export function Footer() {
               Streamlining construction project management with smart tools and AI-powered insights.
             </p>
           </div>
-          
+
           <div>
             <h3 className="font-semibold mb-4">Product</h3>
             <ul className="space-y-2 text-sm text-primary-foreground/70">
@@ -24,7 +25,7 @@ export function Footer() {
               <li><a href="#" className="hover:text-primary-foreground transition-colors">API</a></li>
             </ul>
           </div>
-          
+
           <div>
             <h3 className="font-semibold mb-4">Company</h3>
             <ul className="space-y-2 text-sm text-primary-foreground/70">
@@ -34,7 +35,7 @@ export function Footer() {
               <li><a href="#" className="hover:text-primary-foreground transition-colors">Contact</a></li>
             </ul>
           </div>
-          
+
           <div>
             <h3 className="font-semibold mb-4">Legal</h3>
             <ul className="space-y-2 text-sm text-primary-foreground/70">
@@ -44,11 +45,16 @@ export function Footer() {
             </ul>
           </div>
         </div>
-        
-        <div className="mt-12 pt-8 border-t border-primary-foreground/20 text-center text-sm text-primary-foreground/60">
-          <p>&copy; {new Date().getFullYear()} ConstructPro. All rights reserved.</p>
-        </div>
       </div>
+    </div>
+  )
+}
+
+export function Footer() {
+  return (
+    <footer>
+      <FooterLarge />
+      <FooterBar />
     </footer>
   )
 }

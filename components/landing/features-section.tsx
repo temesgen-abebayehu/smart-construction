@@ -24,8 +24,8 @@ const features = [
   },
   {
     icon: Clock,
-    title: 'Weather Integration',
-    description: 'Automatic weather data capture for each shift to track environmental impacts on productivity.',
+    title: 'Weather Alerts',
+    description: 'Real-time weather alerts to help you plan your work accordingly.',
   },
   {
     icon: Zap,
