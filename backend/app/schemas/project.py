@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, ConfigDict
 from uuid import UUID
 from datetime import datetime
+from typing import Optional
 from app.models.commons import ProjectStatus, ProjectRole
 
 # Client Schemas
@@ -67,8 +68,11 @@ class ProjectMemberResponse(ProjectMemberBase):
 class ProjectBase(BaseModel):
     name: str
     description: str | None = None
+    location: str | None = None
     status: ProjectStatus = ProjectStatus.PLANNING
     total_budget: float
+    planned_start_date: datetime | None = None
+    planned_end_date: datetime | None = None
 
 class ProjectCreate(ProjectBase):
     client_id: UUID | None = None
@@ -76,15 +80,18 @@ class ProjectCreate(ProjectBase):
 class ProjectUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
+    location: str | None = None
     status: ProjectStatus | None = None
     total_budget: float | None = None
     progress_percentage: float | None = None
     budget_spent: float | None = None
     client_id: UUID | None = None
+    planned_start_date: datetime | None = None
+    planned_end_date: datetime | None = None
 
 class ProjectResponse(ProjectBase):
     id: UUID
-    owner_id: UUID
+    owner_id: UUID | None = None
     progress_percentage: float
     budget_spent: float
     client_id: UUID | None = None

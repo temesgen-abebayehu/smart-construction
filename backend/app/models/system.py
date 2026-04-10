@@ -4,13 +4,14 @@ from sqlalchemy.dialects.postgresql import UUID as SQL_UUID
 
 from app.models.user import Base, utcnow
 
-class Payment(Base):
-    __tablename__ = "payments"
+class BudgetItem(Base):
+    __tablename__ = "budget_items"
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     project_id = Column(SQL_UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     amount = Column(Float, nullable=False)
     description = Column(Text)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"

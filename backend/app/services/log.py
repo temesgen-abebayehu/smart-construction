@@ -38,12 +38,20 @@ WORKFLOW_TRANSITIONS = {
 
 class DailyLogService:
     @staticmethod
-    async def create_log(db: AsyncSession, project_id: UUID, task_id: UUID, user_id: UUID, notes: str = None) -> DailyLog:
+    async def create_log(
+        db: AsyncSession,
+        project_id: UUID,
+        user_id: UUID,
+        notes: str = None,
+        weather: str = None,
+        task_id: UUID = None,
+    ) -> DailyLog:
         log = DailyLog(
             project_id=project_id,
-            task_id=task_id,
+            task_id=task_id,  # optional
             created_by_id=user_id,
             notes=notes,
+            weather=weather,
         )
         db.add(log)
         await db.commit()

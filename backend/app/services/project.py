@@ -23,8 +23,11 @@ class ProjectService:
         db_obj = Project(
             name=project_in.name,
             description=project_in.description,
+            location=project_in.location,
             status=project_in.status.value if project_in.status else "planning",
             total_budget=project_in.total_budget,
+            planned_start_date=project_in.planned_start_date,
+            planned_end_date=project_in.planned_end_date,
             client_id=project_in.client_id,
             owner_id=creator_id,
         )

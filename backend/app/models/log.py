@@ -10,12 +10,13 @@ class DailyLog(Base):
     __tablename__ = "daily_logs"
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     project_id = Column(SQL_UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
-    task_id = Column(SQL_UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=False)
+    task_id = Column(SQL_UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=True)  # optional—set when created via /tasks/{task_id}/daily-logs
     created_by_id = Column(SQL_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     date = Column(DateTime(timezone=True), default=utcnow)
     status = Column(String(50), default=LogStatus.DRAFT.value)
     notes = Column(Text)
+    weather = Column(String(100))
     
     # Relationships to isolated sub-entities
     shifts = relationship("Shift", back_populates="log", cascade="all, delete-orphan")

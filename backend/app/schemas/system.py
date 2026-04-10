@@ -2,12 +2,12 @@ from pydantic import BaseModel, ConfigDict
 from uuid import UUID
 from datetime import datetime
 
-# Payment
-class PaymentCreate(BaseModel):
+# Budget Item
+class BudgetItemCreate(BaseModel):
     amount: float
     description: str | None = None
 
-class PaymentResponse(PaymentCreate):
+class BudgetItemResponse(BudgetItemCreate):
     id: UUID
     project_id: UUID
     created_at: datetime

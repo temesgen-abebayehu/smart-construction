@@ -71,18 +71,20 @@ class EquipmentIdleResponse(EquipmentIdleBase):
 class DailyLogBase(BaseModel):
     date: datetime | None = None
     notes: str | None = None
+    weather: str | None = None  # e.g. 'sunny', 'rainy'
 
 class DailyLogCreate(DailyLogBase):
-    task_id: UUID
+    pass  # project_id and task_id come from the URL path, not the body
 
 class DailyLogUpdate(BaseModel):
     notes: str | None = None
+    weather: str | None = None
     status: LogStatus | None = None
 
 class DailyLogResponse(DailyLogBase):
     id: UUID
     project_id: UUID
-    task_id: UUID
+    task_id: UUID | None = None  # None for project-level logs
     created_by_id: UUID
     status: LogStatus
     model_config = ConfigDict(from_attributes=True)
