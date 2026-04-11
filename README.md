@@ -1,35 +1,70 @@
-# Construction-Managment-System-7d
+# Construction Management System
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [v0](https://v0.app).
+A web application for coordinating construction projects: dashboards, tasks, daily logs, team visibility, and notifications. The interface is built with **Next.js** and talks to a separate **REST API** (JWT authentication, OpenAPI-documented).
 
-## Built with v0
+## Features
 
-This repository is linked to a [v0](https://v0.app) project. You can continue developing by visiting the link below -- start new chats to make changes, and v0 will push commits directly to this repo. Every merge to `main` will automatically deploy.
+- **Authentication** — Registration, login, session handling with access and refresh tokens  
+- **Projects** — Project selection, creation, and role-aware dashboard navigation  
+- **Operations** — Tasks, daily logs, reports, notifications, and profile-oriented settings  
+- **Responsive UI** — Built with React, Tailwind CSS, and accessible UI primitives (Radix)
 
-[Continue working on v0 →](https://v0.app/chat/projects/prj_9aXuOyQQ5NZdy2UcRyFLdgnQV6LU)
+## Tech stack
 
-## Getting Started
+| Layer | Choice |
+|--------|--------|
+| Framework | [Next.js](https://nextjs.org) (App Router) |
+| Language | TypeScript |
+| Styling | Tailwind CSS |
+| Components | Radix UI, Lucide icons |
+| API client | `fetch`-based module with typed responses |
 
-First, run the development server:
+## Prerequisites
+
+- **Node.js** 18+ (20+ recommended)  
+- **npm**, **pnpm**, or **yarn**  
+- A running **backend** that exposes the API (see your team’s deployment or local FastAPI instance)
+
+## Configuration
+
+Create a file named `.env.local` in the project root:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
+NEXT_PUBLIC_API_BASE_URL=https://your-api-host.example.com/api/v1
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Use the base URL that points at the **`/api/v1`** prefix of your backend. Do not use the Swagger UI path (`/docs`) as part of this value.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Getting started
 
-## Learn More
+Install dependencies and start the development server:
 
-To learn more, take a look at the following resources:
+```bash
+npm install
+npm run dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-- [v0 Documentation](https://v0.app/docs) - learn about v0 and how to use it.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-<a href="https://v0.app/chat/api/kiro/clone/tewmih/Construction-Managment-System-7d" alt="Open in Kiro"><img src="https://pdgvvgmkdvyeydso.public.blob.vercel-storage.com/open%20in%20kiro.svg?sanitize=true" /></a>
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start the development server with hot reload |
+| `npm run build` | Create an optimized production build |
+| `npm run start` | Run the production server (after `build`) |
+| `npm run lint` | Run ESLint on the codebase |
+
+## Project layout
+
+- `app/` — Routes, layouts, and pages (App Router)  
+- `components/` — Shared and feature UI components  
+- `lib/` — API client, auth context, types, and domain helpers  
+
+## API integration
+
+The frontend expects a backend that implements the documented contract (e.g. auth, users, projects, tasks, logs). Adjust `NEXT_PUBLIC_API_BASE_URL` per environment. For local development, point it at your API origin; ensure CORS is configured on the server if the API runs on a different host or port.
+
+## License
+
+This project is maintained for educational and demonstration purposes. Add a license file if you intend to distribute or open-source the work.
