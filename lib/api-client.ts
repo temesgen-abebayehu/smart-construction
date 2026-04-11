@@ -1,9 +1,19 @@
 import { clearTokens, getAccessToken, getRefreshToken, setTokens } from './auth-storage'
 import type { LoginResponse, RefreshResponse, UserMe } from './api-types'
 
+function normalizeApiBaseUrl(raw: string): string {
+  let base = raw.trim().replace(/\/$/, '')
+  // Swagger UI lives at /docs; API paths are /api/v1/... — avoid /docs/api/v1 in env.
+  base = base.replace(/\/docs\/api\/v1$/i, '/api/v1')
+  return base
+}
+
+const BASE_URL = normalizeApiBaseUrl(
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1',
+)
+
 export function getApiBaseUrl(): string {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1'
-  return base.replace(/\/$/, '')
+  return BASE_URL
 }
 
 type FastApiErrorBody = {
@@ -111,9 +121,12 @@ export async function apiRequest<T>(path: string, init: ApiRequestOptions = {}):
 }
 
 export async function loginRequest(email: string, password: string): Promise<LoginResponse> {
+  /** OpenAPI: OAuth2-style form body; `username` holds the user's email. */
+  const body = new URLSearchParams({ username: email, password })
   return apiRequest<LoginResponse>('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
     auth: false,
   })
 }
@@ -121,12 +134,26 @@ export async function loginRequest(email: string, password: string): Promise<Log
 export async function registerRequest(body: {
   full_name: string
   email: string
+  /** API field; `phone` is accepted as an alias from older forms */
+  phone_number?: string
   phone?: string
   password: string
+  is_admin?: boolean
+  is_active?: boolean
 }) {
+  const { phone_number, phone, password, full_name, email, is_admin, is_active } = body
+  const num = phone_number ?? phone
+  const payload = {
+    full_name,
+    email,
+    password,
+    ...(num !== undefined && num !== '' ? { phone_number: num } : {}),
+    is_admin: is_admin ?? false,
+    is_active: is_active ?? true,
+  }
   return apiRequest('/auth/register', {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
     auth: false,
   })
 }

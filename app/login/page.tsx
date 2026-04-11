@@ -140,18 +140,6 @@ export default function LoginPage() {
                 </Link>
               </p>
             </form>
-            
-            {/* Demo credentials hint */}
-            <div className="mt-6 p-4 rounded-lg bg-muted">
-              <p className="text-sm font-medium text-foreground mb-2">Demo Accounts:</p>
-              <ul className="text-xs text-muted-foreground space-y-1">
-                <li><strong>abebe@construction.com</strong> - Project Manager (Admin)</li>
-                <li><strong>sara@construction.com</strong> - PM / Office Engineer</li>
-                <li><strong>dawit@construction.com</strong> - Consultant</li>
-                <li><strong>meron@construction.com</strong> - Site Engineer</li>
-              </ul>
-              <p className="text-xs text-muted-foreground mt-2">Use any password to login</p>
-            </div>
           </CardContent>
         </Card>
       </div>
