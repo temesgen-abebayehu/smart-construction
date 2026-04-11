@@ -1,7 +1,6 @@
 'use client'
 
-import { use } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -22,14 +21,11 @@ import {
   Bot,
   CheckCircle2,
   Clock3,
+  Loader2,
 } from 'lucide-react'
-import {
-  mockDailyLogs,
-  mockProjects,
-  mockTasks,
-  mockUsers,
-  type ProjectRole,
-} from '@/lib/mock-data'
+import { useProjectRole } from '@/lib/project-role-context'
+import { getPrediction, getProject, listProjectLogs, listProjectTasks } from '@/lib/api'
+import type { LogListItem, PredictionResponse, ProjectDetail, TaskListItem } from '@/lib/api-types'
 
 interface DashboardPageProps {
   params: Promise<{ projectId: string }>
@@ -39,7 +35,7 @@ function formatMillions(amount: number) {
   return `ETB ${(amount / 1_000_000).toFixed(1)}M`
 }
 
-function getIssueTag(log: { remarks?: string; status: string }) {
+function getIssueTag(log: { remarks?: string | null; status: string }) {
   const remark = (log.remarks || '').toLowerCase()
 
   if (remark.includes('weather') || remark.includes('rain')) {
@@ -59,36 +55,96 @@ function getIssueTag(log: { remarks?: string; status: string }) {
 
 export default function DashboardPage({ params }: DashboardPageProps) {
   const { projectId } = use(params)
-  const searchParams = useSearchParams()
-  const userRole = (searchParams.get('role') as ProjectRole) || 'site_engineer'
+  const userRole = useProjectRole()
 
-  const project = mockProjects.find((p) => p.id === projectId)
-  const projectTasks = mockTasks.filter((t) => t.project_id === projectId)
-  const projectLogs = mockDailyLogs.filter((l) => l.project_id === projectId)
+  const [project, setProject] = useState<ProjectDetail | null>(null)
+  const [tasks, setTasks] = useState<TaskListItem[]>([])
+  const [logs, setLogs] = useState<LogListItem[]>([])
+  const [prediction, setPrediction] = useState<PredictionResponse | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  if (!project) return null
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const [proj, taskRes, logRes, pred] = await Promise.all([
+          getProject(projectId),
+          listProjectTasks(projectId, { limit: 100 }),
+          listProjectLogs(projectId, { limit: 100 }),
+          getPrediction(projectId).catch(() => null),
+        ])
+        if (cancelled) return
+        setProject(proj)
+        setTasks(taskRes.data)
+        setLogs(logRes.data)
+        setPrediction(pred)
+      } catch {
+        if (!cancelled) {
+          setProject(null)
+          setTasks([])
+          setLogs([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  if (loading || !project) {
+    return (
+      <div className="flex justify-center py-24 text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
+  }
 
   const isProjectManager = userRole === 'project_manager'
 
-  const activeCount = projectTasks.filter((task) => task.status === 'in_progress').length
-  const atRiskCount = projectTasks.filter((task) => task.status === 'pending_dependency').length
-  const delayedCount = projectTasks.filter((task) => task.status === 'delayed').length
+  const activeCount =
+    project.tasks_summary?.in_progress ??
+    tasks.filter((task) => task.status === 'in_progress').length
+  const atRiskCount = tasks.filter((task) => task.status === 'pending_dependency').length
+  const delayedCount =
+    project.tasks_summary?.delayed ??
+    tasks.filter((task) => task.status === 'delayed').length
 
-  const totalBudget = projectTasks.reduce((sum, task) => sum + task.allocated_budget, 0)
-  const totalSpent = projectTasks.reduce((sum, task) => sum + task.spent_budget, 0)
+  const totalBudget =
+    project.budget?.contract_value ??
+    tasks.reduce((sum, task) => sum + task.allocated_budget, 0)
+  const totalSpent =
+    project.budget?.total_spent ?? tasks.reduce((sum, task) => sum + task.spent_budget, 0)
   const remaining = Math.max(totalBudget - totalSpent, 0)
   const spentPct = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0
 
-  const pendingApprovals = projectLogs.filter((log) =>
-    ['submitted', 'under_review', 'consultant_approved'].includes(log.status),
-  ).length
+  const pendingApprovals =
+    project.pending_log_approvals ??
+    logs.filter((log) =>
+      ['submitted', 'under_review', 'consultant_approved'].includes(log.status),
+    ).length
 
-  const aiRiskScore = Math.min(95, 45 + delayedCount * 12 + atRiskCount * 9 + pendingApprovals * 6)
-  const aiMessage = delayedCount > 0 || atRiskCount > 0
-    ? 'Supply chain delay expected +4 days'
-    : 'Current schedule stability is healthy'
+  const riskLevelScore = prediction
+    ? prediction.risk_level === 'critical'
+      ? 90
+      : prediction.risk_level === 'high'
+        ? 75
+        : prediction.risk_level === 'medium'
+          ? 55
+          : 35
+    : Math.min(95, 45 + delayedCount * 12 + atRiskCount * 9 + pendingApprovals * 6)
 
-  const recentLogs = [...projectLogs].sort((a, b) => +new Date(b.log_date) - +new Date(a.log_date)).slice(0, 5)
+  const aiMessage =
+    prediction?.reason ||
+    (delayedCount > 0 || atRiskCount > 0
+      ? 'Supply chain delay expected +4 days'
+      : 'Current schedule stability is healthy')
+
+  const recentLogs = [...logs]
+    .sort((a, b) => +new Date(b.log_date) - +new Date(a.log_date))
+    .slice(0, 5)
 
   return (
     <div className="space-y-6">
@@ -117,7 +173,9 @@ export default function DashboardPage({ params }: DashboardPageProps) {
             <div>
               <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
                 <span>Overall Progress</span>
-                <span className="font-medium text-foreground">{project.overall_progress_pct.toFixed(0)}%</span>
+                <span className="font-medium text-foreground">
+                  {project.overall_progress_pct.toFixed(0)}%
+                </span>
               </div>
               <Progress value={project.overall_progress_pct} className="h-2" />
             </div>
@@ -164,12 +222,16 @@ export default function DashboardPage({ params }: DashboardPageProps) {
               <CardTitle className="text-base">AI Predictor</CardTitle>
               <Bot className="h-4 w-4 text-blue-100" />
             </div>
-            <CardDescription className="text-blue-100">System Live: ML Prediction Engine Active</CardDescription>
+            <CardDescription className="text-blue-100">
+              System Live: ML Prediction Engine Active
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div>
-              <p className="text-xs uppercase tracking-wide text-blue-100">Volatility Predicted</p>
-              <p className="text-3xl font-semibold">Score: {aiRiskScore}</p>
+              <p className="text-xs uppercase tracking-wide text-blue-100">Risk signal</p>
+              <p className="text-3xl font-semibold capitalize">
+                {prediction?.risk_level?.replace('_', ' ') || `Score: ${riskLevelScore}`}
+              </p>
             </div>
 
             <div className="rounded-md border border-white/20 bg-white/10 p-3 text-sm">
@@ -188,7 +250,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
             <CardTitle className="text-base">Recent Daily Logs</CardTitle>
             <CardDescription>Latest submission activity from site teams</CardDescription>
           </div>
-          <Link href={`/dashboard/${projectId}/logs?role=${userRole}`}>
+          <Link href={`/dashboard/${projectId}/logs`}>
             <Button variant="ghost" size="sm" className="gap-1">
               View All Logs <ArrowRight className="h-4 w-4" />
             </Button>
@@ -210,21 +272,22 @@ export default function DashboardPage({ params }: DashboardPageProps) {
               </TableHeader>
               <TableBody>
                 {recentLogs.map((log) => {
-                  const submitter = mockUsers.find((u) => u.id === log.submitted_by)
-                  const task = mockTasks.find((t) => t.id === log.task_id)
-                  const issue = getIssueTag(log)
+                  const issue = getIssueTag({
+                    status: log.status,
+                    remarks: log.remarks,
+                  })
 
                   return (
                     <TableRow key={log.id}>
                       <TableCell>
-                        <p className="font-medium">{task?.title || project.name}</p>
+                        <p className="font-medium">{log.task?.title || project.name}</p>
                         <p className="text-xs text-muted-foreground">{project.location}</p>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Avatar className="h-6 w-6">
                             <AvatarFallback className="text-[10px]">
-                              {(submitter?.full_name || 'U')
+                              {(log.submitted_by?.full_name || 'U')
                                 .split(' ')
                                 .map((n) => n[0])
                                 .join('')
@@ -232,7 +295,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
                                 .toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
-                          <span className="text-sm">{submitter?.full_name || 'Unknown User'}</span>
+                          <span className="text-sm">{log.submitted_by?.full_name || 'Unknown User'}</span>
                         </div>
                       </TableCell>
                       <TableCell>{new Date(log.log_date).toLocaleDateString()}</TableCell>
@@ -240,7 +303,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
                         <Badge className={issue.className}>{issue.label}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Link href={`/dashboard/${projectId}/logs?role=${userRole}`}>
+                        <Link href={`/dashboard/${projectId}/logs/${log.id}`}>
                           <Button size="sm" className="h-8 px-4">
                             View
                           </Button>
@@ -268,7 +331,9 @@ export default function DashboardPage({ params }: DashboardPageProps) {
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="flex items-center gap-3 p-4 text-amber-800">
             <Clock3 className="h-5 w-5" />
-            <p className="text-sm font-medium">{pendingApprovals} log(s) are waiting in the review/approval pipeline.</p>
+            <p className="text-sm font-medium">
+              {pendingApprovals} log(s) are waiting in the review/approval pipeline.
+            </p>
           </CardContent>
         </Card>
       )}

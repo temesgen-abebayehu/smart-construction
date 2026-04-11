@@ -1,14 +1,14 @@
 'use client'
 
 import type { ComponentType } from 'react'
-import { use } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { use, useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
-import { mockDailyLogs, mockProjects, mockTasks } from '@/lib/mock-data'
-import { AlertTriangle, Bot, CalendarDays, DollarSign, LayoutDashboard, ListTodo, PieChart, TrendingUp } from 'lucide-react'
+import { getPrediction, getProject, listProjectLogs, listProjectTasks } from '@/lib/api'
+import type { LogListItem, PredictionResponse, ProjectDetail, TaskListItem } from '@/lib/api-types'
+import { AlertTriangle, Bot, CalendarDays, DollarSign, LayoutDashboard, ListTodo, PieChart, TrendingUp, Loader2 } from 'lucide-react'
 
 interface ReportsPageProps {
   params: Promise<{ projectId: string }>
@@ -51,27 +51,72 @@ function MetricCard({
 
 export default function ReportsPage({ params }: ReportsPageProps) {
   const { projectId } = use(params)
-  useSearchParams()
 
-  const project = mockProjects.find((item) => item.id === projectId)
-  const projectTasks = mockTasks.filter((task) => task.project_id === projectId)
-  const projectLogs = mockDailyLogs.filter((log) => log.project_id === projectId)
+  const [project, setProject] = useState<ProjectDetail | null>(null)
+  const [projectTasks, setProjectTasks] = useState<TaskListItem[]>([])
+  const [projectLogs, setProjectLogs] = useState<LogListItem[]>([])
+  const [prediction, setPrediction] = useState<PredictionResponse | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  if (!project) return null
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const [proj, tasksRes, logsRes, pred] = await Promise.all([
+          getProject(projectId),
+          listProjectTasks(projectId, { limit: 200 }),
+          listProjectLogs(projectId, { limit: 500 }),
+          getPrediction(projectId).catch(() => null),
+        ])
+        if (cancelled) return
+        setProject(proj)
+        setProjectTasks(tasksRes.data)
+        setProjectLogs(logsRes.data)
+        setPrediction(pred)
+      } catch {
+        if (!cancelled) {
+          setProject(null)
+          setProjectTasks([])
+          setProjectLogs([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  if (loading || !project) {
+    return (
+      <div className="flex justify-center py-24 text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
+  }
 
   const completedTasks = projectTasks.filter((task) => task.status === 'completed').length
   const inProgressTasks = projectTasks.filter((task) => task.status === 'in_progress').length
   const delayedTasks = projectTasks.filter((task) => task.status === 'delayed').length
-  const pendingTasks = projectTasks.filter((task) => task.status === 'not_started' || task.status === 'pending_dependency').length
+  const pendingTasks = projectTasks.filter(
+    (task) => task.status === 'not_started' || task.status === 'pending_dependency',
+  ).length
 
-  const totalBudget = projectTasks.reduce((sum, task) => sum + task.allocated_budget, 0)
-  const totalSpent = projectTasks.reduce((sum, task) => sum + task.spent_budget, 0)
+  const totalBudget =
+    project.budget?.contract_value ??
+    projectTasks.reduce((sum, task) => sum + task.allocated_budget, 0)
+  const totalSpent =
+    project.budget?.total_spent ??
+    projectTasks.reduce((sum, task) => sum + task.spent_budget, 0)
   const budgetRemaining = Math.max(totalBudget - totalSpent, 0)
-  const budgetUsedPct = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0
 
   const reviewedLogs = projectLogs.filter((log) => log.status === 'approved').length
   const rejectedLogs = projectLogs.filter((log) => log.status === 'rejected').length
-  const pendingLogs = projectLogs.filter((log) => ['submitted', 'under_review', 'consultant_approved'].includes(log.status)).length
+  const pendingLogs = projectLogs.filter((log) =>
+    ['submitted', 'under_review', 'consultant_approved'].includes(log.status),
+  ).length
   const dailyLogSummary = {
     submitted: projectLogs.length,
     approved: reviewedLogs,
@@ -79,7 +124,16 @@ export default function ReportsPage({ params }: ReportsPageProps) {
     rejected: rejectedLogs,
   }
 
-  const riskScore = Math.min(95, 35 + delayedTasks * 14 + pendingLogs * 7)
+  const riskScore = prediction
+    ? prediction.budget_overrun_pct != null
+      ? Math.min(95, prediction.budget_overrun_pct * 5 + (prediction.estimated_delay_days || 0) * 2)
+      : prediction.risk_level === 'high'
+        ? 78
+        : prediction.risk_level === 'medium'
+          ? 55
+          : 32
+    : Math.min(95, 35 + delayedTasks * 14 + pendingLogs * 7)
+
   const reportDateTime = new Date().toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -185,7 +239,7 @@ export default function ReportsPage({ params }: ReportsPageProps) {
             <CardDescription>Planned vs actual schedule alignment</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-              <div className="h-56 rounded-xl border border-border bg-linear-to-b from-slate-50 to-white p-4">
+            <div className="h-56 rounded-xl border border-border bg-linear-to-b from-slate-50 to-white p-4">
               <div className="flex h-full flex-col justify-between">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>PLANNED</span>
@@ -245,8 +299,17 @@ export default function ReportsPage({ params }: ReportsPageProps) {
             <p className="text-4xl font-semibold">{riskScore.toFixed(1)}%</p>
             <p className="text-sm text-blue-100">AI-based risk prediction</p>
             <div className="space-y-2 rounded-lg border border-white/20 bg-white/10 p-3 text-sm leading-6 text-blue-50">
-              <p><strong className="text-white">Insight:</strong> High risk due to delayed inspections.</p>
-              <p><strong className="text-white">Insight:</strong> Material shortage impacting timeline.</p>
+              {prediction?.reason ? (
+                <p><strong className="text-white">Insight:</strong> {prediction.reason}</p>
+              ) : (
+                <>
+                  <p><strong className="text-white">Insight:</strong> High risk due to delayed inspections.</p>
+                  <p><strong className="text-white">Insight:</strong> Material shortage impacting timeline.</p>
+                </>
+              )}
+              {prediction?.recommendation && (
+                <p><strong className="text-white">Recommendation:</strong> {prediction.recommendation}</p>
+              )}
             </div>
           </CardContent>
         </Card>

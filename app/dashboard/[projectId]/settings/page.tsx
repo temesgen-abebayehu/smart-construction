@@ -1,7 +1,6 @@
 'use client'
 
-import { use } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { use, useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,8 +9,9 @@ import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/lib/auth-context'
-import { mockProjects, type ProjectRole, roleLabels } from '@/lib/mock-data'
-import { BellRing, BrainCircuit, KeyRound, Palette, ShieldCheck, SquareTerminal, UserCog } from 'lucide-react'
+import { getProject } from '@/lib/api'
+import type { ProjectDetail } from '@/lib/api-types'
+import { BellRing, BrainCircuit, KeyRound, Palette, ShieldCheck, SquareTerminal, UserCog, Loader2 } from 'lucide-react'
 
 interface SettingsPageProps {
   params: Promise<{ projectId: string }>
@@ -33,10 +33,35 @@ function SectionTitle({ icon: Icon, title, description }: { icon: typeof UserCog
 
 export default function SettingsPage({ params }: SettingsPageProps) {
   const { projectId } = use(params)
-  const searchParams = useSearchParams()
-  const role = (searchParams.get('role') as ProjectRole) || 'site_engineer'
   const { user } = useAuth()
-  const project = mockProjects.find((item) => item.id === projectId)
+  const [project, setProject] = useState<ProjectDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const p = await getProject(projectId)
+        if (!cancelled) setProject(p)
+      } catch {
+        if (!cancelled) setProject(null)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-24 text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
+  }
 
   if (!project) return null
 
@@ -44,7 +69,9 @@ export default function SettingsPage({ params }: SettingsPageProps) {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">Manage your architectural workspace preferences and security configurations.</p>
+        <p className="text-sm text-muted-foreground">
+          Manage your architectural workspace preferences and security configurations. Project: {project.name}
+        </p>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
@@ -56,10 +83,10 @@ export default function SettingsPage({ params }: SettingsPageProps) {
             <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
               <div className="space-y-2">
                 <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Email Address</Label>
-                <Input defaultValue={user?.email || 'm.thorne@aegis-construct.com'} />
+                <Input defaultValue={user?.email || ''} readOnly />
               </div>
               <div className="flex items-end">
-                <Button variant="secondary">Change</Button>
+                <Button variant="secondary" type="button">Change</Button>
               </div>
             </div>
 
@@ -69,11 +96,11 @@ export default function SettingsPage({ params }: SettingsPageProps) {
                   <KeyRound className="h-4 w-4 text-muted-foreground" />
                   Password Management
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">Last changed 42 days ago</p>
+                <p className="mt-1 text-sm text-muted-foreground">Update via profile when connected to the API.</p>
                 <p className="text-xs text-muted-foreground">Secure your account with a strong password.</p>
               </div>
               <div className="flex items-end">
-                <Button className="bg-blue-700 hover:bg-blue-800">Update</Button>
+                <Button className="bg-blue-700 hover:bg-blue-800" type="button">Update</Button>
               </div>
             </div>
           </CardContent>
@@ -85,11 +112,11 @@ export default function SettingsPage({ params }: SettingsPageProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-3 rounded-2xl border bg-slate-50 p-3">
-              <Button variant="default" className="h-12 justify-start gap-2">
+              <Button variant="default" className="h-12 justify-start gap-2" type="button">
                 <Palette className="h-4 w-4" />
                 Light
               </Button>
-              <Button variant="secondary" className="h-12 justify-start gap-2">
+              <Button variant="secondary" className="h-12 justify-start gap-2" type="button">
                 <SquareTerminal className="h-4 w-4" />
                 Dark
               </Button>
@@ -174,15 +201,15 @@ export default function SettingsPage({ params }: SettingsPageProps) {
               <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Online</Badge>
             </div>
             <div className="flex justify-end">
-              <Button variant="outline">Manage API Keys</Button>
+              <Button variant="outline" type="button">Manage API Keys</Button>
             </div>
           </CardContent>
         </Card>
       </div>
 
       <div className="flex justify-end gap-3">
-        <Button variant="secondary">Reset Defaults</Button>
-        <Button>Save Settings</Button>
+        <Button variant="secondary" type="button">Reset Defaults</Button>
+        <Button type="button">Save Settings</Button>
       </div>
     </div>
   )

@@ -1,7 +1,6 @@
 'use client'
 
-import { use } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { use, useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -20,13 +19,12 @@ import {
   UserCog,
   UserMinus,
   Shield,
+  Loader2,
 } from 'lucide-react'
-import {
-  mockProjectMembers,
-  mockUsers,
-  roleLabels,
-  type ProjectRole,
-} from '@/lib/mock-data'
+import { listProjectMembers } from '@/lib/api'
+import type { ProjectMemberRow } from '@/lib/api-types'
+import { roleLabels, type ProjectRole } from '@/lib/domain'
+import { useProjectRole } from '@/lib/project-role-context'
 
 interface TeamPageProps {
   params: Promise<{ projectId: string }>
@@ -41,28 +39,62 @@ const roleColors: Record<ProjectRole, string> = {
 
 export default function TeamPage({ params }: TeamPageProps) {
   const { projectId } = use(params)
-  const searchParams = useSearchParams()
-  const userRole = (searchParams.get('role') as ProjectRole) || 'site_engineer'
-  
-  const projectMembers = mockProjectMembers.filter(pm => pm.project_id === projectId)
-  
-  // Group members by role
-  const membersByRole = projectMembers.reduce((acc, member) => {
-    const user = mockUsers.find(u => u.id === member.user_id)
-    if (user) {
-      if (!acc[member.role]) {
-        acc[member.role] = []
+  const userRole = useProjectRole()
+
+  const [rows, setRows] = useState<ProjectMemberRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const res = await listProjectMembers(projectId)
+        if (!cancelled) setRows(res.data)
+      } catch {
+        if (!cancelled) setRows([])
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      acc[member.role].push({ ...member, user })
+    })()
+    return () => {
+      cancelled = true
     }
-    return acc
-  }, {} as Record<ProjectRole, Array<typeof projectMembers[0] & { user: typeof mockUsers[0] }>>)
+  }, [projectId])
+
+  const projectMembers = rows.map((r, i) => ({
+    id: r.id || `${r.user.id}-${i}`,
+    role: r.role,
+    user: {
+      id: r.user.id,
+      full_name: r.user.full_name,
+      email: r.user.email,
+      phone: r.user.phone,
+      profile_photo_url: r.user.profile_photo_url,
+    },
+  }))
+
+  const membersByRole = projectMembers.reduce(
+    (acc, member) => {
+      if (!acc[member.role]) acc[member.role] = []
+      acc[member.role].push(member)
+      return acc
+    },
+    {} as Record<ProjectRole, typeof projectMembers>,
+  )
 
   const canManageTeam = userRole === 'project_manager'
 
+  if (loading) {
+    return (
+      <div className="flex justify-center py-24 text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Team Members</h1>
@@ -70,7 +102,7 @@ export default function TeamPage({ params }: TeamPageProps) {
             Manage project team and roles
           </p>
         </div>
-        
+
         {canManageTeam && (
           <Button className="gap-2">
             <Plus className="h-4 w-4" />
@@ -79,7 +111,6 @@ export default function TeamPage({ params }: TeamPageProps) {
         )}
       </div>
 
-      {/* Team Stats */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="p-4">
@@ -94,7 +125,7 @@ export default function TeamPage({ params }: TeamPageProps) {
             </div>
           </CardContent>
         </Card>
-        
+
         {Object.entries(membersByRole).map(([role, members]) => (
           <Card key={role}>
             <CardContent className="p-4">
@@ -104,7 +135,7 @@ export default function TeamPage({ params }: TeamPageProps) {
                   <p className="text-2xl font-bold">{members.length}</p>
                 </div>
                 <Badge variant="outline" className={roleColors[role as ProjectRole]}>
-                  {role.split('_').map(w => w[0].toUpperCase()).join('')}
+                  {role.split('_').map((w) => w[0].toUpperCase()).join('')}
                 </Badge>
               </div>
             </CardContent>
@@ -112,12 +143,11 @@ export default function TeamPage({ params }: TeamPageProps) {
         ))}
       </div>
 
-      {/* Team Members by Role */}
       <div className="space-y-6">
         {(['project_manager', 'office_engineer', 'consultant', 'site_engineer'] as ProjectRole[]).map((role) => {
           const members = membersByRole[role] || []
           if (members.length === 0) return null
-          
+
           return (
             <Card key={role}>
               <CardHeader>
@@ -141,27 +171,29 @@ export default function TeamPage({ params }: TeamPageProps) {
                   {members.map((member) => {
                     const initials = member.user.full_name
                       .split(' ')
-                      .map(n => n[0])
+                      .map((n) => n[0])
                       .join('')
                       .toUpperCase()
-                    
+
                     return (
                       <div
                         key={member.id}
                         className="flex items-start gap-4 p-4 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors"
                       >
                         <Avatar className="h-12 w-12">
-                          <AvatarImage src={member.user.profile_photo_url} />
+                          <AvatarImage src={member.user.profile_photo_url || undefined} />
                           <AvatarFallback>{initials}</AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <p className="font-semibold">{member.user.full_name}</p>
-                              <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
-                                <Mail className="h-3.5 w-3.5" />
-                                <span className="truncate">{member.user.email}</span>
-                              </div>
+                              {member.user.email && (
+                                <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
+                                  <Mail className="h-3.5 w-3.5" />
+                                  <span className="truncate">{member.user.email}</span>
+                                </div>
+                              )}
                               {member.user.phone && (
                                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                                   <Phone className="h-3.5 w-3.5" />
@@ -169,7 +201,7 @@ export default function TeamPage({ params }: TeamPageProps) {
                                 </div>
                               )}
                             </div>
-                            
+
                             {canManageTeam && (
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>

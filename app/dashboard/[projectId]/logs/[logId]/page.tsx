@@ -1,14 +1,15 @@
 'use client'
 
-import { use } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
-import { mockDailyLogs, mockProjects, mockTasks, mockUsers, type ProjectRole, type LogStatus } from '@/lib/mock-data'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, FileText, MapPin, PenTool, Users } from 'lucide-react'
+import { getLog, getProject, parseActivitiesField } from '@/lib/api'
+import type { LogDetailResponse, ProjectDetail } from '@/lib/api-types'
+import type { LogStatus } from '@/lib/domain'
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, FileText, MapPin, PenTool, Users, Loader2 } from 'lucide-react'
 
 interface LogDetailPageProps {
   params: Promise<{ projectId: string; logId: string }>
@@ -36,35 +37,67 @@ function checkItem(label: string, complete: boolean) {
 
 export default function LogDetailPage({ params }: LogDetailPageProps) {
   const { projectId, logId } = use(params)
-  const searchParams = useSearchParams()
-  const userRole = (searchParams.get('role') as ProjectRole) || 'site_engineer'
 
-  const project = mockProjects.find((item) => item.id === projectId)
-  const log = mockDailyLogs.find((item) => item.id === logId && item.project_id === projectId)
+  const [project, setProject] = useState<ProjectDetail | null>(null)
+  const [log, setLog] = useState<LogDetailResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const [proj, logData] = await Promise.all([
+          getProject(projectId),
+          getLog(logId),
+        ])
+        if (cancelled) return
+        setProject(proj)
+        setLog(logData)
+      } catch {
+        if (!cancelled) {
+          setProject(null)
+          setLog(null)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, logId])
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-24 text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
+  }
 
   if (!project || !log) return null
 
-  const task = mockTasks.find((item) => item.id === log.task_id)
-  const submitter = mockUsers.find((item) => item.id === log.submitted_by)
-  const workProgress = 64.2
-
-  const evidenceImages = ['/images/site-1.jpg', '/images/site-2.jpg', '/images/site-3.jpg']
+  const activities = parseActivitiesField(log.activities as string[] | string)
+  const submitterName = log.submitted_by?.full_name
+  const workProgress = log.progress_pct_today
+  const evidenceImages = log.photos?.length ? log.photos : []
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Link href={`/dashboard/${projectId}/logs?role=${userRole}`}>
+          <Link href={`/dashboard/${projectId}/logs`}>
             <Button variant="outline" size="icon" className="h-9 w-9">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-semibold">#{log.id.toUpperCase()}</h1>
+            <h1 className="text-2xl font-semibold">#{log.id.slice(0, 8).toUpperCase()}</h1>
             <p className="text-sm text-muted-foreground">
               {new Date(log.log_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
               {' • '}
-              {task?.title || 'Unknown Task'}
+              {log.task?.title || 'Unknown Task'}
             </p>
           </div>
         </div>
@@ -81,21 +114,23 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                   <p className="text-sm font-medium text-muted-foreground">Overall Progress</p>
                   <div className="mt-3 flex items-end gap-3">
                     <span className="text-5xl font-semibold">{workProgress}%</span>
-                    <span className="pb-2 text-sm text-muted-foreground">completed this cycle</span>
+                    <span className="pb-2 text-sm text-muted-foreground">reported this log</span>
                   </div>
-                  <Progress value={workProgress} className="mt-4 h-2" />
+                  <Progress value={Math.min(100, workProgress)} className="mt-4 h-2" />
 
-                  <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
-                    <div className="flex items-start gap-3 text-red-700">
-                      <AlertTriangle className="mt-0.5 h-5 w-5" />
-                      <div>
-                        <p className="font-semibold">Critical Discrepancy Detected</p>
-                        <p className="text-sm text-red-700/90">
-                          The submitted progress conflicts with the observed site output. Material delivery and crew completion evidence require validation.
-                        </p>
+                  {log.status === 'rejected' && (
+                    <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
+                      <div className="flex items-start gap-3 text-red-700">
+                        <AlertTriangle className="mt-0.5 h-5 w-5" />
+                        <div>
+                          <p className="font-semibold">Log rejected</p>
+                          <p className="text-sm text-red-700/90">
+                            {log.remarks || 'Review remarks from the approval chain.'}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
@@ -104,8 +139,8 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                     <Badge className={`mt-2 ${statusConfig[log.status].className}`}>{statusConfig[log.status].label}</Badge>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Reviewer</p>
-                    <p className="mt-1 text-sm font-medium">{submitter?.full_name || 'Unknown User'}</p>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Submitter</p>
+                    <p className="mt-1 text-sm font-medium">{submitterName || '—'}</p>
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Project</p>
@@ -123,17 +158,21 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                 <CardTitle className="text-base">Work Activities</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {log.activities.map((activity, index) => (
-                  <div key={activity} className="flex items-start gap-3 rounded-lg border border-border p-3">
-                    <div className="mt-0.5 rounded-full bg-blue-50 p-1.5 text-blue-700">
-                      <PenTool className="h-3.5 w-3.5" />
+                {activities.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No activities listed.</p>
+                ) : (
+                  activities.map((activity, index) => (
+                    <div key={`${activity}-${index}`} className="flex items-start gap-3 rounded-lg border border-border p-3">
+                      <div className="mt-0.5 rounded-full bg-blue-50 p-1.5 text-blue-700">
+                        <PenTool className="h-3.5 w-3.5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Task Activity {index + 1}</p>
+                        <p className="text-sm text-muted-foreground">{activity}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium">Task Activity {index + 1}</p>
-                      <p className="text-sm text-muted-foreground">{activity}</p>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </CardContent>
             </Card>
 
@@ -142,20 +181,9 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                 <CardTitle className="text-base">Material Consumption</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-lg border border-border p-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">Ready-Mix Concrete (C30)</span>
-                    <span className="font-semibold">$67,500.00</span>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">Used for structural pours</p>
-                </div>
-                <div className="rounded-lg border border-border p-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">Steel Reinforcement</span>
-                    <span className="font-semibold">$18,750.00</span>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">Bars, wire, and binding</p>
-                </div>
+                <p className="text-sm text-muted-foreground">
+                  Detailed material lines appear here when the API returns labor/material/equipment on log detail.
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -165,15 +193,19 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
               <CardTitle className="text-base">Site Evidence</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {evidenceImages.map((image, index) => (
-                  <div key={image} className="relative overflow-hidden rounded-lg border border-border bg-slate-100">
-                    <div className="flex h-24 items-end justify-start bg-linear-to-br from-slate-200 to-slate-100 p-3 text-xs font-medium text-slate-700">
-                      Evidence {index + 1}
+              {evidenceImages.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No photos attached.</p>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {evidenceImages.map((image, index) => (
+                    <div key={image} className="relative overflow-hidden rounded-lg border border-border bg-slate-100">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={image} alt="" className="h-24 w-full object-cover" />
+                      <div className="p-2 text-xs font-medium text-slate-700">Evidence {index + 1}</div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -187,12 +219,12 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {checkItem('Data integrity checked', true)}
-              {checkItem('Visual verification completed', true)}
-              {checkItem('Safety compliance audit', false)}
+              {checkItem('Data integrity checked', log.status !== 'draft')}
+              {checkItem('Visual verification completed', ['approved', 'consultant_approved'].includes(log.status))}
+              {checkItem('Safety compliance audit', log.status === 'approved')}
               <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
                 <p className="font-medium text-foreground">Notes</p>
-                <p className="mt-1">Review additional evidence before final approval.</p>
+                <p className="mt-1">{log.remarks || 'Review additional evidence before final approval.'}</p>
               </div>
             </CardContent>
           </Card>
@@ -217,14 +249,14 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                 <Clock3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="font-medium">Log submitted</p>
-                  <p className="text-muted-foreground">08:42 AM by {submitter?.full_name || 'Unknown'}</p>
+                  <p className="text-muted-foreground">Recorded for {new Date(log.log_date).toLocaleDateString()}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <Users className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
-                  <p className="font-medium">Awaiting review</p>
-                  <p className="text-muted-foreground">Office engineer and consultant queue</p>
+                  <p className="font-medium">Approval chain</p>
+                  <p className="text-muted-foreground">Office engineer → consultant → PM</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">

@@ -1,7 +1,6 @@
 'use client'
 
-import { use, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -22,14 +21,11 @@ import {
   Filter,
   Search,
   Calendar,
+  Loader2,
 } from 'lucide-react'
-import {
-  mockDailyLogs,
-  mockTasks,
-  mockUsers,
-  type ProjectRole,
-  type LogStatus,
-} from '@/lib/mock-data'
+import type { LogListItem } from '@/lib/api-types'
+import type { LogStatus } from '@/lib/domain'
+import { listProjectLogs } from '@/lib/api'
 
 interface LogsPageProps {
   params: Promise<{ projectId: string }>
@@ -46,19 +42,36 @@ const statusConfig: Record<LogStatus, { label: string; className: string }> = {
 
 export default function LogsPage({ params }: LogsPageProps) {
   const { projectId } = use(params)
-  const searchParams = useSearchParams()
-  const userRole = (searchParams.get('role') as ProjectRole) || 'site_engineer'
-  
+  const [projectLogs, setProjectLogs] = useState<LogListItem[]>([])
+  const [loading, setLoading] = useState(true)
+
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
-  
-  const projectLogs = mockDailyLogs.filter((log) => log.project_id === projectId)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const { data } = await listProjectLogs(projectId, { limit: 500 })
+        if (!cancelled) setProjectLogs(data)
+      } catch {
+        if (!cancelled) setProjectLogs([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
   const filteredLogs = useMemo(() => {
     return projectLogs.filter((log) => {
       if (statusFilter !== 'all' && log.status !== statusFilter) return false
 
-      const task = mockTasks.find((taskItem) => taskItem.id === log.task_id)
-      if (searchQuery && task && !task.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+      const title = log.task?.title || ''
+      if (searchQuery && !title.toLowerCase().includes(searchQuery.toLowerCase())) {
         return false
       }
 
@@ -68,14 +81,17 @@ export default function LogsPage({ params }: LogsPageProps) {
 
   const reviewedCount = projectLogs.filter((log) => log.status === 'approved').length
   const underReviewCount = projectLogs.filter((log) => log.status === 'under_review').length
-  const approvedCount = projectLogs.filter((log) => log.status === 'approved' || log.status === 'consultant_approved').length
+  const approvedCount = projectLogs.filter(
+    (log) => log.status === 'approved' || log.status === 'consultant_approved',
+  ).length
   const rejectedCount = projectLogs.filter((log) => log.status === 'rejected').length
 
-  const getPendingForRole = (log: typeof mockDailyLogs[0]) => {
-    if (userRole === 'office_engineer' && log.status === 'submitted') return true
-    if (userRole === 'consultant' && log.status === 'under_review') return true
-    if (userRole === 'project_manager' && log.status === 'consultant_approved') return true
-    return false
+  if (loading) {
+    return (
+      <div className="flex justify-center py-24 text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
   }
 
   return (
@@ -204,29 +220,24 @@ export default function LogsPage({ params }: LogsPageProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredLogs.map((log) => {
-                  const task = mockTasks.find((taskItem) => taskItem.id === log.task_id)
-                  const submitter = mockUsers.find((user) => user.id === log.submitted_by)
-
-                  return (
-                    <TableRow key={log.id}>
-                      <TableCell className="font-medium text-primary">#{log.id.toUpperCase()}</TableCell>
-                      <TableCell>{new Date(log.log_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</TableCell>
-                      <TableCell>{task?.title || 'Unknown Task'}</TableCell>
-                      <TableCell>
-                        <Badge className={statusConfig[log.status].className}>{statusConfig[log.status].label}</Badge>
-                      </TableCell>
-                      <TableCell>{submitter?.full_name || 'Unknown'}</TableCell>
-                      <TableCell className="text-right">
-                        <Link href={`/dashboard/${projectId}/logs/${log.id}?role=${userRole}`}>
-                          <Button variant="ghost" size="sm" className="text-primary">
-                            View Details
-                          </Button>
-                        </Link>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
+                {filteredLogs.map((log) => (
+                  <TableRow key={log.id}>
+                    <TableCell className="font-medium text-primary">#{log.id.slice(0, 8).toUpperCase()}</TableCell>
+                    <TableCell>{new Date(log.log_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</TableCell>
+                    <TableCell>{log.task?.title || 'Unknown Task'}</TableCell>
+                    <TableCell>
+                      <Badge className={statusConfig[log.status].className}>{statusConfig[log.status].label}</Badge>
+                    </TableCell>
+                    <TableCell>{log.submitted_by?.full_name || 'Unknown'}</TableCell>
+                    <TableCell className="text-right">
+                      <Link href={`/dashboard/${projectId}/logs/${log.id}`}>
+                        <Button variant="ghost" size="sm" className="text-primary">
+                          View Details
+                        </Button>
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           )}

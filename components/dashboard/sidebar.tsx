@@ -23,7 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/lib/auth-context'
-import { roleLabels, type ProjectRole } from '@/lib/mock-data'
+import { roleLabels, type ProjectRole } from '@/lib/domain'
 import { useState } from 'react'
 
 interface SidebarProps {
@@ -153,7 +153,7 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
             return (
               <Link
                 key={item.href}
-                href={`${item.href}?role=${userRole}`}
+                href={item.href}
                 className={cn(
                   "group relative flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
                   isActive 
@@ -182,9 +182,9 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
           "p-4 flex items-center gap-3",
           collapsed && "justify-center p-2"
         )}>
-          <Link href={`/dashboard/${projectId}/profile?role=${userRole}`} className={cn("flex min-w-0 flex-1 items-center gap-3", collapsed && "justify-center") }>
+          <Link href={`/dashboard/${projectId}/profile`} className={cn("flex min-w-0 flex-1 items-center gap-3", collapsed && "justify-center") }>
             <Avatar className="h-9 w-9">
-              <AvatarImage src={user?.profile_photo_url} />
+              <AvatarImage src={user?.profile_photo_url ?? undefined} />
               <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground text-xs">
                 {initials}
               </AvatarFallback>
@@ -201,7 +201,7 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
               variant="ghost"
               size="icon"
               className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent h-8 w-8"
-              onClick={logout}
+              onClick={() => void logout()}
               aria-label="Logout"
             >
               <LogOut className="h-4 w-4" />

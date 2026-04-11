@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
-import { type ProjectRole, roleLabels } from '@/lib/mock-data'
+import { type ProjectRole, roleLabels } from '@/lib/domain'
 import { ProjectSelectionModal } from '@/components/project-selection-modal'
 
 interface DashboardHeaderProps {
@@ -44,8 +44,8 @@ export function DashboardHeader({ projectId, projectName, userRole }: DashboardH
     .join('')
     .toUpperCase() || 'U'
 
-  const handleLogout = () => {
-    logout()
+  const handleLogout = async () => {
+    await logout()
     router.push('/')
   }
 
@@ -74,7 +74,7 @@ export function DashboardHeader({ projectId, projectName, userRole }: DashboardH
       <div className="flex items-center gap-2">
         {/* Notifications */}
         <Button variant="ghost" size="icon" className="relative" asChild>
-          <Link href={`/dashboard/${projectId}/notifications?role=${userRole}`} aria-label="Notifications">
+          <Link href={`/dashboard/${projectId}/notifications`} aria-label="Notifications">
             <Bell className="h-5 w-5" />
             <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
             <span className="sr-only">Notifications</span>
@@ -86,7 +86,7 @@ export function DashboardHeader({ projectId, projectName, userRole }: DashboardH
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="gap-2 pl-2 pr-3">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={user?.profile_photo_url} />
+                <AvatarImage src={user?.profile_photo_url ?? undefined} />
                 <AvatarFallback className="text-xs">{initials}</AvatarFallback>
               </Avatar>
               <div className="hidden lg:block text-left">

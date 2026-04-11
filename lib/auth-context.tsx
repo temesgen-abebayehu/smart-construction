@@ -1,75 +1,150 @@
 'use client'
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
-import { mockUsers, type User } from './mock-data'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react'
+import type { AuthUser } from './domain'
+import { clearTokens, setTokens, getAccessToken } from './auth-storage'
+import {
+  fetchCurrentUser,
+  loginRequest,
+  logoutRequest,
+  registerRequest,
+} from './api-client'
 
 interface AuthContextType {
-  user: User | null
+  user: AuthUser | null
   isAuthenticated: boolean
   isLoading: boolean
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
-  signup: (data: { full_name: string; email: string; phone?: string; password: string }) => Promise<{ success: boolean; error?: string }>
-  logout: () => void
+  signup: (data: {
+    full_name: string
+    email: string
+    phone?: string
+    password: string
+  }) => Promise<{ success: boolean; error?: string }>
+  logout: () => Promise<void>
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+function mapUser(me: {
+  id: string
+  full_name: string
+  email: string
+  phone?: string | null
+  profile_photo_url?: string | null
+  is_admin: boolean
+  is_active: boolean
+  last_login_at?: string | null
+}): AuthUser {
+  return {
+    id: me.id,
+    full_name: me.full_name,
+    email: me.email,
+    phone: me.phone ?? undefined,
+    profile_photo_url: me.profile_photo_url ?? undefined,
+    is_admin: me.is_admin,
+    is_active: me.is_active,
+    last_login_at: me.last_login_at ?? undefined,
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-  const login = useCallback(async (email: string, _password: string) => {
-    setIsLoading(true)
-    
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 800))
-    
-    // Mock authentication - find user by email
-    const foundUser = mockUsers.find(u => u.email.toLowerCase() === email.toLowerCase())
-    
-    if (foundUser) {
-      setUser(foundUser)
-      setIsLoading(false)
-      return { success: true }
+  const refreshUser = useCallback(async () => {
+    const token = getAccessToken()
+    if (!token) {
+      setUser(null)
+      return
     }
-    
-    setIsLoading(false)
-    return { success: false, error: 'Invalid email or password' }
+    try {
+      const me = await fetchCurrentUser()
+      setUser(mapUser(me))
+    } catch {
+      clearTokens()
+      setUser(null)
+    }
   }, [])
 
-  const signup = useCallback(async (data: { full_name: string; email: string; phone?: string; password: string }) => {
-    setIsLoading(true)
-    
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 800))
-    
-    // Check if email already exists
-    const existingUser = mockUsers.find(u => u.email.toLowerCase() === data.email.toLowerCase())
-    
-    if (existingUser) {
-      setIsLoading(false)
-      return { success: false, error: 'Email already registered' }
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setIsLoading(true)
+      try {
+        const token = getAccessToken()
+        if (!token) {
+          if (!cancelled) setUser(null)
+          return
+        }
+        const me = await fetchCurrentUser()
+        if (!cancelled) setUser(mapUser(me))
+      } catch {
+        clearTokens()
+        if (!cancelled) setUser(null)
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
     }
-    
-    // Create new mock user
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      full_name: data.full_name,
-      email: data.email,
-      phone: data.phone,
-      is_admin: false,
-      is_active: true,
-    }
-    
-    // Add to mock users (in real app, this would be an API call)
-    mockUsers.push(newUser)
-    setUser(newUser)
-    setIsLoading(false)
-    
-    return { success: true }
   }, [])
 
-  const logout = useCallback(() => {
+  const login = useCallback(async (email: string, password: string) => {
+    setIsLoading(true)
+    try {
+      const tokens = await loginRequest(email, password)
+      setTokens(tokens.access_token, tokens.refresh_token)
+      const me = await fetchCurrentUser()
+      setUser(mapUser(me))
+      return { success: true as const }
+    } catch (e) {
+      clearTokens()
+      setUser(null)
+      return {
+        success: false as const,
+        error: e instanceof Error ? e.message : 'Login failed',
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  const signup = useCallback(
+    async (data: {
+      full_name: string
+      email: string
+      phone?: string
+      password: string
+    }) => {
+      setIsLoading(true)
+      try {
+        await registerRequest(data)
+        return { success: true as const }
+      } catch (e) {
+        return {
+          success: false as const,
+          error: e instanceof Error ? e.message : 'Registration failed',
+        }
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [],
+  )
+
+  const logout = useCallback(async () => {
+    await logoutRequest()
+    clearTokens()
     setUser(null)
   }, [])
 
@@ -82,6 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         signup,
         logout,
+        refreshUser,
       }}
     >
       {children}

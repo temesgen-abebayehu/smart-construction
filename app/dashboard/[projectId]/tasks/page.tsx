@@ -1,7 +1,6 @@
 'use client'
 
-import { use, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -37,13 +36,12 @@ import {
   Search,
   SlidersHorizontal,
   TriangleAlert,
+  Loader2,
 } from 'lucide-react'
-import {
-  mockTasks,
-  mockUsers,
-  type ProjectRole,
-  type TaskStatus,
-} from '@/lib/mock-data'
+import { useProjectRole } from '@/lib/project-role-context'
+import type { TaskListItem } from '@/lib/api-types'
+import type { TaskStatus } from '@/lib/domain'
+import { listProjectMembers, listProjectTasks } from '@/lib/api'
 
 interface TasksPageProps {
   params: Promise<{ projectId: string }>
@@ -69,22 +67,55 @@ function timelineLabel(start: string, end: string) {
 
 function estimateHours(start: string, end: string) {
   const diffMs = Math.max(new Date(end).getTime() - new Date(start).getTime(), 0)
-  return Math.round(diffMs / (1000 * 60 * 60 * 24) * 8)
+  return Math.round((diffMs / (1000 * 60 * 60 * 24)) * 8)
 }
 
 export default function TasksPage({ params }: TasksPageProps) {
   const { projectId } = use(params)
-  const searchParams = useSearchParams()
-  const userRole = (searchParams.get('role') as ProjectRole) || 'site_engineer'
+  const userRole = useProjectRole()
+
+  const [projectTasks, setProjectTasks] = useState<TaskListItem[]>([])
+  const [assignees, setAssignees] = useState<{ id: string; full_name: string }[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [page, setPage] = useState(1)
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const [newTaskPriority, setNewTaskPriority] = useState<'high' | 'medium' | 'low'>('medium')
-  const canCreateTask = userRole === 'project_manager' || userRole === 'office_engineer'
+  const canCreateTask = userRole === 'project_manager'
 
-  const projectTasks = mockTasks.filter((task) => task.project_id === projectId)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const [taskRes, memberRes] = await Promise.all([
+          listProjectTasks(projectId, { limit: 100 }),
+          listProjectMembers(projectId),
+        ])
+        if (cancelled) return
+        setProjectTasks(taskRes.data)
+        const siteEngineers = memberRes.data
+          .filter((m) => m.role === 'site_engineer')
+          .map((m) => ({ id: m.user.id, full_name: m.user.full_name }))
+        setAssignees(siteEngineers.length ? siteEngineers : memberRes.data.map((m) => ({
+          id: m.user.id,
+          full_name: m.user.full_name,
+        })))
+      } catch {
+        if (!cancelled) {
+          setProjectTasks([])
+          setAssignees([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
 
   const filteredTasks = useMemo(() => {
     return projectTasks.filter((task) => {
@@ -101,7 +132,9 @@ export default function TasksPage({ params }: TasksPageProps) {
 
   const assignedCount = projectTasks.filter((task) => Boolean(task.assigned_to)).length
   const inProgressCount = projectTasks.filter((task) => task.status === 'in_progress').length
-  const overdueCount = projectTasks.filter((task) => task.status === 'delayed' || task.status === 'pending_dependency').length
+  const overdueCount = projectTasks.filter(
+    (task) => task.status === 'delayed' || task.status === 'pending_dependency',
+  ).length
   const completedCount = projectTasks.filter((task) => task.status === 'completed').length
 
   const statusChipLabel: Record<(typeof statusFilters)[number], string> = {
@@ -116,6 +149,14 @@ export default function TasksPage({ params }: TasksPageProps) {
     completed: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200',
     in_progress: 'bg-blue-100 text-blue-700 hover:bg-blue-200',
     delayed: 'bg-red-100 text-red-700 hover:bg-red-200',
+  }
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-24 text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
   }
 
   return (
@@ -223,7 +264,7 @@ export default function TasksPage({ params }: TasksPageProps) {
                     <DialogHeader>
                       <DialogTitle>Create New Task</DialogTitle>
                       <DialogDescription>
-                        Add a task package for the project and assign it to a team member.
+                        Add a task package for the project and assign it to a team member. API wiring can be completed when you are ready.
                       </DialogDescription>
                     </DialogHeader>
 
@@ -243,8 +284,8 @@ export default function TasksPage({ params }: TasksPageProps) {
                           <label className="text-sm font-medium" htmlFor="task-assignee">Assignee</label>
                           <select id="task-assignee" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                             <option value="">Select assignee</option>
-                            {mockUsers.map((user) => (
-                              <option key={user.id} value={user.id}>{user.full_name}</option>
+                            {assignees.map((u) => (
+                              <option key={u.id} value={u.id}>{u.full_name}</option>
                             ))}
                           </select>
                         </div>
@@ -306,12 +347,17 @@ export default function TasksPage({ params }: TasksPageProps) {
               ) : (
                 pageTasks.map((task) => {
                   const isDelayed = task.status === 'delayed' || task.status === 'pending_dependency'
+                  const progress = task.cumulative_progress_pct
 
                   return (
                     <TableRow key={task.id}>
                       <TableCell>
                         <p className="font-medium">{task.title}</p>
-                        <p className="text-xs text-muted-foreground">{task.activities[0] || 'Execution package'}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {task.assigned_to?.full_name
+                            ? `Assigned: ${task.assigned_to.full_name}`
+                            : 'Execution package'}
+                        </p>
                       </TableCell>
 
                       <TableCell>
@@ -327,9 +373,9 @@ export default function TasksPage({ params }: TasksPageProps) {
 
                       <TableCell>
                         <div className="w-28 space-y-1">
-                          <p className="text-xs font-medium">{task.progress_pct}%</p>
+                          <p className="text-xs font-medium">{progress.toFixed(1)}%</p>
                           <Progress
-                            value={task.progress_pct}
+                            value={progress}
                             className={`h-1.5 ${isDelayed ? '[&>div]:bg-red-500' : task.status === 'completed' ? '[&>div]:bg-emerald-500' : ''}`}
                           />
                         </div>
@@ -337,8 +383,10 @@ export default function TasksPage({ params }: TasksPageProps) {
 
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <Eye className="h-4 w-4" />
+                          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                            <Link href={`/dashboard/${projectId}/tasks`} aria-label="View task">
+                              <Eye className="h-4 w-4" />
+                            </Link>
                           </Button>
                           {canCreateTask && (
                             <Button variant="ghost" size="icon" className="h-8 w-8">
