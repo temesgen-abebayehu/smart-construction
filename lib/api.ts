@@ -55,6 +55,15 @@ function parseOverallProgressPct(raw: unknown): number {
   return 0
 }
 
+function parseFiniteNumber(raw: unknown, fallback = 0): number {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  if (typeof raw === 'string' && raw.trim() !== '') {
+    const n = Number.parseFloat(raw)
+    if (Number.isFinite(n)) return n
+  }
+  return fallback
+}
+
 /** List endpoint may return OpenAPI `ProjectResponse` (e.g. `progress_percentage`) without `my_role`. */
 function normalizeProjectListItem(raw: unknown): ProjectListItem {
   const r = raw as Record<string, unknown>
@@ -143,8 +152,63 @@ export async function listProjects(params?: {
   }
 }
 
+/**
+ * GET /projects/{id} returns OpenAPI `ProjectResponse` (`progress_percentage`, `total_budget`, `budget_spent`),
+ * while the app expects `ProjectDetail` (`overall_progress_pct`, `budget`, …).
+ */
+function normalizeProjectDetail(raw: unknown): ProjectDetail {
+  const r = raw as Record<string, unknown>
+  const overall_progress_pct = parseOverallProgressPct(
+    r.overall_progress_pct ?? r.progress_percentage ?? r.progress_pct,
+  )
+
+  const nestedBudget = r.budget
+  let budget: ProjectDetail['budget'] | null = null
+  if (
+    nestedBudget &&
+    typeof nestedBudget === 'object' &&
+    nestedBudget !== null &&
+    'contract_value' in (nestedBudget as object)
+  ) {
+    const b = nestedBudget as { contract_value?: unknown; total_spent?: unknown; total_received?: unknown }
+    budget = {
+      contract_value: parseFiniteNumber(b.contract_value),
+      total_spent: parseFiniteNumber(b.total_spent),
+      total_received: parseFiniteNumber(b.total_received),
+    }
+  } else if (r.total_budget != null || r.budget_spent != null) {
+    budget = {
+      contract_value: parseFiniteNumber(r.total_budget),
+      total_spent: parseFiniteNumber(r.budget_spent),
+      total_received: parseFiniteNumber((r as { total_received?: unknown }).total_received),
+    }
+  }
+
+  return {
+    id: String(r.id ?? ''),
+    name: String(r.name ?? ''),
+    description: (r.description as string | null | undefined) ?? null,
+    location: String(r.location ?? ''),
+    status: parseProjectListStatus(r.status),
+    planned_start_date: (r.planned_start_date as string | null | undefined) ?? null,
+    planned_end_date: (r.planned_end_date as string | null | undefined) ?? null,
+    actual_start_date: (r.actual_start_date as string | null | undefined) ?? null,
+    actual_end_date: (r.actual_end_date as string | null | undefined) ?? null,
+    overall_progress_pct,
+    contract_number: (r.contract_number as string | null | undefined) ?? null,
+    client: (r.client as ProjectDetail['client']) ?? null,
+    project_manager: (r.project_manager as ProjectDetail['project_manager']) ?? null,
+    budget,
+    latest_prediction: (r.latest_prediction as ProjectDetail['latest_prediction']) ?? null,
+    tasks_summary: (r.tasks_summary as ProjectDetail['tasks_summary']) ?? null,
+    pending_log_approvals:
+      typeof r.pending_log_approvals === 'number' ? r.pending_log_approvals : null,
+  }
+}
+
 export async function getProject(projectId: string) {
-  return apiRequest<ProjectDetail>(`/projects/${projectId}`)
+  const raw = await apiRequest<unknown>(`/projects/${projectId}`)
+  return normalizeProjectDetail(raw)
 }
 
 export async function createProject(body: {
@@ -217,11 +281,33 @@ export async function listCompanies(params?: { search?: string; page?: number; l
 
 export async function listProjectTasks(
   projectId: string,
-  params?: { status?: string; assigned_to?: string; page?: number; limit?: number },
+  params?: { status?: string; assigned_to?: string; page?: number; limit?: number; skip?: number },
 ) {
-  return apiRequest<Paginated<TaskListItem>>(`/projects/${projectId}/tasks${q(params || {})}`)
+  const limit = params?.limit
+  const skip =
+    params?.skip ??
+    (params?.page != null && limit != null ? Math.max(0, (params.page - 1) * limit) : undefined)
+  const res = await apiRequest<TaskListItem[] | Paginated<TaskListItem>>(
+    `/projects/${projectId}/tasks${q({ status: params?.status, limit, skip })}`,
+  )
+  if (Array.isArray(res)) {
+    return {
+      total: res.length,
+      data: res,
+      page: params?.page,
+      limit: params?.limit ?? res.length,
+    }
+  }
+  const data = Array.isArray(res.data) ? res.data : []
+  return {
+    total: res.total ?? data.length,
+    page: res.page,
+    limit: res.limit,
+    data,
+  }
 }
 
+/** OpenAPI: `GET /projects/{project_id}/daily-logs` returns an array of daily logs. */
 export async function listProjectLogs(
   projectId: string,
   params?: {
@@ -231,13 +317,35 @@ export async function listProjectLogs(
     date_to?: string
     page?: number
     limit?: number
+    skip?: number
   },
 ) {
-  return apiRequest<Paginated<LogListItem>>(`/projects/${projectId}/logs${q(params || {})}`)
+  const limit = params?.limit
+  const skip =
+    params?.skip ??
+    (params?.page != null && limit != null ? Math.max(0, (params.page - 1) * limit) : undefined)
+  const res = await apiRequest<LogListItem[] | Paginated<LogListItem>>(
+    `/projects/${projectId}/daily-logs${q({ status: params?.status, limit, skip })}`,
+  )
+  if (Array.isArray(res)) {
+    return {
+      total: res.length,
+      data: res,
+      page: params?.page,
+      limit: params?.limit ?? res.length,
+    }
+  }
+  const data = Array.isArray(res.data) ? res.data : []
+  return {
+    total: res.total ?? data.length,
+    page: res.page,
+    limit: res.limit,
+    data,
+  }
 }
 
 export async function getLog(logId: string) {
-  return apiRequest<LogDetailResponse>(`/logs/${logId}`)
+  return apiRequest<LogDetailResponse>(`/daily-logs/${logId}`)
 }
 
 export async function listProjectMembers(projectId: string) {

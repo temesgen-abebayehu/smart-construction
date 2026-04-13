@@ -76,8 +76,8 @@ export default function DashboardPage({ params }: DashboardPageProps) {
         ])
         if (cancelled) return
         setProject(proj)
-        setTasks(taskRes.data)
-        setLogs(logRes.data)
+        setTasks(taskRes.data ?? [])
+        setLogs(logRes.data ?? [])
         setPrediction(pred)
       } catch {
         if (!cancelled) {
