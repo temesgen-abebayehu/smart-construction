@@ -51,6 +51,8 @@ export interface ProjectListItem {
   location?: string | null
   my_role: ProjectRole
   client_name?: string | null
+  /** Present on API `ProjectResponse`; used to scope list until backend filters GET /projects. */
+  owner_id?: string | null
 }
 
 export interface ProjectClientRef {
@@ -117,6 +119,13 @@ export interface CompanyListItem {
   company_name: string
   total_projects_completed?: number
   active_projects?: number
+}
+
+/** API: `ClientResponse` from GET /clients */
+export interface ClientListItem {
+  id: string
+  name: string
+  contact_email?: string | null
 }
 
 export interface TaskListItem {

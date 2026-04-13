@@ -17,21 +17,28 @@ import {
 } from '@/components/ui/select'
 import { Building2, ArrowLeft, Loader2 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
-import { createProject, listCompanies } from '@/lib/api'
-import type { CompanyListItem } from '@/lib/api-types'
+import { createProject, listClients } from '@/lib/api'
+import type { ClientListItem } from '@/lib/api-types'
+
+function dateInputToApiDateTime(date: string): string | undefined {
+  if (!date) return undefined
+  return `${date}T00:00:00`
+}
 
 export default function NewProjectPage() {
   const router = useRouter()
   const { isAuthenticated } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
-  const [companiesLoading, setCompaniesLoading] = useState(true)
-  const [companies, setCompanies] = useState<CompanyListItem[]>([])
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [clientsLoading, setClientsLoading] = useState(true)
+  const [clients, setClients] = useState<ClientListItem[]>([])
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     location: '',
     planned_start_date: '',
     planned_end_date: '',
+    total_budget: '',
     contract_number: '',
   })
   const [clientId, setClientId] = useState('')
@@ -44,14 +51,14 @@ export default function NewProjectPage() {
     if (!isAuthenticated) return
     let cancelled = false
     ;(async () => {
-      setCompaniesLoading(true)
+      setClientsLoading(true)
       try {
-        const { data } = await listCompanies({ limit: 100 })
-        if (!cancelled) setCompanies(data)
+        const { data } = await listClients({ limit: 100 })
+        if (!cancelled) setClients(data)
       } catch {
-        if (!cancelled) setCompanies([])
+        if (!cancelled) setClients([])
       } finally {
-        if (!cancelled) setCompaniesLoading(false)
+        if (!cancelled) setClientsLoading(false)
       }
     })()
     return () => {
@@ -69,19 +76,27 @@ export default function NewProjectPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!clientId) return
+    const totalBudget = Number.parseFloat(formData.total_budget)
+    if (!Number.isFinite(totalBudget) || totalBudget < 0) {
+      setSubmitError('Enter a valid total budget (0 or greater).')
+      return
+    }
+    setSubmitError(null)
     setIsLoading(true)
     try {
       const created = await createProject({
-        name: formData.name,
-        description: formData.description || undefined,
-        location: formData.location,
-        planned_start_date: formData.planned_start_date,
-        planned_end_date: formData.planned_end_date,
+        name: formData.name.trim(),
+        total_budget: totalBudget,
+        description: formData.description.trim() || null,
+        location: formData.location.trim() || null,
+        planned_start_date: dateInputToApiDateTime(formData.planned_start_date) ?? null,
+        planned_end_date: dateInputToApiDateTime(formData.planned_end_date) ?? null,
         client_id: clientId,
-        contract_number: formData.contract_number || undefined,
       })
       router.push(`/dashboard/${created.id}`)
-    } catch {
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Could not create project.')
+    } finally {
       setIsLoading(false)
     }
   }
@@ -113,8 +128,8 @@ export default function NewProjectPage() {
           <CardHeader>
             <CardTitle className="text-2xl">Create New Project</CardTitle>
             <CardDescription>
-              Set up a new construction project. The API requires a registered client company ({' '}
-              <code className="text-xs">client_id</code>). Register a company first if the list is empty.
+              Set up a new construction project.               Choose a client (from <code className="text-xs">GET /clients</code>) and a total budget. Create a client
+              first if the list is empty.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -155,6 +170,24 @@ export default function NewProjectPage() {
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="total_budget">Total budget (contract value) *</Label>
+                <Input
+                  id="total_budget"
+                  name="total_budget"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="e.g., 15000000"
+                  value={formData.total_budget}
+                  onChange={handleChange}
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  Numeric total budget in your reporting currency (e.g. ETB). Required by the API.
+                </p>
+              </div>
+
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="planned_start_date">Planned Start Date *</Label>
@@ -181,25 +214,24 @@ export default function NewProjectPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>Client company *</Label>
-                {companiesLoading ? (
+                <Label>Client *</Label>
+                {clientsLoading ? (
                   <p className="text-sm text-muted-foreground flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Loading companies…
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading clients…
                   </p>
-                ) : companies.length === 0 ? (
+                ) : clients.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No companies found. Register one via{' '}
-                    <code className="text-xs">POST /companies</code> or the admin flow, then refresh.
+                    No clients found. Create one with <code className="text-xs">POST /clients</code>, then refresh.
                   </p>
                 ) : (
                   <Select value={clientId} onValueChange={setClientId} required>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a client company" />
+                      <SelectValue placeholder="Select a client" />
                     </SelectTrigger>
                     <SelectContent>
-                      {companies.map((c) => (
+                      {clients.map((c) => (
                         <SelectItem key={c.id} value={c.id}>
-                          {c.company_name}
+                          {c.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -208,23 +240,29 @@ export default function NewProjectPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="contract_number">Contract reference</Label>
+                <Label htmlFor="contract_number">Contract reference (local note)</Label>
                 <Input
                   id="contract_number"
                   name="contract_number"
-                  placeholder="Official contract number (optional)"
+                  placeholder="Optional — not sent to the API yet"
                   value={formData.contract_number}
                   onChange={handleChange}
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-4 pt-4 border-t border-border">
+              {submitError && (
+                <p className="text-sm text-destructive" role="alert">
+                  {submitError}
+                </p>
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-4 pt-4 border-t border-border">
                 <Link href="/">
                   <Button type="button" variant="outline">
                     Cancel
                   </Button>
                 </Link>
-                <Button type="submit" disabled={isLoading || !clientId || companies.length === 0}>
+                <Button type="submit" disabled={isLoading || !clientId || clients.length === 0}>
                   {isLoading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />

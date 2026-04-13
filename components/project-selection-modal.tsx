@@ -23,7 +23,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
-import { listProjects } from '@/lib/api'
+import { listProjects, projectsVisibleToUser } from '@/lib/api'
 import type { ProjectListItem } from '@/lib/api-types'
 import { roleLabels, statusColors } from '@/lib/domain'
 
@@ -47,7 +47,7 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
       setError(null)
       try {
         const { data } = await listProjects({ limit: 100 })
-        if (!cancelled) setProjects(data)
+        if (!cancelled) setProjects(projectsVisibleToUser(data, user))
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load projects')
       } finally {
@@ -61,8 +61,10 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
 
   if (!user) return null
 
-  const canCreate =
-    user.is_admin || projects.some((p) => p.my_role === 'project_manager')
+  // const canCreate =
+  //   user.is_admin ||
+  //   projects.length === 0 ||
+  //   projects.some((p) => p.my_role === 'project_manager')
 
   const handleProjectSelect = (project: ProjectListItem) => {
     router.push(`/dashboard/${project.id}`)
@@ -88,24 +90,6 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
         </DialogHeader>
 
         <div className="p-6">
-          {canCreate && (
-            <Button
-              onClick={handleCreateProject}
-              className="w-full mb-6 h-auto py-4 justify-start gap-4"
-              variant="outline"
-            >
-              <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Plus className="h-6 w-6 text-primary" />
-              </div>
-              <div className="text-left">
-                <div className="font-semibold">Create New Project</div>
-                <div className="text-sm text-muted-foreground font-normal">
-                  Start a new construction project
-                </div>
-              </div>
-            </Button>
-          )}
-
           <div className="space-y-2">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-medium text-sm text-muted-foreground">
@@ -127,16 +111,22 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
               <div className="text-center py-12 text-muted-foreground">
                 <Building2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>{"You're not assigned to any projects yet."}</p>
-                {canCreate && (
-                  <p className="text-sm mt-2">Create your first project to get started.</p>
-                )}
+                <p className="text-sm mt-2">Create your first project to get started.</p>
               </div>
             )}
 
             {!loading && !error && projects.length > 0 && (
               <ScrollArea className="h-100 pr-4 -mr-4">
                 <div className="space-y-3">
-                  {projects.map((project) => (
+                  {projects.map((project) => {
+                    const progressPct = Math.min(
+                      100,
+                      Math.max(0, Number(project.overall_progress_pct ?? 0)) || 0,
+                    )
+                    const statusClass =
+                      statusColors[project.status] ?? 'bg-muted text-muted-foreground'
+                    const roleLabel = roleLabels[project.my_role] ?? 'Team member'
+                    return (
                     <button
                       key={project.id}
                       type="button"
@@ -151,9 +141,9 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
                             </h4>
                             <Badge
                               variant="secondary"
-                              className={`${statusColors[project.status]} shrink-0`}
+                              className={`${statusClass} shrink-0`}
                             >
-                              {project.status.replace('_', ' ')}
+                              {String(project.status ?? 'unknown').replace('_', ' ')}
                             </Badge>
                           </div>
 
@@ -177,14 +167,14 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
                             <div className="flex items-center gap-2">
                               <Users className="h-4 w-4 text-primary" />
                               <Badge variant="outline" className="font-normal">
-                                {roleLabels[project.my_role]}
+                                {roleLabel}
                               </Badge>
                             </div>
 
                             <div className="flex items-center gap-2">
                               <TrendingUp className="h-4 w-4 text-accent" />
                               <span className="text-sm font-medium">
-                                {project.overall_progress_pct.toFixed(1)}% complete
+                                {progressPct.toFixed(1)}% complete
                               </span>
                             </div>
                           </div>
@@ -196,15 +186,31 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
                       <div className="mt-3 h-1.5 bg-muted rounded-full overflow-hidden">
                         <div
                           className="h-full bg-primary rounded-full transition-all"
-                          style={{ width: `${Math.min(100, project.overall_progress_pct)}%` }}
+                          style={{ width: `${progressPct}%` }}
                         />
                       </div>
                     </button>
-                  ))}
+                    )
+                  })}
                 </div>
               </ScrollArea>
             )}
           </div>
+          <Button
+              onClick={handleCreateProject}
+              className="w-full mb-6 h-auto py-4 justify-start gap-4 cursor-pointer"
+              variant="outline"
+            >
+              <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Plus className="h-6 w-6 text-primary" />
+              </div>
+              <div className="text-left">
+                <div className="font-semibold">Create New Project</div>
+                <div className="text-sm text-muted-foreground font-normal">
+                  Start a new construction project
+                </div>
+              </div>
+            </Button>
         </div>
       </DialogContent>
     </Dialog>

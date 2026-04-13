@@ -7,7 +7,7 @@ import { ProjectRoleProvider } from '@/lib/project-role-context'
 import { DashboardSidebar } from '@/components/dashboard/sidebar'
 import { DashboardHeader } from '@/components/dashboard/header'
 import { FooterBar } from '@/components/shared/footer-bar'
-import { listProjects } from '@/lib/api'
+import { listProjects, projectsVisibleToUser } from '@/lib/api'
 import type { ProjectListItem } from '@/lib/api-types'
 import type { ProjectRole } from '@/lib/domain'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -20,7 +20,7 @@ interface DashboardLayoutProps {
 export default function DashboardLayout({ children, params }: DashboardLayoutProps) {
   const { projectId } = use(params)
   const router = useRouter()
-  const { isAuthenticated, isLoading: authLoading } = useAuth()
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth()
 
   const [projectRow, setProjectRow] = useState<ProjectListItem | null>(null)
   const [userRole, setUserRole] = useState<ProjectRole>('site_engineer')
@@ -36,7 +36,8 @@ export default function DashboardLayout({ children, params }: DashboardLayoutPro
       try {
         const { data } = await listProjects({ limit: 100 })
         if (cancelled) return
-        const row = data.find((p) => p.id === projectId)
+        const visible = projectsVisibleToUser(data, user)
+        const row = visible.find((p) => p.id === projectId)
         if (row) {
           setProjectRow(row)
           setUserRole(row.my_role)
@@ -57,7 +58,7 @@ export default function DashboardLayout({ children, params }: DashboardLayoutPro
     return () => {
       cancelled = true
     }
-  }, [isAuthenticated, projectId])
+  }, [isAuthenticated, projectId, user])
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
