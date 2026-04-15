@@ -41,7 +41,7 @@ export function HeroSection({ onOpenDashboard, isAuthenticated }: HeroSectionPro
               <Button 
                 size="lg" 
                 variant="secondary"
-                className="gap-2 font-semibold"
+                className="gap-2 font-semibold cursor-pointer"
                 onClick={onOpenDashboard}
               >
                 {isAuthenticated ? 'Open Dashboard' : 'Get Started'}
@@ -50,7 +50,7 @@ export function HeroSection({ onOpenDashboard, isAuthenticated }: HeroSectionPro
               <Button 
                 size="lg" 
                 variant="outline" 
-                className="border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
+                className="border-primary-foreground/30 text-primary hover:bg-primary-foreground/10 hover:text-primary-foreground cursor-pointer"
               >
                 Learn More
               </Button>
