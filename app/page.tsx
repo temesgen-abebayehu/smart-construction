@@ -16,10 +16,8 @@ export default function HomePage() {
 
   const handleOpenDashboard = () => {
     if (isAuthenticated) {
-      // Show project selection modal for authenticated users
-      setProjectModalOpen(true)
+      router.push('/dashboard')
     } else {
-      // Redirect to login for unauthenticated users
       router.push('/login')
     }
   }

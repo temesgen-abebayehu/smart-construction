@@ -7,7 +7,7 @@ import { ProjectRoleProvider } from '@/lib/project-role-context'
 import { DashboardSidebar } from '@/components/dashboard/sidebar'
 import { DashboardHeader } from '@/components/dashboard/header'
 import { FooterBar } from '@/components/shared/footer-bar'
-import { listProjects, projectsVisibleToUser } from '@/lib/api'
+import { fetchMyProjects } from '@/lib/api'
 import type { ProjectListItem } from '@/lib/api-types'
 import type { ProjectRole } from '@/lib/domain'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -34,9 +34,8 @@ export default function DashboardLayout({ children, params }: DashboardLayoutPro
       setDataLoading(true)
       setLoadError(false)
       try {
-        const { data } = await listProjects({ limit: 100 })
+        const visible = await fetchMyProjects(user!.id)
         if (cancelled) return
-        const visible = projectsVisibleToUser(data, user)
         const row = visible.find((p) => p.id === projectId)
         if (row) {
           setProjectRow(row)
@@ -92,7 +91,7 @@ export default function DashboardLayout({ children, params }: DashboardLayoutPro
           </p>
           <button
             type="button"
-            onClick={() => router.push('/')}
+            onClick={() => router.push('/dashboard')}
             className="text-primary hover:underline"
           >
             Return to Home

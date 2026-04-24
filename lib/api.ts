@@ -11,6 +11,7 @@ import type {
   PredictionResponse,
   ProjectDetail,
   ProjectListItem,
+  ProjectMemberRow,
   TaskListItem,
   UserMe,
 } from './api-types'
@@ -387,4 +388,126 @@ export async function updateMe(body: {
     method: 'PUT',
     body: JSON.stringify(body),
   })
+}
+
+/* ------------------------------------------------------------------ */
+/*  Project member management                                         */
+/* ------------------------------------------------------------------ */
+
+export async function inviteProjectMember(
+  projectId: string,
+  body: { email: string; role: ProjectRole },
+) {
+  return apiRequest<{ id: string; email: string; role: string; status: string }>(
+    `/projects/${projectId}/invitations`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+}
+
+export async function listProjectInvitations(projectId: string) {
+  return apiRequest<{ id: string; email: string; role: string; status: string; token?: string }[]>(
+    `/projects/${projectId}/invitations`,
+  )
+}
+
+export async function addProjectMember(
+  projectId: string,
+  body: { user_id: string; role: ProjectRole },
+) {
+  return apiRequest<{ user_id: string; role: string; id: string; project_id: string }>(
+    `/projects/${projectId}/members`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+}
+
+export async function updateMemberRole(
+  projectId: string,
+  userId: string,
+  role: ProjectRole,
+) {
+  return apiRequest<unknown>(`/projects/${projectId}/members/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ role }),
+  })
+}
+
+export async function removeMember(projectId: string, userId: string) {
+  return apiRequest<void>(`/projects/${projectId}/members/${userId}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function acceptInvitation(token: string) {
+  return apiRequest<unknown>('/projects/invitations/accept', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
+/* ------------------------------------------------------------------ */
+/*  Membership-aware project fetching                                 */
+/* ------------------------------------------------------------------ */
+
+function extractMemberUserId(m: unknown): string | null {
+  if (!m || typeof m !== 'object') return null
+  const row = m as Record<string, unknown>
+  // Nested user object (full response)
+  if (row.user && typeof row.user === 'object' && (row.user as Record<string, unknown>).id) {
+    return String((row.user as Record<string, unknown>).id)
+  }
+  // Flat user_id field
+  if (row.user_id) return String(row.user_id)
+  return null
+}
+
+function extractMemberRole(m: unknown): ProjectRole {
+  if (!m || typeof m !== 'object') return 'site_engineer'
+  const row = m as Record<string, unknown>
+  const role = typeof row.role === 'string' ? row.role : ''
+  if (role === 'owner' || role === 'project_manager') return 'project_manager'
+  if (PROJECT_ROLES.includes(role as ProjectRole)) return role as ProjectRole
+  return 'site_engineer'
+}
+
+/**
+ * Fetch all projects the current user belongs to (as owner or member).
+ * Works around the lack of a backend `GET /users/me/projects` endpoint
+ * by fetching all projects then checking membership in parallel.
+ */
+export async function fetchMyProjects(userId: string): Promise<ProjectListItem[]> {
+  const { data: allProjects } = await listProjects({ limit: 200 })
+
+  const memberChecks = await Promise.allSettled(
+    allProjects.map(async (p) => {
+      const res = await listProjectMembers(p.id)
+      const members = Array.isArray(res) ? res : Array.isArray(res.data) ? res.data : []
+      return { projectId: p.id, members }
+    }),
+  )
+
+  const membersByProject = new Map<string, unknown[]>()
+  for (const result of memberChecks) {
+    if (result.status === 'fulfilled') {
+      membersByProject.set(result.value.projectId, result.value.members)
+    }
+  }
+
+  return allProjects
+    .filter((p) => {
+      // Owner always sees their projects
+      if (p.owner_id === userId) return true
+      const members = membersByProject.get(p.id)
+      if (!members) return false
+      return members.some((m) => extractMemberUserId(m) === userId)
+    })
+    .map((p) => {
+      const members = membersByProject.get(p.id)
+      const myMember = members?.find((m) => extractMemberUserId(m) === userId)
+      const myRole = myMember
+        ? extractMemberRole(myMember)
+        : p.owner_id === userId
+          ? 'project_manager'
+          : p.my_role
+      return { ...p, my_role: myRole }
+    })
 }

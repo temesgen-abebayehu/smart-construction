@@ -1,10 +1,37 @@
 'use client'
 
-import { use, useEffect, useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { use, useCallback, useEffect, useState } from 'react'
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +48,12 @@ import {
   Shield,
   Loader2,
 } from 'lucide-react'
-import { listProjectMembers } from '@/lib/api'
+import {
+  listProjectMembers,
+  inviteProjectMember,
+  updateMemberRole,
+  removeMember,
+} from '@/lib/api'
 import type { ProjectMemberRow } from '@/lib/api-types'
 import { roleLabels, type ProjectRole } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
@@ -37,6 +69,8 @@ const roleColors: Record<ProjectRole, string> = {
   site_engineer: 'bg-green-100 text-green-700 border-green-300',
 }
 
+const ALL_ROLES: ProjectRole[] = ['project_manager', 'office_engineer', 'consultant', 'site_engineer']
+
 export default function TeamPage({ params }: TeamPageProps) {
   const { projectId } = use(params)
   const userRole = useProjectRole()
@@ -44,13 +78,48 @@ export default function TeamPage({ params }: TeamPageProps) {
   const [rows, setRows] = useState<ProjectMemberRow[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Invite dialog state
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState<ProjectRole>('site_engineer')
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [inviteError, setInviteError] = useState<string | null>(null)
+
+  // Change role dialog state
+  const [changeRoleOpen, setChangeRoleOpen] = useState(false)
+  const [changeRoleTarget, setChangeRoleTarget] = useState<{
+    userId: string
+    name: string
+    currentRole: ProjectRole
+  } | null>(null)
+  const [newRole, setNewRole] = useState<ProjectRole>('site_engineer')
+  const [changeRoleLoading, setChangeRoleLoading] = useState(false)
+  const [changeRoleError, setChangeRoleError] = useState<string | null>(null)
+
+  // Remove member dialog state
+  const [removeOpen, setRemoveOpen] = useState(false)
+  const [removeTarget, setRemoveTarget] = useState<{
+    userId: string
+    name: string
+  } | null>(null)
+  const [removeLoading, setRemoveLoading] = useState(false)
+
+  const refreshMembers = useCallback(async () => {
+    try {
+      const res = await listProjectMembers(projectId)
+      setRows(Array.isArray(res) ? res : Array.isArray(res.data) ? res.data : [])
+    } catch {
+      setRows([])
+    }
+  }, [projectId])
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       setLoading(true)
       try {
         const res = await listProjectMembers(projectId)
-        if (!cancelled) setRows(res.data)
+        if (!cancelled) setRows(Array.isArray(res) ? res : Array.isArray(res.data) ? res.data : [])
       } catch {
         if (!cancelled) setRows([])
       } finally {
@@ -62,15 +131,63 @@ export default function TeamPage({ params }: TeamPageProps) {
     }
   }, [projectId])
 
+  const handleInvite = async () => {
+    if (!inviteEmail.trim()) return
+    setInviteLoading(true)
+    setInviteError(null)
+    try {
+      await inviteProjectMember(projectId, { email: inviteEmail.trim(), role: inviteRole })
+      setInviteOpen(false)
+      setInviteEmail('')
+      setInviteRole('site_engineer')
+      await refreshMembers()
+    } catch (e) {
+      setInviteError(e instanceof Error ? e.message : 'Failed to send invitation')
+    } finally {
+      setInviteLoading(false)
+    }
+  }
+
+  const handleChangeRole = async () => {
+    if (!changeRoleTarget) return
+    setChangeRoleLoading(true)
+    setChangeRoleError(null)
+    try {
+      await updateMemberRole(projectId, changeRoleTarget.userId, newRole)
+      setChangeRoleOpen(false)
+      setChangeRoleTarget(null)
+      await refreshMembers()
+    } catch (e) {
+      setChangeRoleError(e instanceof Error ? e.message : 'Failed to update role')
+    } finally {
+      setChangeRoleLoading(false)
+    }
+  }
+
+  const handleRemove = async () => {
+    if (!removeTarget) return
+    setRemoveLoading(true)
+    try {
+      await removeMember(projectId, removeTarget.userId)
+      setRemoveOpen(false)
+      setRemoveTarget(null)
+      await refreshMembers()
+    } catch {
+      // Stay on dialog so user can retry
+    } finally {
+      setRemoveLoading(false)
+    }
+  }
+
   const projectMembers = rows.map((r, i) => ({
-    id: r.id || `${r.user.id}-${i}`,
+    id: r.id || `${r.user?.id ?? i}-${i}`,
     role: r.role,
     user: {
-      id: r.user.id,
-      full_name: r.user.full_name,
-      email: r.user.email,
-      phone: r.user.phone,
-      profile_photo_url: r.user.profile_photo_url,
+      id: r.user?.id ?? (r as unknown as Record<string, string>).user_id ?? '',
+      full_name: r.user?.full_name ?? 'Unknown',
+      email: r.user?.email,
+      phone: r.user?.phone,
+      profile_photo_url: r.user?.profile_photo_url,
     },
   }))
 
@@ -104,7 +221,7 @@ export default function TeamPage({ params }: TeamPageProps) {
         </div>
 
         {canManageTeam && (
-          <Button className="gap-2">
+          <Button className="gap-2" onClick={() => setInviteOpen(true)}>
             <Plus className="h-4 w-4" />
             Add Member
           </Button>
@@ -144,7 +261,7 @@ export default function TeamPage({ params }: TeamPageProps) {
       </div>
 
       <div className="space-y-6">
-        {(['project_manager', 'office_engineer', 'consultant', 'site_engineer'] as ProjectRole[]).map((role) => {
+        {ALL_ROLES.map((role) => {
           const members = membersByRole[role] || []
           if (members.length === 0) return null
 
@@ -211,11 +328,31 @@ export default function TeamPage({ params }: TeamPageProps) {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      setChangeRoleTarget({
+                                        userId: member.user.id,
+                                        name: member.user.full_name,
+                                        currentRole: member.role,
+                                      })
+                                      setNewRole(member.role)
+                                      setChangeRoleError(null)
+                                      setChangeRoleOpen(true)
+                                    }}
+                                  >
                                     <UserCog className="mr-2 h-4 w-4" />
                                     Change Role
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem className="text-destructive">
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onSelect={() => {
+                                      setRemoveTarget({
+                                        userId: member.user.id,
+                                        name: member.user.full_name,
+                                      })
+                                      setRemoveOpen(true)
+                                    }}
+                                  >
                                     <UserMinus className="mr-2 h-4 w-4" />
                                     Remove from Project
                                   </DropdownMenuItem>
@@ -233,6 +370,161 @@ export default function TeamPage({ params }: TeamPageProps) {
           )
         })}
       </div>
+
+      {/* Invite Member Dialog */}
+      <Dialog open={inviteOpen} onOpenChange={(open) => { setInviteOpen(open); if (!open) setInviteError(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Invite Team Member</DialogTitle>
+            <DialogDescription>
+              Send an invitation to join this project. They will receive a link to accept.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="invite-email">Email address</Label>
+              <Input
+                id="invite-email"
+                type="email"
+                placeholder="colleague@company.com"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                disabled={inviteLoading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invite-role">Role</Label>
+              <Select
+                value={inviteRole}
+                onValueChange={(v) => setInviteRole(v as ProjectRole)}
+                disabled={inviteLoading}
+              >
+                <SelectTrigger id="invite-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ALL_ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {roleLabels[r]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {inviteError && (
+              <p className="text-sm text-destructive">{inviteError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviteOpen(false)} disabled={inviteLoading}>
+              Cancel
+            </Button>
+            <Button onClick={handleInvite} disabled={inviteLoading || !inviteEmail.trim()}>
+              {inviteLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                'Send Invitation'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change Role Dialog */}
+      <Dialog open={changeRoleOpen} onOpenChange={(open) => { setChangeRoleOpen(open); if (!open) setChangeRoleError(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Change Role</DialogTitle>
+            <DialogDescription>
+              Update the role for <span className="font-medium text-foreground">{changeRoleTarget?.name}</span>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Current role</Label>
+              <p className="text-sm text-muted-foreground">
+                {changeRoleTarget ? roleLabels[changeRoleTarget.currentRole] : ''}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-role">New role</Label>
+              <Select
+                value={newRole}
+                onValueChange={(v) => setNewRole(v as ProjectRole)}
+                disabled={changeRoleLoading}
+              >
+                <SelectTrigger id="new-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ALL_ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {roleLabels[r]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {changeRoleError && (
+              <p className="text-sm text-destructive">{changeRoleError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setChangeRoleOpen(false)} disabled={changeRoleLoading}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleChangeRole}
+              disabled={changeRoleLoading || newRole === changeRoleTarget?.currentRole}
+            >
+              {changeRoleLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                'Update Role'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Remove Member Confirmation */}
+      <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove team member</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove <span className="font-medium text-foreground">{removeTarget?.name}</span> from
+              this project? They will lose access to all project resources.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removeLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleRemove()
+              }}
+              disabled={removeLoading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {removeLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                'Remove'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

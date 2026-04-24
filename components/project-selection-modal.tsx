@@ -23,7 +23,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
-import { listProjects, projectsVisibleToUser } from '@/lib/api'
+import { fetchMyProjects } from '@/lib/api'
 import type { ProjectListItem } from '@/lib/api-types'
 import { roleLabels, statusColors } from '@/lib/domain'
 
@@ -46,8 +46,8 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
       setLoading(true)
       setError(null)
       try {
-        const { data } = await listProjects({ limit: 100 })
-        if (!cancelled) setProjects(projectsVisibleToUser(data, user))
+        const visible = await fetchMyProjects(user!.id)
+        if (!cancelled) setProjects(visible)
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load projects')
       } finally {

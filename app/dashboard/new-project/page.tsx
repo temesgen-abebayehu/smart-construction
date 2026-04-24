@@ -110,7 +110,7 @@ export default function NewProjectPage() {
       <header className="bg-primary text-primary-foreground">
         <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-4">
-            <Link href="/">
+            <Link href="/dashboard">
               <Button variant="ghost" size="icon" className="text-primary-foreground hover:bg-primary-foreground/10">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -257,7 +257,7 @@ export default function NewProjectPage() {
               )}
 
               <div className="flex flex-wrap items-center justify-end gap-4 pt-4 border-t border-border">
-                <Link href="/">
+                <Link href="/dashboard">
                   <Button type="button" variant="outline">
                     Cancel
                   </Button>
