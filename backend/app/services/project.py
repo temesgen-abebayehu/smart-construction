@@ -1,25 +1,64 @@
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy import select, func
 from app.models.task import Task
 from app.models.commons import TaskStatus
-from app.models.project import Project, ProjectMember, ProjectInvitation
+from app.models.project import Project, ProjectMember, ProjectInvitation, Client
 from app.models.commons import ProjectRole
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectMemberCreate, ProjectMemberUpdate, ProjectDashboard, ProjectInvitationCreate
-from app.repositories.project import ProjectRepository, ProjectMemberRepository
+from app.repositories.project import ProjectRepository, ProjectMemberRepository, ClientRepository
 import secrets
 from app.core.email import send_invitation_email
 import asyncio
-from app.repositories.project import ProjectRepository, ProjectMemberRepository
 
 project_repo = ProjectRepository()
 member_repo = ProjectMemberRepository()
+client_repo = ClientRepository()
 
 class ProjectService:
     @staticmethod
+    async def _find_or_create_client(db: AsyncSession, name: str, email: str) -> Client:
+        normalized_email = email.strip().lower()
+        normalized_name = name.strip()
+
+        # 1. Try email first — most precise match
+        client = await client_repo.get_by_email(db, email=normalized_email)
+        if client:
+            return client
+
+        # 2. Fallback to name — prevents a second row for the same real-world client
+        client = await client_repo.get_by_name(db, name=normalized_name)
+        if client:
+            return client
+
+        # 3. Neither matched — create new
+        client = Client(name=normalized_name, contact_email=normalized_email)
+        db.add(client)
+        try:
+            await db.commit()
+            await db.refresh(client)
+            return client
+        except IntegrityError:
+            # Race: another request created a client with the same email or name
+            # between our SELECTs and INSERT. Roll back and re-fetch.
+            await db.rollback()
+            existing = await client_repo.get_by_email(db, email=normalized_email)
+            if existing:
+                return existing
+            existing = await client_repo.get_by_name(db, name=normalized_name)
+            if existing:
+                return existing
+            raise
+
+    @staticmethod
     async def create_project(db: AsyncSession, project_in: ProjectCreate, creator_id: UUID) -> Project:
+        client = await ProjectService._find_or_create_client(
+            db, name=project_in.client_name, email=project_in.client_email
+        )
+
         db_obj = Project(
             name=project_in.name,
             description=project_in.description,
@@ -28,13 +67,13 @@ class ProjectService:
             total_budget=project_in.total_budget,
             planned_start_date=project_in.planned_start_date,
             planned_end_date=project_in.planned_end_date,
-            client_id=project_in.client_id,
+            client_id=client.id,
             owner_id=creator_id,
         )
         db.add(db_obj)
         await db.commit()
         await db.refresh(db_obj)
-        
+
         # Creator automatically becomes OWNER
         member = ProjectMember(
             project_id=db_obj.id,
@@ -43,7 +82,7 @@ class ProjectService:
         )
         db.add(member)
         await db.commit()
-        await db.refresh(db_obj)
+        await db.refresh(db_obj, attribute_names=["client"])
         return db_obj
 
     @staticmethod
@@ -99,7 +138,7 @@ class ProjectMemberService:
     async def add_member(db: AsyncSession, project_id: UUID, member_in: ProjectMemberCreate) -> ProjectMember:
         existing = await member_repo.get_by_project_and_user(db, project_id, member_in.user_id)
         if existing:
-            raise HTTPException(status_code=400, detail="User is already a member of this project")
+            raise HTTPException(status_code=409, detail="User is already a member of this project")
         db_obj = ProjectMember(
             project_id=project_id,
             user_id=member_in.user_id,
@@ -145,7 +184,7 @@ class ProjectInvitationService:
             ProjectInvitation.status == "pending"
         ))
         if existing_result.scalars().first():
-            raise HTTPException(status_code=400, detail="User already has a pending invitation")
+            raise HTTPException(status_code=409, detail="User already has a pending invitation")
 
         token = secrets.token_urlsafe(32)
         db_obj = ProjectInvitation(

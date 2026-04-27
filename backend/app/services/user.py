@@ -36,7 +36,7 @@ class UserService:
         if user_in.email and user_in.email != db_user.email:
             existing_user = await UserRepository.get_by_email(db, email=user_in.email)
             if existing_user:
-                raise HTTPException(status_code=400, detail="Email already taken")
+                raise HTTPException(status_code=409, detail="Email already taken")
         return await UserRepository.update(db, db_obj=db_user, obj_in=user_in)
 
     @staticmethod

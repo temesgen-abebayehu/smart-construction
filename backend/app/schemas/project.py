@@ -75,7 +75,8 @@ class ProjectBase(BaseModel):
     planned_end_date: datetime | None = None
 
 class ProjectCreate(ProjectBase):
-    client_id: UUID | None = None
+    client_name: str
+    client_email: EmailStr
 
 class ProjectUpdate(BaseModel):
     name: str | None = None
@@ -95,6 +96,7 @@ class ProjectResponse(ProjectBase):
     progress_percentage: float
     budget_spent: float
     client_id: UUID | None = None
+    client: ClientResponse | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class ProjectDashboard(BaseModel):

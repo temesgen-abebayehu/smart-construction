@@ -46,7 +46,7 @@ async def integrity_exception_handler(request: Request, exc: IntegrityError):
         )
     if "already exists" in detail:
         return JSONResponse(
-            status_code=400,
+            status_code=409,
             content={"detail": "Conflict error: One or more fields already exist (Unique constraint violated)."},
         )
         

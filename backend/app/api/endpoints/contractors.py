@@ -1,6 +1,6 @@
 from typing import Any, List
 from uuid import UUID
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.dependencies import DbSession, get_current_active_user, get_current_admin_user
 from app.schemas.project import ContractorCreate, ContractorUpdate, ContractorResponse
@@ -22,7 +22,6 @@ async def create_contractor(*, db: DbSession, contractor_in: ContractorCreate, _
 async def get_contractor(contractor_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
     contractor = await repo.get_by_id(db, contractor_id)
     if not contractor:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Contractor not found")
     return contractor
 
@@ -30,7 +29,6 @@ async def get_contractor(contractor_id: UUID, db: DbSession, _: User = Depends(g
 async def update_contractor(*, db: DbSession, contractor_id: UUID, contractor_in: ContractorUpdate, _: User = Depends(get_current_active_user)) -> Any:
     contractor = await repo.get_by_id(db, contractor_id)
     if not contractor:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Contractor not found")
     return await repo.update(db, contractor, contractor_in)
 

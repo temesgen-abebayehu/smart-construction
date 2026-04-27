@@ -1,6 +1,6 @@
 from typing import Any, List
 from uuid import UUID
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.dependencies import DbSession, get_current_active_user, get_current_admin_user
 from app.schemas.project import SupplierCreate, SupplierUpdate, SupplierResponse
@@ -22,7 +22,6 @@ async def create_supplier(*, db: DbSession, supplier_in: SupplierCreate, _: User
 async def get_supplier(supplier_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
     supplier = await repo.get_by_id(db, supplier_id)
     if not supplier:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Supplier not found")
     return supplier
 
@@ -30,7 +29,6 @@ async def get_supplier(supplier_id: UUID, db: DbSession, _: User = Depends(get_c
 async def update_supplier(*, db: DbSession, supplier_id: UUID, supplier_in: SupplierUpdate, _: User = Depends(get_current_active_user)) -> Any:
     supplier = await repo.get_by_id(db, supplier_id)
     if not supplier:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Supplier not found")
     return await repo.update(db, supplier, supplier_in)
 

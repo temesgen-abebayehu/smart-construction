@@ -9,9 +9,9 @@ from app.models.commons import ProjectStatus
 class Client(Base):
     __tablename__ = "clients"
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    name = Column(String(255), nullable=False)
-    contact_email = Column(String(255))
-    
+    name = Column(String(255), nullable=False, unique=True, index=True)
+    contact_email = Column(String(255), unique=True, index=True)
+
     projects = relationship("Project", back_populates="client")
 
 class Contractor(Base):
@@ -40,7 +40,7 @@ class Project(Base):
     budget_spent = Column(Float, default=0.0)
     
     client_id = Column(SQL_UUID(as_uuid=True), ForeignKey("clients.id"))
-    client = relationship("Client", back_populates="projects")
+    client = relationship("Client", back_populates="projects", lazy="selectin")
     
     owner_id = Column(SQL_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     owner = relationship("User", foreign_keys=[owner_id])

@@ -25,6 +25,14 @@ class ClientRepository(BaseRepository[Client]):
     def __init__(self):
         super().__init__(Client)
 
+    async def get_by_email(self, db: AsyncSession, email: str) -> Client | None:
+        result = await db.execute(select(Client).where(Client.contact_email == email))
+        return result.scalars().first()
+
+    async def get_by_name(self, db: AsyncSession, name: str) -> Client | None:
+        result = await db.execute(select(Client).where(Client.name == name))
+        return result.scalars().first()
+
 class ContractorRepository(BaseRepository[Contractor]):
     def __init__(self):
         super().__init__(Contractor)

@@ -24,3 +24,6 @@ htmlcov/
 
 # Logs
 *.log
+
+# Internal docs
+docs/
