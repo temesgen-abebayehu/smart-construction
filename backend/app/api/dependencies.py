@@ -4,6 +4,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 import jwt
+from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from pydantic import ValidationError
 
 from app.database.session import SessionLocal
@@ -33,21 +34,35 @@ async def get_current_user(db: DbSession, token: TokenDep) -> User:
             token, settings.SECRET_KEY, algorithms=[ALGORITHM]
         )
         token_data = TokenPayload(**payload)
-    except (jwt.InvalidTokenError, ValidationError):
+    except ExpiredSignatureError:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except (InvalidTokenError, ValidationError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     user = await UserRepository.get_by_id(db, id=token_data.sub)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User no longer exists",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 def get_current_active_user(current_user: CurrentUser) -> User:
     if not current_user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inactive user",
+        )
     return current_user
 
 def get_current_admin_user(current_user: CurrentUser) -> User:
