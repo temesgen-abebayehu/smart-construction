@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.endpoints import auth, users, clients, contractors, suppliers, projects, budget, tasks, prediction
+from app.api.endpoints import auth, users, clients, contractors, suppliers, projects, budget, tasks, prediction, weather
 from app.api.endpoints.daily_logs import project_logs_router, logs_router
 from app.api.endpoints.system import messages_router, audit_router, settings_router
 
@@ -22,6 +22,7 @@ api_router.include_router(project_logs_router,    prefix="/projects",     tags=[
 api_router.include_router(logs_router,            prefix="",              tags=["Daily Logs"])
 
 api_router.include_router(prediction.router,      prefix="/projects",     tags=["ML Risk Prediction"])
+api_router.include_router(weather.router,         prefix="/projects",     tags=["Weather"])
 api_router.include_router(messages_router,        prefix="/messages",     tags=["Messages"])
 api_router.include_router(audit_router,           prefix="/audit-logs",   tags=["Audit Logs"])
 api_router.include_router(settings_router,        prefix="/settings",     tags=["System Settings"])
