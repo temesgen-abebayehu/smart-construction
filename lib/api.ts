@@ -473,26 +473,41 @@ function extractMemberRole(m: unknown): ProjectRole {
  * Fetch all projects the current user belongs to (as owner or member).
  * Works around the lack of a backend `GET /users/me/projects` endpoint
  * by fetching all projects then checking membership in parallel.
+ *
+ * Results are cached for 5 seconds to avoid redundant API storms when
+ * multiple components call this on mount.
  */
+let _myProjectsCache: { userId: string; ts: number; data: ProjectListItem[] } | null = null
+const CACHE_TTL = 5_000
+
 export async function fetchMyProjects(userId: string): Promise<ProjectListItem[]> {
+  if (_myProjectsCache && _myProjectsCache.userId === userId && Date.now() - _myProjectsCache.ts < CACHE_TTL) {
+    return _myProjectsCache.data
+  }
+
   const { data: allProjects } = await listProjects({ limit: 200 })
 
-  const memberChecks = await Promise.allSettled(
-    allProjects.map(async (p) => {
-      const res = await listProjectMembers(p.id)
-      const members = Array.isArray(res) ? res : Array.isArray(res.data) ? res.data : []
-      return { projectId: p.id, members }
-    }),
-  )
-
+  // Batch member checks in groups of 6 to avoid overloading the server
+  const BATCH_SIZE = 6
   const membersByProject = new Map<string, unknown[]>()
-  for (const result of memberChecks) {
-    if (result.status === 'fulfilled') {
-      membersByProject.set(result.value.projectId, result.value.members)
+
+  for (let i = 0; i < allProjects.length; i += BATCH_SIZE) {
+    const batch = allProjects.slice(i, i + BATCH_SIZE)
+    const results = await Promise.allSettled(
+      batch.map(async (p) => {
+        const res = await listProjectMembers(p.id)
+        const members = Array.isArray(res) ? res : Array.isArray(res.data) ? res.data : []
+        return { projectId: p.id, members }
+      }),
+    )
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        membersByProject.set(result.value.projectId, result.value.members)
+      }
     }
   }
 
-  return allProjects
+  const filtered = allProjects
     .filter((p) => {
       // Owner always sees their projects
       if (p.owner_id === userId) return true
@@ -510,4 +525,57 @@ export async function fetchMyProjects(userId: string): Promise<ProjectListItem[]
           : p.my_role
       return { ...p, my_role: myRole }
     })
+
+  _myProjectsCache = { userId, ts: Date.now(), data: filtered }
+  return filtered
+}
+
+/**
+ * Fetch a single project's role for the current user.
+ * Much cheaper than fetchMyProjects() — only 2 API calls instead of N+1.
+ */
+export async function fetchProjectRole(
+  projectId: string,
+  userId: string,
+): Promise<{ project: ProjectListItem; role: ProjectRole } | null> {
+  try {
+    const [rawProject, membersRes] = await Promise.all([
+      apiRequest<unknown>(`/projects/${projectId}`),
+      listProjectMembers(projectId),
+    ])
+    const r = rawProject as Record<string, unknown>
+    const members = Array.isArray(membersRes)
+      ? membersRes
+      : Array.isArray((membersRes as { data?: unknown[] }).data)
+        ? (membersRes as { data: unknown[] }).data
+        : []
+
+    const isOwner = r.owner_id === userId
+    const myMember = members.find((m: unknown) => extractMemberUserId(m) === userId)
+
+    if (!isOwner && !myMember) return null
+
+    const role = myMember
+      ? extractMemberRole(myMember)
+      : isOwner
+        ? 'project_manager'
+        : 'site_engineer'
+
+    const clientObj = r.client as Record<string, unknown> | null | undefined
+    const project: ProjectListItem = {
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      status: (r.status as ProjectStatus) ?? 'draft',
+      location: (r.location as string) ?? '',
+      client_name: clientObj ? String(clientObj.name ?? '') : '',
+      planned_end_date: (r.planned_end_date as string) ?? '',
+      overall_progress_pct: parseFiniteNumber(r.overall_progress_pct ?? r.progress_percentage ?? r.progress_pct),
+      owner_id: String(r.owner_id ?? ''),
+      my_role: role,
+    }
+
+    return { project, role }
+  } catch {
+    return null
+  }
 }

@@ -57,7 +57,7 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
     return () => {
       cancelled = true
     }
-  }, [open, user])
+  }, [open, user?.id])
 
   if (!user) return null
 
@@ -131,7 +131,7 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
                       key={project.id}
                       type="button"
                       onClick={() => handleProjectSelect(project)}
-                      className="w-full p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-all text-left group"
+                      className="w-full p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-all text-left group cursor-pointer"
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
@@ -196,21 +196,16 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
               </ScrollArea>
             )}
           </div>
+          <div className="w-full flex justify-end"> 
           <Button
               onClick={handleCreateProject}
-              className="w-full mb-6 h-auto py-4 justify-start gap-4 cursor-pointer"
+              className=" mb-6 h-auto py-4 justify-start gap-4 cursor-pointer"
               variant="outline"
             >
-              <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Plus className="h-6 w-6 text-primary" />
-              </div>
-              <div className="text-left">
-                <div className="font-semibold">Create New Project</div>
-                <div className="text-sm text-muted-foreground font-normal">
-                  Start a new construction project
-                </div>
-              </div>
+              <Plus className="h-6 w-6 text-primary" />
+              Create New Project
             </Button>
+            </div>
         </div>
       </DialogContent>
     </Dialog>

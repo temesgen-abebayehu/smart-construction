@@ -7,7 +7,7 @@ import { ProjectRoleProvider } from '@/lib/project-role-context'
 import { DashboardSidebar } from '@/components/dashboard/sidebar'
 import { DashboardHeader } from '@/components/dashboard/header'
 import { FooterBar } from '@/components/shared/footer-bar'
-import { fetchMyProjects } from '@/lib/api'
+import { fetchProjectRole } from '@/lib/api'
 import type { ProjectListItem } from '@/lib/api-types'
 import type { ProjectRole } from '@/lib/domain'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -34,12 +34,11 @@ export default function DashboardLayout({ children, params }: DashboardLayoutPro
       setDataLoading(true)
       setLoadError(false)
       try {
-        const visible = await fetchMyProjects(user!.id)
+        const result = await fetchProjectRole(projectId, user!.id)
         if (cancelled) return
-        const row = visible.find((p) => p.id === projectId)
-        if (row) {
-          setProjectRow(row)
-          setUserRole(row.my_role)
+        if (result) {
+          setProjectRow(result.project)
+          setUserRole(result.role)
           setLoadError(false)
         } else {
           setProjectRow(null)
@@ -57,7 +56,7 @@ export default function DashboardLayout({ children, params }: DashboardLayoutPro
     return () => {
       cancelled = true
     }
-  }, [isAuthenticated, projectId, user])
+  }, [isAuthenticated, projectId, user?.id])
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
