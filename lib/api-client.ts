@@ -122,11 +122,11 @@ export async function apiRequest<T>(path: string, init: ApiRequestOptions = {}):
 
 export async function loginRequest(email: string, password: string): Promise<LoginResponse> {
   /** OpenAPI: OAuth2-style form body; `username` holds the user's email. */
-  const body = new URLSearchParams({ username: email, password })
+  const body = {  email, password }
   return apiRequest<LoginResponse>('/auth/login', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
     auth: false,
   })
 }
