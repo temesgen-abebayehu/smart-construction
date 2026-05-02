@@ -17,7 +17,7 @@ export default function SignupPage() {
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
-    phone: '',
+    phone_number: '',
     password: '',
     confirm_password: '',
   })
@@ -52,7 +52,7 @@ export default function SignupPage() {
     const result = await signup({
       full_name: formData.full_name,
       email: formData.email,
-      phone: formData.phone || undefined,
+      phone_number: formData.phone_number || undefined,
       password: formData.password,
     })
     
@@ -150,11 +150,11 @@ export default function SignupPage() {
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone Number</Label>
                 <Input
-                  id="phone"
-                  name="phone"
+                  id="phone_number"
+                  name="phone_number"
                   type="tel"
                   placeholder="+251 91 123 4567"
-                  value={formData.phone}
+                  value={formData.phone_number}   
                   onChange={handleChange}
                   disabled={isLoading}
                 />

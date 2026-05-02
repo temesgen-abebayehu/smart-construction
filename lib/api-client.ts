@@ -136,13 +136,13 @@ export async function registerRequest(body: {
   email: string
   /** API field; `phone` is accepted as an alias from older forms */
   phone_number?: string
-  phone?: string
+  // phone?: string
   password: string
   is_admin?: boolean
   is_active?: boolean
 }) {
-  const { phone_number, phone, password, full_name, email, is_admin, is_active } = body
-  const num = phone_number ?? phone
+  const { phone_number, password, full_name, email, is_admin, is_active } = body
+  const num = phone_number
   const payload = {
     full_name,
     email,

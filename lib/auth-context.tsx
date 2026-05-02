@@ -25,7 +25,7 @@ interface AuthContextType {
   signup: (data: {
     full_name: string
     email: string
-    phone?: string
+    phone_number?: string
     password: string
   }) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
@@ -38,7 +38,7 @@ function mapUser(me: {
   id: string
   full_name: string
   email: string
-  phone?: string | null
+  phone_number?: string | null
   profile_photo_url?: string | null
   is_admin: boolean
   is_active: boolean
@@ -48,7 +48,7 @@ function mapUser(me: {
     id: me.id,
     full_name: me.full_name,
     email: me.email,
-    phone: me.phone ?? undefined,
+    phone_number: me.phone_number ?? undefined,
     profile_photo_url: me.profile_photo_url ?? undefined,
     is_admin: me.is_admin,
     is_active: me.is_active,
