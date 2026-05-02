@@ -99,40 +99,33 @@ export default function ReportsPage({ params }: ReportsPageProps) {
 
   const completedTasks = projectTasks.filter((task) => task.status === 'completed').length
   const inProgressTasks = projectTasks.filter((task) => task.status === 'in_progress').length
-  const delayedTasks = projectTasks.filter((task) => task.status === 'delayed').length
-  const pendingTasks = projectTasks.filter(
-    (task) => task.status === 'not_started' || task.status === 'pending_dependency',
-  ).length
+  const pendingTasks = projectTasks.filter((task) => task.status === 'pending').length
 
-  const totalBudget =
-    project.budget?.contract_value ??
-    projectTasks.reduce((sum, task) => sum + task.allocated_budget, 0)
-  const totalSpent =
-    project.budget?.total_spent ??
-    projectTasks.reduce((sum, task) => sum + task.spent_budget, 0)
+  const totalBudget = project.total_budget
+  const totalSpent = project.budget_spent
   const budgetRemaining = Math.max(totalBudget - totalSpent, 0)
 
-  const reviewedLogs = projectLogs.filter((log) => log.status === 'approved').length
-  const rejectedLogs = projectLogs.filter((log) => log.status === 'rejected').length
+  const approvedLogs = projectLogs.filter((log) => log.status === 'pm_approved').length
   const pendingLogs = projectLogs.filter((log) =>
-    ['submitted', 'under_review', 'consultant_approved'].includes(log.status),
+    ['submitted', 'reviewed', 'consultant_approved'].includes(log.status),
   ).length
+  const draftLogs = projectLogs.filter((log) => log.status === 'draft').length
   const dailyLogSummary = {
     submitted: projectLogs.length,
-    approved: reviewedLogs,
+    approved: approvedLogs,
     pending: pendingLogs,
-    rejected: rejectedLogs,
+    draft: draftLogs,
   }
 
   const riskScore = prediction
-    ? prediction.budget_overrun_pct != null
-      ? Math.min(95, prediction.budget_overrun_pct * 5 + (prediction.estimated_delay_days || 0) * 2)
+    ? prediction.budget_overrun_estimate != null
+      ? Math.min(95, prediction.budget_overrun_estimate / 1000 + (prediction.delay_estimate_days || 0) * 2)
       : prediction.risk_level === 'high'
         ? 78
         : prediction.risk_level === 'medium'
           ? 55
           : 32
-    : Math.min(95, 35 + delayedTasks * 14 + pendingLogs * 7)
+    : Math.min(95, 35 + pendingTasks * 14 + pendingLogs * 7)
 
   const reportDateTime = new Date().toLocaleString('en-US', {
     month: 'short',
@@ -333,8 +326,8 @@ export default function ReportsPage({ params }: ReportsPageProps) {
               <Progress value={projectTasks.length ? (inProgressTasks / projectTasks.length) * 100 : 0} className="h-2 [&>div]:bg-blue-500" />
             </div>
             <div>
-              <div className="mb-1 flex items-center justify-between text-sm"><span>Delayed Tasks</span><span className="text-red-600">{delayedTasks}</span></div>
-              <Progress value={projectTasks.length ? (delayedTasks / projectTasks.length) * 100 : 0} className="h-2 [&>div]:bg-red-500" />
+              <div className="mb-1 flex items-center justify-between text-sm"><span>Pending Tasks</span><span className="text-amber-600">{pendingTasks}</span></div>
+              <Progress value={projectTasks.length ? (pendingTasks / projectTasks.length) * 100 : 0} className="h-2 [&>div]:bg-red-500" />
             </div>
           </CardContent>
         </Card>
@@ -358,8 +351,8 @@ export default function ReportsPage({ params }: ReportsPageProps) {
               <p className="mt-2 text-3xl font-semibold text-amber-600">{dailyLogSummary.pending.toString().padStart(2, '0')}</p>
             </div>
             <div className="rounded-xl border border-border p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Rejected</p>
-              <p className="mt-2 text-3xl font-semibold text-red-600">{dailyLogSummary.rejected.toString().padStart(2, '0')}</p>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Drafts</p>
+              <p className="mt-2 text-3xl font-semibold text-red-600">{dailyLogSummary.draft.toString().padStart(2, '0')}</p>
             </div>
           </CardContent>
         </Card>

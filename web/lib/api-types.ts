@@ -2,17 +2,17 @@ import type { LogStatus, ProjectRole, ProjectStatus, TaskStatus } from './domain
 
 export type { ProjectRole, ProjectStatus, TaskStatus, LogStatus }
 
+/* ── Auth ── */
+
 export interface LoginResponse {
   access_token: string
   refresh_token: string
   token_type: string
-  expires_in: number
 }
 
 export interface RefreshResponse {
   access_token: string
   token_type: string
-  expires_in: number
 }
 
 export interface RegisterResponse {
@@ -23,16 +23,19 @@ export interface RegisterResponse {
   created_at: string
 }
 
+/** Backend UserResponse from GET /users/me */
 export interface UserMe {
   id: string
   full_name: string
   email: string
-  phone?: string | null
-  profile_photo_url?: string | null
+  phone_number?: string | null
   is_admin: boolean
   is_active: boolean
-  last_login_at?: string | null
+  created_at?: string | null
+  updated_at?: string | null
 }
+
+/* ── Generic ── */
 
 export interface Paginated<T> {
   total: number
@@ -40,6 +43,8 @@ export interface Paginated<T> {
   limit?: number
   data: T[]
 }
+
+/* ── Projects ── */
 
 export interface ProjectListItem {
   id: string
@@ -51,13 +56,13 @@ export interface ProjectListItem {
   location?: string | null
   my_role: ProjectRole
   client_name?: string | null
-  /** Present on API `ProjectResponse`; used to scope list until backend filters GET /projects. */
   owner_id?: string | null
 }
 
 export interface ProjectClientRef {
   id: string
   name: string
+  contact_email?: string | null
 }
 
 export interface ProjectManagerRef {
@@ -73,17 +78,17 @@ export interface ProjectBudget {
 
 export interface LatestPrediction {
   risk_level: string
-  reason: string
-  estimated_delay_days?: number
-  budget_overrun_pct?: number
-  recommendation?: string
+  delay_estimate_days: number
+  budget_overrun_estimate: number
+  confidence_score: number
+  factors: Record<string, unknown>
 }
 
 export interface TasksSummary {
   total: number
   completed: number
-  delayed: number
   in_progress: number
+  pending: number
 }
 
 export interface ProjectDetail {
@@ -94,75 +99,100 @@ export interface ProjectDetail {
   status: ProjectStatus
   planned_start_date?: string | null
   planned_end_date?: string | null
-  actual_start_date?: string | null
-  actual_end_date?: string | null
   overall_progress_pct: number
-  contract_number?: string | null
+  total_budget: number
+  budget_spent: number
   client?: ProjectClientRef | null
-  project_manager?: ProjectManagerRef | null
-  budget?: ProjectBudget | null
-  latest_prediction?: LatestPrediction | null
+  owner_id?: string | null
+  /** Populated from /dashboard endpoint */
   tasks_summary?: TasksSummary | null
-  pending_log_approvals?: number | null
+  /** Populated from /prediction endpoint */
+  latest_prediction?: LatestPrediction | null
 }
 
 export interface CreateProjectResponse {
   id: string
   name: string
   status: ProjectStatus
-  overall_progress_pct: number
-  created_at: string
+  progress_percentage: number
+  total_budget: number
+  budget_spent: number
+  owner_id?: string | null
+  created_at?: string
 }
 
 export interface CompanyListItem {
   id: string
   company_name: string
-  total_projects_completed?: number
-  active_projects?: number
 }
 
-/** API: `ClientResponse` from GET /clients */
+/** API: ClientResponse from GET /clients */
 export interface ClientListItem {
   id: string
   name: string
   contact_email?: string | null
 }
 
+/* ── Tasks ── */
+
+/** Backend TaskResponse */
 export interface TaskListItem {
   id: string
+  /** Backend field is `name` — normalized to `title` in api.ts */
   title: string
   status: TaskStatus
-  planned_start_date: string
-  planned_end_date: string
-  actual_start_date?: string | null
-  allocated_budget: number
-  spent_budget: number
-  weight_pct: number
-  cumulative_progress_pct: number
-  assigned_to?: { id?: string; full_name: string } | null
+  progress_percentage: number
+  start_date?: string | null
+  end_date?: string | null
+  project_id: string
 }
 
+/* ── Logs ── */
+
+/** Backend DailyLogResponse */
 export interface LogListItem {
   id: string
-  task?: { title: string; id?: string } | null
-  log_date: string
+  project_id: string
+  task_id?: string | null
+  created_by_id: string
+  date: string
   status: LogStatus
-  progress_pct_today: number
-  remarks?: string | null
-  submitted_by?: { full_name: string; id?: string } | null
+  notes?: string | null
+  weather?: string | null
 }
 
+export interface LogDetailResponse {
+  id: string
+  project_id: string
+  task_id?: string | null
+  created_by_id: string
+  date: string
+  status: LogStatus
+  notes?: string | null
+  weather?: string | null
+}
+
+/* ── Members ── */
+
+/** Backend ProjectMemberResponse — flat, no nested user */
 export interface ProjectMemberRow {
-  id?: string
+  id: string
+  user_id: string
+  project_id: string
+  role: ProjectRole
+}
+
+/** Frontend-enriched member with user details fetched separately */
+export interface EnrichedMemberRow {
+  id: string
   user: {
     id: string
     full_name: string
-    profile_photo_url?: string | null
     email?: string
-    phone?: string | null
+    phone_number?: string | null
   }
   role: ProjectRole
-  joined_at?: string
+  project_id: string
 }
 
 export interface MembersResponse {
@@ -170,39 +200,58 @@ export interface MembersResponse {
   data: ProjectMemberRow[]
 }
 
+/* ── Messages ── */
+
+/** Backend MessageResponse */
 export interface MessageRow {
   id: string
-  type: string
-  title: string
-  body: string
-  project_id?: string | null
-  entity_id?: string | null
+  user_id: string
+  content: string
   is_read: boolean
   created_at: string
 }
 
-export interface MessagesResponse extends Paginated<MessageRow> {
+export interface MessagesResponse {
+  total: number
+  data: MessageRow[]
   unread_count?: number
 }
 
-export interface LogDetailResponse {
-  id: string
-  task?: { id: string; title: string } | null
-  log_date: string
-  status: LogStatus
-  activities: string[] | string
-  progress_pct_today: number
-  remarks?: string | null
-  photos?: string[] | null
-  submitted_by?: { full_name: string; id?: string } | null
-  approval_chain?: Record<string, unknown>
-}
+/* ── Prediction ── */
 
 export interface PredictionResponse {
+  project_id: string
   risk_level: string
-  reason: string
-  estimated_delay_days?: number
-  budget_overrun_pct?: number
-  recommendation?: string
-  computed_at?: string
+  delay_estimate_days: number
+  budget_overrun_estimate: number
+  confidence_score: number
+  factors: Record<string, unknown>
+}
+
+/* ── Budget ── */
+
+export interface BudgetSummary {
+  total_budget: number
+  budget_spent: number
+  total_received: number
+  remaining: number
+}
+
+export interface BudgetItemResponse {
+  id: string
+  project_id: string
+  amount: number
+  description?: string | null
+  created_at: string
+}
+
+/* ── Invitations ── */
+
+export interface InvitationResponse {
+  id: string
+  project_id: string
+  email: string
+  role: ProjectRole
+  token: string
+  status: string
 }

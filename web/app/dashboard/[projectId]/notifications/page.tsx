@@ -6,17 +6,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
-  AlertTriangle,
   Bell,
   CheckCircle2,
-  ClipboardCheck,
-  FileText,
   Info,
-  Settings2,
-  Sparkles,
   Loader2,
 } from 'lucide-react'
-import { getProject, listMessages, markAllMessagesRead } from '@/lib/api'
+import { getProject, listMessages, markMessageRead } from '@/lib/api'
 import type { MessageRow, ProjectDetail } from '@/lib/api-types'
 import { useProjectRole } from '@/lib/project-role-context'
 
@@ -24,32 +19,13 @@ interface NotificationsPageProps {
   params: Promise<{ projectId: string }>
 }
 
-type NotificationCategory = 'risk' | 'log' | 'system' | 'assignment' | 'milestone'
-type NotificationFilter = 'all' | 'unread' | 'risk' | 'system'
+type NotificationFilter = 'all' | 'unread'
 
 type NotificationItem = {
   id: string
-  title: string
-  message: string
+  content: string
   time: string
-  category: NotificationCategory
   unread: boolean
-}
-
-const categoryConfig: Record<NotificationCategory, { label: string; icon: typeof Bell; pill: string; accent: string }> = {
-  risk: { label: 'Risk Alert', icon: AlertTriangle, pill: 'bg-red-100 text-red-700', accent: 'border-red-200 bg-red-50' },
-  log: { label: 'Daily Log', icon: ClipboardCheck, pill: 'bg-indigo-100 text-indigo-700', accent: 'border-indigo-200 bg-indigo-50' },
-  system: { label: 'System Update', icon: Settings2, pill: 'bg-slate-100 text-slate-700', accent: 'border-slate-200 bg-slate-50' },
-  assignment: { label: 'Assignment', icon: FileText, pill: 'bg-amber-100 text-amber-700', accent: 'border-amber-200 bg-amber-50' },
-  milestone: { label: 'Milestone', icon: Sparkles, pill: 'bg-emerald-100 text-emerald-700', accent: 'border-emerald-200 bg-emerald-50' },
-}
-
-function mapMessageType(type: string): NotificationCategory {
-  if (type === 'delay_risk' || type === 'budget_alert') return 'risk'
-  if (type === 'log_submitted' || type === 'log_approved' || type === 'log_rejected') return 'log'
-  if (type === 'task_assigned') return 'assignment'
-  if (type === 'project_update') return 'milestone'
-  return 'system'
 }
 
 function formatTime(iso: string) {
@@ -65,10 +41,8 @@ function formatTime(iso: string) {
 function mapRow(row: MessageRow): NotificationItem {
   return {
     id: row.id,
-    title: row.title,
-    message: row.body,
+    content: row.content,
     time: formatTime(row.created_at),
-    category: mapMessageType(row.type),
     unread: !row.is_read,
   }
 }
@@ -110,7 +84,7 @@ export default function NotificationsPage({ params }: NotificationsPageProps) {
       try {
         const [proj, msgRes] = await Promise.all([
           getProject(projectId),
-          listMessages({ project_id: projectId, limit: 100 }),
+          listMessages({ limit: 100 }),
         ])
         if (cancelled) return
         setProject(proj)
@@ -132,30 +106,31 @@ export default function NotificationsPage({ params }: NotificationsPageProps) {
   const filteredNotifications = useMemo(() => {
     return items.filter((item) => {
       if (filter === 'unread') return item.unread
-      if (filter === 'risk') return item.category === 'risk'
-      if (filter === 'system') return item.category === 'system'
       return true
     })
   }, [filter, items])
 
   const unreadCount = items.filter((item) => item.unread).length
 
-  const getNotificationHref = (notification: NotificationItem) => {
-    if (notification.category === 'risk') return `/dashboard/${projectId}/reports`
-    if (notification.category === 'log') return `/dashboard/${projectId}/logs`
-    if (notification.category === 'assignment') return `/dashboard/${projectId}`
-    return `/dashboard/${projectId}`
-  }
-
-  const handleMarkAll = async () => {
+  const handleMarkAllRead = async () => {
     setMarking(true)
     try {
-      await markAllMessagesRead()
+      const unreadItems = items.filter((i) => i.unread)
+      await Promise.all(unreadItems.map((i) => markMessageRead(i.id)))
       setItems((prev) => prev.map((i) => ({ ...i, unread: false })))
     } catch {
-      /* toast optional */
+      // silent
     } finally {
       setMarking(false)
+    }
+  }
+
+  const handleMarkRead = async (id: string) => {
+    try {
+      await markMessageRead(id)
+      setItems((prev) => prev.map((i) => i.id === id ? { ...i, unread: false } : i))
+    } catch {
+      // silent
     }
   }
 
@@ -176,7 +151,7 @@ export default function NotificationsPage({ params }: NotificationsPageProps) {
             <Badge className="rounded-full bg-blue-100 text-blue-700 hover:bg-blue-100">{unreadCount} unread</Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Project {project.name} • role {userRole.replace('_', ' ')}
+            Project {project.name} - role {userRole.replace(/_/g, ' ')}
           </p>
         </div>
 
@@ -184,7 +159,7 @@ export default function NotificationsPage({ params }: NotificationsPageProps) {
           variant="outline"
           className="gap-2 self-start shadow-sm"
           disabled={marking || unreadCount === 0}
-          onClick={() => void handleMarkAll()}
+          onClick={() => void handleMarkAllRead()}
         >
           <CheckCircle2 className="h-4 w-4" />
           Mark all as read
@@ -194,58 +169,44 @@ export default function NotificationsPage({ params }: NotificationsPageProps) {
       <div className="flex flex-wrap gap-2">
         <FilterChip active={filter === 'all'} onClick={() => setFilter('all')}>All</FilterChip>
         <FilterChip active={filter === 'unread'} onClick={() => setFilter('unread')}>Unread</FilterChip>
-        <FilterChip active={filter === 'risk'} onClick={() => setFilter('risk')}>Risk Alerts</FilterChip>
-        <FilterChip active={filter === 'system'} onClick={() => setFilter('system')}>System Updates</FilterChip>
       </div>
 
       <div className="space-y-4">
-        {filteredNotifications.map((notification) => {
-          const config = categoryConfig[notification.category]
-          const Icon = config.icon
+        {filteredNotifications.map((notification) => (
+          <Card
+            key={notification.id}
+            className={`overflow-hidden border shadow-sm transition-shadow hover:shadow-md cursor-pointer ${notification.unread ? 'border-l-4 border-l-blue-600' : ''}`}
+            onClick={() => notification.unread && handleMarkRead(notification.id)}
+          >
+            <CardContent className="p-0">
+              <div className="flex items-start gap-4 p-4 sm:p-5">
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-50">
+                  <Bell className={`h-5 w-5 ${notification.unread ? 'text-blue-600' : 'text-slate-600'}`} />
+                </div>
 
-          return (
-            <Link key={notification.id} href={getNotificationHref(notification)} className="block">
-              <Card
-                className={`overflow-hidden border shadow-sm transition-shadow hover:shadow-md ${notification.unread ? 'border-l-4 border-l-blue-600' : ''}`}
-              >
-                <CardContent className="p-0">
-                  <div className="flex items-start gap-4 p-4 sm:p-5">
-                    <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl border ${config.accent}`}>
-                      <Icon className={`h-5 w-5 ${notification.unread ? 'text-red-600' : 'text-slate-600'}`} />
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h2 className="font-semibold leading-none tracking-tight">{notification.title}</h2>
-                            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${config.pill}`}>
-                              {config.label}
-                            </span>
-                          </div>
-                          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{notification.message}</p>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-muted-foreground">{notification.time}</span>
-                          {notification.unread ? <span className="h-2.5 w-2.5 rounded-full bg-blue-700" /> : null}
-                        </div>
-                      </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <p className="text-sm leading-6 text-foreground">{notification.content}</p>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground">{notification.time}</span>
+                      {notification.unread ? <span className="h-2.5 w-2.5 rounded-full bg-blue-700" /> : null}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            </Link>
-          )
-        })}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       {filteredNotifications.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-14 text-center">
             <Info className="mb-3 h-10 w-10 text-muted-foreground/60" />
-            <h2 className="text-base font-medium">No notifications match this filter</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Try switching back to All or Unread.</p>
+            <h2 className="text-base font-medium">No notifications</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {filter === 'unread' ? 'All messages are read.' : 'No messages yet.'}
+            </p>
           </CardContent>
         </Card>
       ) : null}

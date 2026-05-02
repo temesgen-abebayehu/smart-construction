@@ -1,12 +1,15 @@
 import { apiRequest } from './api-client'
 import type {
+  BudgetItemResponse,
+  BudgetSummary,
   ClientListItem,
   CompanyListItem,
   CreateProjectResponse,
+  EnrichedMemberRow,
+  InvitationResponse,
   LogDetailResponse,
   LogListItem,
-  MembersResponse,
-  MessagesResponse,
+  MessageRow,
   Paginated,
   PredictionResponse,
   ProjectDetail,
@@ -17,7 +20,10 @@ import type {
 } from './api-types'
 import type { AuthUser, ProjectRole, ProjectStatus } from './domain'
 
+/* ── Constants ── */
+
 const PROJECT_ROLES: ProjectRole[] = [
+  'owner',
   'project_manager',
   'office_engineer',
   'consultant',
@@ -25,35 +31,23 @@ const PROJECT_ROLES: ProjectRole[] = [
 ]
 
 const PROJECT_STATUSES: ProjectStatus[] = [
-  'draft',
-  'active',
-  'at_risk',
-  'delayed',
+  'planning',
+  'in_progress',
   'completed',
-  'cancelled',
+  'on_hold',
 ]
 
+/* ── Helpers ── */
+
 function parseProjectListRole(v: unknown): ProjectRole {
-  return typeof v === 'string' && PROJECT_ROLES.includes(v as ProjectRole)
-    ? (v as ProjectRole)
-    : 'site_engineer'
+  if (typeof v === 'string' && PROJECT_ROLES.includes(v as ProjectRole)) return v as ProjectRole
+  return 'site_engineer'
 }
 
 function parseProjectListStatus(v: unknown): ProjectStatus {
-  if (typeof v !== 'string') return 'active'
+  if (typeof v !== 'string') return 'planning'
   if (PROJECT_STATUSES.includes(v as ProjectStatus)) return v as ProjectStatus
-  if (v === 'planning') return 'draft'
-  return 'active'
-}
-
-function parseOverallProgressPct(raw: unknown): number {
-  const v = raw
-  if (typeof v === 'number' && !Number.isNaN(v)) return v
-  if (typeof v === 'string') {
-    const n = parseFloat(v)
-    if (!Number.isNaN(n)) return n
-  }
-  return 0
+  return 'planning'
 }
 
 function parseFiniteNumber(raw: unknown, fallback = 0): number {
@@ -65,15 +59,25 @@ function parseFiniteNumber(raw: unknown, fallback = 0): number {
   return fallback
 }
 
-/** List endpoint may return OpenAPI `ProjectResponse` (e.g. `progress_percentage`) without `my_role`. */
+const q = (params: Record<string, string | number | boolean | undefined>) => {
+  const u = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '') u.set(k, String(v))
+  }
+  const s = u.toString()
+  return s ? `?${s}` : ''
+}
+
+/* ── Normalizers ── */
+
+/** Backend ProjectResponse → frontend ProjectListItem */
 function normalizeProjectListItem(raw: unknown): ProjectListItem {
   const r = raw as Record<string, unknown>
-  const progress = parseOverallProgressPct(
-    r.overall_progress_pct ?? r.progress_percentage ?? r.progress_pct,
-  )
+  const progress = parseFiniteNumber(r.progress_percentage ?? r.overall_progress_pct)
   const ownerRaw = r.owner_id
-  const owner_id =
-    typeof ownerRaw === 'string' ? ownerRaw : ownerRaw != null ? String(ownerRaw) : null
+  const owner_id = typeof ownerRaw === 'string' ? ownerRaw : ownerRaw != null ? String(ownerRaw) : null
+
+  const clientObj = r.client as Record<string, unknown> | null | undefined
 
   return {
     id: String(r.id ?? ''),
@@ -84,44 +88,73 @@ function normalizeProjectListItem(raw: unknown): ProjectListItem {
     planned_start_date: (r.planned_start_date as string | null | undefined) ?? null,
     location: (r.location as string | null | undefined) ?? null,
     my_role: parseProjectListRole(r.my_role),
-    client_name: (r.client_name as string | null | undefined) ?? null,
+    client_name: clientObj ? String(clientObj.name ?? '') : null,
     owner_id,
   }
 }
 
-/**
- * Deployed GET /projects returns all rows. Until the API scopes by membership, non-admins only see
- * projects they own. Admins keep full list. Non-owner collaborators need backend support (e.g. my_role on list or /me/projects).
- */
+/** Backend ProjectResponse → frontend ProjectDetail */
+function normalizeProjectDetail(raw: unknown): ProjectDetail {
+  const r = raw as Record<string, unknown>
+  const overall_progress_pct = parseFiniteNumber(r.progress_percentage ?? r.overall_progress_pct)
+
+  return {
+    id: String(r.id ?? ''),
+    name: String(r.name ?? ''),
+    description: (r.description as string | null | undefined) ?? null,
+    location: String(r.location ?? ''),
+    status: parseProjectListStatus(r.status),
+    planned_start_date: (r.planned_start_date as string | null | undefined) ?? null,
+    planned_end_date: (r.planned_end_date as string | null | undefined) ?? null,
+    overall_progress_pct,
+    total_budget: parseFiniteNumber(r.total_budget),
+    budget_spent: parseFiniteNumber(r.budget_spent),
+    client: (r.client as ProjectDetail['client']) ?? null,
+    owner_id: r.owner_id ? String(r.owner_id) : null,
+  }
+}
+
+/** Backend TaskResponse → frontend TaskListItem (name → title) */
+function normalizeTaskItem(raw: unknown): TaskListItem {
+  const r = raw as Record<string, unknown>
+  return {
+    id: String(r.id ?? ''),
+    title: String(r.name ?? r.title ?? ''),
+    status: (r.status as TaskListItem['status']) ?? 'pending',
+    progress_percentage: parseFiniteNumber(r.progress_percentage),
+    start_date: (r.start_date as string | null | undefined) ?? null,
+    end_date: (r.end_date as string | null | undefined) ?? null,
+    project_id: String(r.project_id ?? ''),
+  }
+}
+
+/** Backend DailyLogResponse → frontend LogListItem */
+function normalizeLogItem(raw: unknown): LogListItem {
+  const r = raw as Record<string, unknown>
+  return {
+    id: String(r.id ?? ''),
+    project_id: String(r.project_id ?? ''),
+    task_id: r.task_id ? String(r.task_id) : null,
+    created_by_id: String(r.created_by_id ?? ''),
+    date: String(r.date ?? ''),
+    status: (r.status as LogListItem['status']) ?? 'draft',
+    notes: (r.notes as string | null | undefined) ?? null,
+    weather: (r.weather as string | null | undefined) ?? null,
+  }
+}
+
+/* ── Project visibility ── */
+
 export function projectsVisibleToUser(items: ProjectListItem[], user: AuthUser | null): ProjectListItem[] {
   if (!user) return []
   if (user.is_admin) return items
   return items.filter((p) => p.owner_id != null && p.owner_id === user.id)
 }
 
-const q = (params: Record<string, string | number | boolean | undefined>) => {
-  const u = new URLSearchParams()
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== '') u.set(k, String(v))
-  }
-  const s = u.toString()
-  return s ? `?${s}` : ''
-}
-
-export function parseActivitiesField(activities: string[] | string | undefined | null): string[] {
-  if (activities == null) return []
-  if (Array.isArray(activities)) return activities
-  try {
-    const parsed = JSON.parse(activities) as unknown
-    return Array.isArray(parsed) ? (parsed as string[]) : [activities]
-  } catch {
-    return [activities]
-  }
-}
+/* ── Projects ── */
 
 export async function listProjects(params?: {
   status?: string
-  /** Offset; API uses `skip` (not `page`). */
   skip?: number
   page?: number
   limit?: number
@@ -130,11 +163,7 @@ export async function listProjects(params?: {
   const skip =
     params?.skip ??
     (params?.page != null && limit != null ? Math.max(0, (params.page - 1) * limit) : undefined)
-  const query = q({
-    status: params?.status,
-    limit,
-    skip,
-  })
+  const query = q({ status: params?.status, limit, skip })
   const res = await apiRequest<Paginated<ProjectListItem> | ProjectListItem[]>(`/projects${query}`)
   if (Array.isArray(res)) {
     return {
@@ -153,83 +182,64 @@ export async function listProjects(params?: {
   }
 }
 
-/**
- * GET /projects/{id} returns OpenAPI `ProjectResponse` (`progress_percentage`, `total_budget`, `budget_spent`),
- * while the app expects `ProjectDetail` (`overall_progress_pct`, `budget`, …).
- */
-function normalizeProjectDetail(raw: unknown): ProjectDetail {
-  const r = raw as Record<string, unknown>
-  const overall_progress_pct = parseOverallProgressPct(
-    r.overall_progress_pct ?? r.progress_percentage ?? r.progress_pct,
-  )
-
-  const nestedBudget = r.budget
-  let budget: ProjectDetail['budget'] | null = null
-  if (
-    nestedBudget &&
-    typeof nestedBudget === 'object' &&
-    nestedBudget !== null &&
-    'contract_value' in (nestedBudget as object)
-  ) {
-    const b = nestedBudget as { contract_value?: unknown; total_spent?: unknown; total_received?: unknown }
-    budget = {
-      contract_value: parseFiniteNumber(b.contract_value),
-      total_spent: parseFiniteNumber(b.total_spent),
-      total_received: parseFiniteNumber(b.total_received),
-    }
-  } else if (r.total_budget != null || r.budget_spent != null) {
-    budget = {
-      contract_value: parseFiniteNumber(r.total_budget),
-      total_spent: parseFiniteNumber(r.budget_spent),
-      total_received: parseFiniteNumber((r as { total_received?: unknown }).total_received),
-    }
-  }
-
-  return {
-    id: String(r.id ?? ''),
-    name: String(r.name ?? ''),
-    description: (r.description as string | null | undefined) ?? null,
-    location: String(r.location ?? ''),
-    status: parseProjectListStatus(r.status),
-    planned_start_date: (r.planned_start_date as string | null | undefined) ?? null,
-    planned_end_date: (r.planned_end_date as string | null | undefined) ?? null,
-    actual_start_date: (r.actual_start_date as string | null | undefined) ?? null,
-    actual_end_date: (r.actual_end_date as string | null | undefined) ?? null,
-    overall_progress_pct,
-    contract_number: (r.contract_number as string | null | undefined) ?? null,
-    client: (r.client as ProjectDetail['client']) ?? null,
-    project_manager: (r.project_manager as ProjectDetail['project_manager']) ?? null,
-    budget,
-    latest_prediction: (r.latest_prediction as ProjectDetail['latest_prediction']) ?? null,
-    tasks_summary: (r.tasks_summary as ProjectDetail['tasks_summary']) ?? null,
-    pending_log_approvals:
-      typeof r.pending_log_approvals === 'number' ? r.pending_log_approvals : null,
-  }
-}
-
 export async function getProject(projectId: string) {
   const raw = await apiRequest<unknown>(`/projects/${projectId}`)
   return normalizeProjectDetail(raw)
 }
 
+export async function getProjectDashboard(projectId: string) {
+  return apiRequest<{
+    id: string
+    name: string
+    progress_percentage: number
+    total_budget: number
+    budget_spent: number
+    task_summary: { total: number; completed: number; in_progress: number; pending: number }
+    delay_risk_status: string
+  }>(`/projects/${projectId}/dashboard`)
+}
+
 export async function createProject(body: {
   name: string
-  /** Required by API (`ProjectCreate`). */
   total_budget: number
   description?: string | null
   location?: string | null
-  latitude?: number
-  longitude?: number
-  /** ISO 8601 date-time string (e.g. `2025-04-11T00:00:00`). */
   planned_start_date?: string | null
   planned_end_date?: string | null
-  client_id?: string | null
+  client_name: string
+  client_email: string
 }) {
   return apiRequest<CreateProjectResponse>('/projects', {
     method: 'POST',
     body: JSON.stringify(body),
   })
 }
+
+export async function updateProject(
+  projectId: string,
+  body: {
+    name?: string
+    description?: string
+    location?: string
+    status?: ProjectStatus
+    total_budget?: number
+    progress_percentage?: number
+    budget_spent?: number
+    planned_start_date?: string
+    planned_end_date?: string
+  },
+) {
+  return apiRequest<unknown>(`/projects/${projectId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteProject(projectId: string) {
+  return apiRequest<void>(`/projects/${projectId}`, { method: 'DELETE' })
+}
+
+/* ── Clients ── */
 
 function normalizeClientRow(raw: unknown): ClientListItem {
   const r = raw as Record<string, unknown>
@@ -240,7 +250,6 @@ function normalizeClientRow(raw: unknown): ClientListItem {
   }
 }
 
-/** GET /clients — returns an array per OpenAPI; supports optional local `search` filter. */
 export async function listClients(params?: {
   search?: string
   skip?: number
@@ -270,7 +279,14 @@ export async function listClients(params?: {
   }
 }
 
-/** @deprecated Prefer `listClients` — backend route is `/api/v1/clients`. */
+export async function createClient(body: { name: string; contact_email?: string }) {
+  return apiRequest<ClientListItem>('/clients', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+/** @deprecated Prefer listClients */
 export async function listCompanies(params?: { search?: string; page?: number; limit?: number }) {
   const { data, ...rest } = await listClients(params)
   const mapped: CompanyListItem[] = data.map((c) => ({
@@ -280,42 +296,62 @@ export async function listCompanies(params?: { search?: string; page?: number; l
   return { ...rest, data: mapped }
 }
 
+/* ── Tasks ── */
+
 export async function listProjectTasks(
   projectId: string,
-  params?: { status?: string; assigned_to?: string; page?: number; limit?: number; skip?: number },
+  params?: { status?: string; page?: number; limit?: number; skip?: number },
 ) {
   const limit = params?.limit
   const skip =
     params?.skip ??
     (params?.page != null && limit != null ? Math.max(0, (params.page - 1) * limit) : undefined)
-  const res = await apiRequest<TaskListItem[] | Paginated<TaskListItem>>(
+  const res = await apiRequest<unknown[]>(
     `/projects/${projectId}/tasks${q({ status: params?.status, limit, skip })}`,
   )
-  if (Array.isArray(res)) {
-    return {
-      total: res.length,
-      data: res,
-      page: params?.page,
-      limit: params?.limit ?? res.length,
-    }
-  }
-  const data = Array.isArray(res.data) ? res.data : []
+  const data = (Array.isArray(res) ? res : []).map(normalizeTaskItem)
   return {
-    total: res.total ?? data.length,
-    page: res.page,
-    limit: res.limit,
+    total: data.length,
     data,
+    page: params?.page,
+    limit: params?.limit ?? data.length,
   }
 }
 
-/** OpenAPI: `GET /projects/{project_id}/daily-logs` returns an array of daily logs. */
+export async function createTask(
+  projectId: string,
+  body: { name: string; status?: string; start_date?: string; end_date?: string },
+) {
+  return apiRequest<TaskListItem>(`/projects/${projectId}/tasks`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function getTask(taskId: string) {
+  return apiRequest<TaskListItem>(`/projects/tasks/${taskId}`)
+}
+
+export async function updateTask(
+  taskId: string,
+  body: { name?: string; status?: string; progress_percentage?: number; start_date?: string; end_date?: string },
+) {
+  return apiRequest<TaskListItem>(`/projects/tasks/${taskId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteTask(taskId: string) {
+  return apiRequest<void>(`/projects/tasks/${taskId}`, { method: 'DELETE' })
+}
+
+/* ── Daily Logs ── */
+
 export async function listProjectLogs(
   projectId: string,
   params?: {
-    task_id?: string
     status?: string
-    date_from?: string
-    date_to?: string
     page?: number
     limit?: number
     skip?: number
@@ -325,23 +361,15 @@ export async function listProjectLogs(
   const skip =
     params?.skip ??
     (params?.page != null && limit != null ? Math.max(0, (params.page - 1) * limit) : undefined)
-  const res = await apiRequest<LogListItem[] | Paginated<LogListItem>>(
+  const res = await apiRequest<unknown[]>(
     `/projects/${projectId}/daily-logs${q({ status: params?.status, limit, skip })}`,
   )
-  if (Array.isArray(res)) {
-    return {
-      total: res.length,
-      data: res,
-      page: params?.page,
-      limit: params?.limit ?? res.length,
-    }
-  }
-  const data = Array.isArray(res.data) ? res.data : []
+  const data = (Array.isArray(res) ? res : []).map(normalizeLogItem)
   return {
-    total: res.total ?? data.length,
-    page: res.page,
-    limit: res.limit,
+    total: data.length,
     data,
+    page: params?.page,
+    limit: params?.limit ?? data.length,
   }
 }
 
@@ -349,72 +377,206 @@ export async function getLog(logId: string) {
   return apiRequest<LogDetailResponse>(`/daily-logs/${logId}`)
 }
 
-export async function listProjectMembers(projectId: string) {
-  return apiRequest<MembersResponse>(`/projects/${projectId}/members`)
+export async function createDailyLog(
+  projectId: string,
+  body: { date?: string; notes?: string; weather?: string },
+  taskId?: string,
+) {
+  const path = taskId
+    ? `/projects/${projectId}/tasks/${taskId}/daily-logs`
+    : `/projects/${projectId}/daily-logs`
+  return apiRequest<LogDetailResponse>(path, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 }
+
+// Daily log workflow transitions
+export async function submitLog(logId: string) {
+  return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/submit`, { method: 'PATCH' })
+}
+
+export async function reviewLog(logId: string) {
+  return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/review`, { method: 'PATCH' })
+}
+
+export async function consultantApproveLog(logId: string) {
+  return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/consultant-approve`, { method: 'PATCH' })
+}
+
+export async function pmApproveLog(logId: string) {
+  return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/pm-approve`, { method: 'PATCH' })
+}
+
+export async function rejectLog(logId: string) {
+  return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/reject`, { method: 'PATCH' })
+}
+
+// Daily log sub-entities
+export async function listLogShifts(logId: string) {
+  return apiRequest<{ id: string; log_id: string; shift_type: string }[]>(`/daily-logs/${logId}/shifts`)
+}
+
+export async function addLogShift(logId: string, body: { shift_type: string }) {
+  return apiRequest(`/daily-logs/${logId}/shifts`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function listLogLabor(logId: string) {
+  return apiRequest<{ id: string; log_id: string; worker_type: string; hours_worked: number; cost: number }[]>(
+    `/daily-logs/${logId}/labor`,
+  )
+}
+
+export async function addLogLabor(logId: string, body: { worker_type: string; hours_worked: number; cost: number }) {
+  return apiRequest(`/daily-logs/${logId}/labor`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function listLogMaterials(logId: string) {
+  return apiRequest<{ id: string; log_id: string; name: string; quantity: number; unit: string; cost: number }[]>(
+    `/daily-logs/${logId}/materials`,
+  )
+}
+
+export async function addLogMaterial(
+  logId: string,
+  body: { name: string; quantity: number; unit: string; cost: number },
+) {
+  return apiRequest(`/daily-logs/${logId}/materials`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function listLogEquipment(logId: string) {
+  return apiRequest<{ id: string; log_id: string; name: string; hours_used: number; cost: number }[]>(
+    `/daily-logs/${logId}/equipment`,
+  )
+}
+
+export async function addLogEquipment(logId: string, body: { name: string; hours_used: number; cost: number }) {
+  return apiRequest(`/daily-logs/${logId}/equipment`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+/* ── Members ── */
+
+export async function listProjectMembers(projectId: string) {
+  const res = await apiRequest<ProjectMemberRow[] | { data: ProjectMemberRow[] }>(
+    `/projects/${projectId}/members`,
+  )
+  const members = Array.isArray(res) ? res : Array.isArray(res.data) ? res.data : []
+  return { total: members.length, data: members }
+}
+
+/** Enrich flat member rows with user details */
+export async function listProjectMembersEnriched(projectId: string): Promise<EnrichedMemberRow[]> {
+  const { data: members } = await listProjectMembers(projectId)
+  const enriched: EnrichedMemberRow[] = []
+  for (const m of members) {
+    try {
+      const user = await apiRequest<UserMe>(`/users/${m.user_id}`)
+      enriched.push({
+        id: m.id,
+        user: {
+          id: user.id,
+          full_name: user.full_name,
+          email: user.email,
+          phone_number: user.phone_number,
+        },
+        role: m.role,
+        project_id: m.project_id,
+      })
+    } catch {
+      enriched.push({
+        id: m.id,
+        user: {
+          id: m.user_id,
+          full_name: 'Unknown User',
+          email: '',
+        },
+        role: m.role,
+        project_id: m.project_id,
+      })
+    }
+  }
+  return enriched
+}
+
+/* ── Messages ── */
 
 export async function listMessages(params?: {
   is_read?: boolean
-  type?: string
-  project_id?: string
   page?: number
   limit?: number
 }) {
-  return apiRequest<MessagesResponse>(`/messages${q(params || {})}`)
+  const res = await apiRequest<MessageRow[]>(`/messages${q(params || {})}`)
+  const data = Array.isArray(res) ? res : []
+  const unread_count = data.filter((m) => !m.is_read).length
+  return {
+    total: data.length,
+    data,
+    unread_count,
+  }
 }
 
 export async function markMessageRead(messageId: string) {
-  return apiRequest(`/messages/${messageId}/read`, { method: 'POST' })
+  return apiRequest(`/messages/${messageId}/read`, { method: 'PATCH' })
 }
 
-export async function markAllMessagesRead() {
-  return apiRequest<{ message?: string; count?: number }>('/messages/read-all', {
-    method: 'POST',
-  })
-}
+/* ── Prediction ── */
 
 export async function getPrediction(projectId: string) {
   return apiRequest<PredictionResponse>(`/projects/${projectId}/prediction`)
 }
 
+/* ── Budget ── */
+
+export async function getProjectBudget(projectId: string) {
+  return apiRequest<BudgetSummary>(`/projects/${projectId}/budget`)
+}
+
+export async function listBudgetItems(projectId: string) {
+  return apiRequest<BudgetItemResponse[]>(`/projects/${projectId}/budget-items`)
+}
+
+export async function createBudgetItem(projectId: string, body: { amount: number; description?: string }) {
+  return apiRequest<BudgetItemResponse>(`/projects/${projectId}/budget-items`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+/* ── User profile ── */
+
 export async function updateMe(body: {
   full_name?: string
-  phone?: string
-  profile_photo_url?: string
+  phone_number?: string
+  email?: string
   password?: string
-  current_password?: string
 }) {
-  return apiRequest<{ message?: string; user: UserMe }>('/users/me', {
+  return apiRequest<UserMe>('/users/me', {
     method: 'PUT',
     body: JSON.stringify(body),
   })
 }
 
-/* ------------------------------------------------------------------ */
-/*  Project member management                                         */
-/* ------------------------------------------------------------------ */
+/* ── Project member management ── */
 
 export async function inviteProjectMember(
   projectId: string,
   body: { email: string; role: ProjectRole },
 ) {
-  return apiRequest<{ id: string; email: string; role: string; status: string }>(
+  return apiRequest<InvitationResponse>(
     `/projects/${projectId}/invitations`,
     { method: 'POST', body: JSON.stringify(body) },
   )
 }
 
 export async function listProjectInvitations(projectId: string) {
-  return apiRequest<{ id: string; email: string; role: string; status: string; token?: string }[]>(
-    `/projects/${projectId}/invitations`,
-  )
+  return apiRequest<InvitationResponse[]>(`/projects/${projectId}/invitations`)
 }
 
 export async function addProjectMember(
   projectId: string,
   body: { user_id: string; role: ProjectRole },
 ) {
-  return apiRequest<{ user_id: string; role: string; id: string; project_id: string }>(
+  return apiRequest<ProjectMemberRow>(
     `/projects/${projectId}/members`,
     { method: 'POST', body: JSON.stringify(body) },
   )
@@ -425,7 +587,7 @@ export async function updateMemberRole(
   userId: string,
   role: ProjectRole,
 ) {
-  return apiRequest<unknown>(`/projects/${projectId}/members/${userId}`, {
+  return apiRequest<ProjectMemberRow>(`/projects/${projectId}/members/${userId}`, {
     method: 'PATCH',
     body: JSON.stringify({ role }),
   })
@@ -438,24 +600,20 @@ export async function removeMember(projectId: string, userId: string) {
 }
 
 export async function acceptInvitation(token: string) {
-  return apiRequest<unknown>('/projects/invitations/accept', {
+  return apiRequest<ProjectMemberRow>('/projects/invitations/accept', {
     method: 'POST',
     body: JSON.stringify({ token }),
   })
 }
 
-/* ------------------------------------------------------------------ */
-/*  Membership-aware project fetching                                 */
-/* ------------------------------------------------------------------ */
+/* ── Membership-aware project fetching ── */
 
 function extractMemberUserId(m: unknown): string | null {
   if (!m || typeof m !== 'object') return null
   const row = m as Record<string, unknown>
-  // Nested user object (full response)
   if (row.user && typeof row.user === 'object' && (row.user as Record<string, unknown>).id) {
     return String((row.user as Record<string, unknown>).id)
   }
-  // Flat user_id field
   if (row.user_id) return String(row.user_id)
   return null
 }
@@ -469,14 +627,6 @@ function extractMemberRole(m: unknown): ProjectRole {
   return 'site_engineer'
 }
 
-/**
- * Fetch all projects the current user belongs to (as owner or member).
- * Works around the lack of a backend `GET /users/me/projects` endpoint
- * by fetching all projects then checking membership in parallel.
- *
- * Results are cached for 5 seconds to avoid redundant API storms when
- * multiple components call this on mount.
- */
 let _myProjectsCache: { userId: string; ts: number; data: ProjectListItem[] } | null = null
 const CACHE_TTL = 5_000
 
@@ -487,7 +637,6 @@ export async function fetchMyProjects(userId: string): Promise<ProjectListItem[]
 
   const { data: allProjects } = await listProjects({ limit: 200 })
 
-  // Batch member checks in groups of 6 to avoid overloading the server
   const BATCH_SIZE = 6
   const membersByProject = new Map<string, unknown[]>()
 
@@ -509,7 +658,6 @@ export async function fetchMyProjects(userId: string): Promise<ProjectListItem[]
 
   const filtered = allProjects
     .filter((p) => {
-      // Owner always sees their projects
       if (p.owner_id === userId) return true
       const members = membersByProject.get(p.id)
       if (!members) return false
@@ -530,10 +678,6 @@ export async function fetchMyProjects(userId: string): Promise<ProjectListItem[]
   return filtered
 }
 
-/**
- * Fetch a single project's role for the current user.
- * Much cheaper than fetchMyProjects() — only 2 API calls instead of N+1.
- */
 export async function fetchProjectRole(
   projectId: string,
   userId: string,
@@ -546,11 +690,11 @@ export async function fetchProjectRole(
     const r = rawProject as Record<string, unknown>
     const members = Array.isArray(membersRes)
       ? membersRes
-      : Array.isArray((membersRes as { data?: unknown[] }).data)
-        ? (membersRes as { data: unknown[] }).data
+      : Array.isArray(membersRes.data)
+        ? membersRes.data
         : []
 
-    const isOwner = r.owner_id === userId
+    const isOwner = r.owner_id === userId || String(r.owner_id) === userId
     const myMember = members.find((m: unknown) => extractMemberUserId(m) === userId)
 
     if (!isOwner && !myMember) return null
@@ -565,11 +709,11 @@ export async function fetchProjectRole(
     const project: ProjectListItem = {
       id: String(r.id ?? ''),
       name: String(r.name ?? ''),
-      status: (r.status as ProjectStatus) ?? 'draft',
+      status: parseProjectListStatus(r.status),
       location: (r.location as string) ?? '',
       client_name: clientObj ? String(clientObj.name ?? '') : '',
       planned_end_date: (r.planned_end_date as string) ?? '',
-      overall_progress_pct: parseFiniteNumber(r.overall_progress_pct ?? r.progress_percentage ?? r.progress_pct),
+      overall_progress_pct: parseFiniteNumber(r.progress_percentage ?? r.overall_progress_pct),
       owner_id: String(r.owner_id ?? ''),
       my_role: role,
     }

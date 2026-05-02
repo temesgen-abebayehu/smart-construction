@@ -39,20 +39,20 @@ function mapUser(me: {
   full_name: string
   email: string
   phone_number?: string | null
-  profile_photo_url?: string | null
   is_admin: boolean
   is_active: boolean
-  last_login_at?: string | null
+  created_at?: string | null
+  updated_at?: string | null
 }): AuthUser {
   return {
     id: me.id,
     full_name: me.full_name,
     email: me.email,
     phone_number: me.phone_number ?? undefined,
-    profile_photo_url: me.profile_photo_url ?? undefined,
     is_admin: me.is_admin,
     is_active: me.is_active,
-    last_login_at: me.last_login_at ?? undefined,
+    created_at: me.created_at ?? undefined,
+    updated_at: me.updated_at ?? undefined,
   }
 }
 

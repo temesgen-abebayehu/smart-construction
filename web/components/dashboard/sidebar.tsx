@@ -18,7 +18,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
@@ -39,43 +39,37 @@ const getNavItems = (projectId: string, role: ProjectRole) => {
       label: 'Dashboard',
       href: `/dashboard/${projectId}`,
       icon: LayoutDashboard,
-      roles: ['project_manager', 'office_engineer', 'consultant', 'site_engineer'] as ProjectRole[],
+      roles: ['owner', 'project_manager', 'office_engineer', 'consultant', 'site_engineer'] as ProjectRole[],
     },
     {
       label: 'Tasks',
       href: `/dashboard/${projectId}/tasks`,
       icon: ListTodo,
-      roles: ['project_manager', 'office_engineer', 'consultant', 'site_engineer'] as ProjectRole[],
+      roles: ['owner', 'project_manager', 'office_engineer', 'consultant', 'site_engineer'] as ProjectRole[],
     },
     {
       label: 'Daily Logs',
       href: `/dashboard/${projectId}/logs`,
       icon: ClipboardList,
-      roles: ['project_manager', 'office_engineer', 'consultant', 'site_engineer'] as ProjectRole[],
+      roles: ['owner', 'project_manager', 'office_engineer', 'consultant', 'site_engineer'] as ProjectRole[],
     },
     {
       label: 'Team',
       href: `/dashboard/${projectId}/team`,
       icon: Users,
-      roles: ['project_manager', 'office_engineer'] as ProjectRole[],
+      roles: ['owner', 'project_manager', 'office_engineer'] as ProjectRole[],
     },
     {
       label: 'Reports',
       href: `/dashboard/${projectId}/reports`,
       icon: FileText,
-      roles: ['project_manager'] as ProjectRole[],
+      roles: ['owner', 'project_manager'] as ProjectRole[],
     },
-    // {
-    //   label: 'Budget',
-    //   href: `/dashboard/${projectId}/budget`,
-    //   icon: DollarSign,
-    //   roles: ['project_manager'] as ProjectRole[],
-    // },
     {
       label: 'Settings',
       href: `/dashboard/${projectId}/settings`,
       icon: Settings,
-      roles: ['project_manager'] as ProjectRole[],
+      roles: ['owner', 'project_manager'] as ProjectRole[],
     },
   ]
 
@@ -184,7 +178,6 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
         )}>
           <Link href={`/dashboard/${projectId}/profile`} className={cn("flex min-w-0 flex-1 items-center gap-3", collapsed && "justify-center") }>
             <Avatar className="h-9 w-9">
-              <AvatarImage src={user?.profile_photo_url ?? undefined} />
               <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground text-xs">
                 {initials}
               </AvatarFallback>

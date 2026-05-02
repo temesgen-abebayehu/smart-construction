@@ -4,7 +4,7 @@ import { use, useCallback, useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -49,12 +49,12 @@ import {
   Loader2,
 } from 'lucide-react'
 import {
-  listProjectMembers,
+  listProjectMembersEnriched,
   inviteProjectMember,
   updateMemberRole,
   removeMember,
 } from '@/lib/api'
-import type { ProjectMemberRow } from '@/lib/api-types'
+import type { EnrichedMemberRow } from '@/lib/api-types'
 import { roleLabels, type ProjectRole } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
 
@@ -63,19 +63,20 @@ interface TeamPageProps {
 }
 
 const roleColors: Record<ProjectRole, string> = {
+  owner: 'bg-purple-100 text-purple-700 border-purple-300',
   project_manager: 'bg-primary/10 text-primary border-primary/30',
   office_engineer: 'bg-blue-100 text-blue-700 border-blue-300',
   consultant: 'bg-amber-100 text-amber-700 border-amber-300',
   site_engineer: 'bg-green-100 text-green-700 border-green-300',
 }
 
-const ALL_ROLES: ProjectRole[] = ['project_manager', 'office_engineer', 'consultant', 'site_engineer']
+const ALL_ROLES: ProjectRole[] = ['owner', 'project_manager', 'office_engineer', 'consultant', 'site_engineer']
 
 export default function TeamPage({ params }: TeamPageProps) {
   const { projectId } = use(params)
   const userRole = useProjectRole()
 
-  const [rows, setRows] = useState<ProjectMemberRow[]>([])
+  const [rows, setRows] = useState<EnrichedMemberRow[]>([])
   const [loading, setLoading] = useState(true)
 
   // Invite dialog state
@@ -106,8 +107,8 @@ export default function TeamPage({ params }: TeamPageProps) {
 
   const refreshMembers = useCallback(async () => {
     try {
-      const res = await listProjectMembers(projectId)
-      setRows(Array.isArray(res) ? res : Array.isArray(res.data) ? res.data : [])
+      const enriched = await listProjectMembersEnriched(projectId)
+      setRows(enriched)
     } catch {
       setRows([])
     }
@@ -118,8 +119,8 @@ export default function TeamPage({ params }: TeamPageProps) {
     ;(async () => {
       setLoading(true)
       try {
-        const res = await listProjectMembers(projectId)
-        if (!cancelled) setRows(Array.isArray(res) ? res : Array.isArray(res.data) ? res.data : [])
+        const enriched = await listProjectMembersEnriched(projectId)
+        if (!cancelled) setRows(enriched)
       } catch {
         if (!cancelled) setRows([])
       } finally {
@@ -179,15 +180,14 @@ export default function TeamPage({ params }: TeamPageProps) {
     }
   }
 
-  const projectMembers = rows.map((r, i) => ({
-    id: r.id || `${r.user?.id ?? i}-${i}`,
+  const projectMembers = rows.map((r) => ({
+    id: r.id,
     role: r.role,
     user: {
-      id: r.user?.id ?? (r as unknown as Record<string, string>).user_id ?? '',
-      full_name: r.user?.full_name ?? 'Unknown',
-      email: r.user?.email,
-      phone: r.user?.phone,
-      profile_photo_url: r.user?.profile_photo_url,
+      id: r.user.id,
+      full_name: r.user.full_name,
+      email: r.user.email,
+      phone: r.user.phone_number,
     },
   }))
 
@@ -200,7 +200,7 @@ export default function TeamPage({ params }: TeamPageProps) {
     {} as Record<ProjectRole, typeof projectMembers>,
   )
 
-  const canManageTeam = userRole === 'project_manager'
+  const canManageTeam = userRole === 'project_manager' || userRole === 'owner'
 
   if (loading) {
     return (
@@ -298,7 +298,6 @@ export default function TeamPage({ params }: TeamPageProps) {
                         className="flex items-start gap-4 p-4 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors"
                       >
                         <Avatar className="h-12 w-12">
-                          <AvatarImage src={member.user.profile_photo_url || undefined} />
                           <AvatarFallback>{initials}</AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">

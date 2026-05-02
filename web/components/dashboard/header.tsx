@@ -86,8 +86,7 @@ export function DashboardHeader({ projectId, projectName, userRole }: DashboardH
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="gap-2 pl-2 pr-3">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={user?.profile_photo_url ?? undefined} />
-                <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                                <AvatarFallback className="text-xs">{initials}</AvatarFallback>
               </Avatar>
               <div className="hidden lg:block text-left">
                 <p className="text-sm font-medium leading-none">{user?.full_name}</p>

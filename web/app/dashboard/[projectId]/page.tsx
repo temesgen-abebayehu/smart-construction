@@ -14,7 +14,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   AlertTriangle,
   ArrowRight,
@@ -24,7 +23,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { useProjectRole } from '@/lib/project-role-context'
-import { getPrediction, getProject, listProjectLogs, listProjectTasks } from '@/lib/api'
+import { getPrediction, getProject, getProjectDashboard, listProjectLogs, listProjectTasks } from '@/lib/api'
 import type { LogListItem, PredictionResponse, ProjectDetail, TaskListItem } from '@/lib/api-types'
 
 interface DashboardPageProps {
@@ -35,18 +34,14 @@ function formatMillions(amount: number) {
   return `ETB ${(amount / 1_000_000).toFixed(1)}M`
 }
 
-function getIssueTag(log: { remarks?: string | null; status: string }) {
-  const remark = (log.remarks || '').toLowerCase()
+function getIssueTag(log: LogListItem) {
+  const remark = (log.notes || '').toLowerCase()
 
   if (remark.includes('weather') || remark.includes('rain')) {
     return { label: 'Weather Hold', className: 'bg-blue-100 text-blue-700' }
   }
 
-  if (log.status === 'rejected') {
-    return { label: 'Quality Failure', className: 'bg-red-100 text-red-700' }
-  }
-
-  if (log.status === 'under_review' || log.status === 'submitted') {
+  if (log.status === 'submitted' || log.status === 'reviewed') {
     return { label: 'Pending Review', className: 'bg-amber-100 text-amber-700' }
   }
 
@@ -61,6 +56,10 @@ export default function DashboardPage({ params }: DashboardPageProps) {
   const [tasks, setTasks] = useState<TaskListItem[]>([])
   const [logs, setLogs] = useState<LogListItem[]>([])
   const [prediction, setPrediction] = useState<PredictionResponse | null>(null)
+  const [dashboardSummary, setDashboardSummary] = useState<{
+    task_summary: { total: number; completed: number; in_progress: number; pending: number }
+    delay_risk_status: string
+  } | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -68,17 +67,19 @@ export default function DashboardPage({ params }: DashboardPageProps) {
     ;(async () => {
       setLoading(true)
       try {
-        const [proj, taskRes, logRes, pred] = await Promise.all([
+        const [proj, taskRes, logRes, pred, dashboard] = await Promise.all([
           getProject(projectId),
           listProjectTasks(projectId, { limit: 100 }),
           listProjectLogs(projectId, { limit: 100 }),
           getPrediction(projectId).catch(() => null),
+          getProjectDashboard(projectId).catch(() => null),
         ])
         if (cancelled) return
         setProject(proj)
         setTasks(taskRes.data ?? [])
         setLogs(logRes.data ?? [])
         setPrediction(pred)
+        setDashboardSummary(dashboard)
       } catch {
         if (!cancelled) {
           setProject(null)
@@ -102,48 +103,31 @@ export default function DashboardPage({ params }: DashboardPageProps) {
     )
   }
 
-  const isProjectManager = userRole === 'project_manager'
+  const isProjectManager = userRole === 'project_manager' || userRole === 'owner'
 
-  const activeCount =
-    project.tasks_summary?.in_progress ??
-    tasks.filter((task) => task.status === 'in_progress').length
-  const atRiskCount = tasks.filter((task) => task.status === 'pending_dependency').length
-  const delayedCount =
-    project.tasks_summary?.delayed ??
-    tasks.filter((task) => task.status === 'delayed').length
+  const taskSummary = dashboardSummary?.task_summary
+  const activeCount = taskSummary?.in_progress ?? tasks.filter((t) => t.status === 'in_progress').length
+  const completedCount = taskSummary?.completed ?? tasks.filter((t) => t.status === 'completed').length
+  const pendingCount = taskSummary?.pending ?? tasks.filter((t) => t.status === 'pending').length
 
-  const totalBudget =
-    project.budget?.contract_value ??
-    tasks.reduce((sum, task) => sum + task.allocated_budget, 0)
-  const totalSpent =
-    project.budget?.total_spent ?? tasks.reduce((sum, task) => sum + task.spent_budget, 0)
+  const totalBudget = project.total_budget
+  const totalSpent = project.budget_spent
   const remaining = Math.max(totalBudget - totalSpent, 0)
   const spentPct = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0
 
-  const pendingApprovals =
-    project.pending_log_approvals ??
-    logs.filter((log) =>
-      ['submitted', 'under_review', 'consultant_approved'].includes(log.status),
-    ).length
+  const pendingApprovals = logs.filter((log) =>
+    ['submitted', 'reviewed', 'consultant_approved'].includes(log.status),
+  ).length
 
-  const riskLevelScore = prediction
-    ? prediction.risk_level === 'critical'
-      ? 90
-      : prediction.risk_level === 'high'
-        ? 75
-        : prediction.risk_level === 'medium'
-          ? 55
-          : 35
-    : Math.min(95, 45 + delayedCount * 12 + atRiskCount * 9 + pendingApprovals * 6)
+  const riskLevel = prediction?.risk_level ?? dashboardSummary?.delay_risk_status ?? 'low'
+  const riskLevelScore = riskLevel === 'high' ? 75 : riskLevel === 'medium' ? 55 : 35
 
-  const aiMessage =
-    prediction?.reason ||
-    (delayedCount > 0 || atRiskCount > 0
-      ? 'Supply chain delay expected +4 days'
-      : 'Current schedule stability is healthy')
+  const aiMessage = prediction
+    ? `Delay estimate: ${prediction.delay_estimate_days} days | Budget overrun: ETB ${prediction.budget_overrun_estimate.toLocaleString()}`
+    : 'Current schedule stability is healthy'
 
   const recentLogs = [...logs]
-    .sort((a, b) => +new Date(b.log_date) - +new Date(a.log_date))
+    .sort((a, b) => +new Date(b.date) - +new Date(a.date))
     .slice(0, 5)
 
   return (
@@ -161,12 +145,12 @@ export default function DashboardPage({ params }: DashboardPageProps) {
                 <p className="text-xl font-semibold text-emerald-800">{activeCount}</p>
               </div>
               <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-center">
-                <p className="text-[10px] font-semibold uppercase text-amber-700">At Risk</p>
-                <p className="text-xl font-semibold text-amber-800">{atRiskCount}</p>
+                <p className="text-[10px] font-semibold uppercase text-amber-700">Pending</p>
+                <p className="text-xl font-semibold text-amber-800">{pendingCount}</p>
               </div>
-              <div className="rounded-md border border-red-200 bg-red-50 p-2 text-center">
-                <p className="text-[10px] font-semibold uppercase text-red-700">Delayed</p>
-                <p className="text-xl font-semibold text-red-800">{delayedCount}</p>
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-2 text-center">
+                <p className="text-[10px] font-semibold uppercase text-blue-700">Completed</p>
+                <p className="text-xl font-semibold text-blue-800">{completedCount}</p>
               </div>
             </div>
 
@@ -230,9 +214,22 @@ export default function DashboardPage({ params }: DashboardPageProps) {
             <div>
               <p className="text-xs uppercase tracking-wide text-blue-100">Risk signal</p>
               <p className="text-3xl font-semibold capitalize">
-                {prediction?.risk_level?.replace('_', ' ') || `Score: ${riskLevelScore}`}
+                {prediction?.risk_level ?? `Score: ${riskLevelScore}`}
               </p>
             </div>
+
+            {prediction && (
+              <div className="grid grid-cols-2 gap-2 text-xs text-blue-100">
+                <div>
+                  <p className="font-medium text-white">{prediction.delay_estimate_days}d</p>
+                  <p>Est. Delay</p>
+                </div>
+                <div>
+                  <p className="font-medium text-white">{(prediction.confidence_score * 100).toFixed(0)}%</p>
+                  <p>Confidence</p>
+                </div>
+              </div>
+            )}
 
             <div className="rounded-md border border-white/20 bg-white/10 p-3 text-sm">
               <div className="flex items-center gap-2 text-blue-50">
@@ -263,42 +260,29 @@ export default function DashboardPage({ params }: DashboardPageProps) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Site / Project</TableHead>
-                  <TableHead>Submitted By</TableHead>
+                  <TableHead>Project</TableHead>
                   <TableHead>Date</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Issue Flagged</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {recentLogs.map((log) => {
-                  const issue = getIssueTag({
-                    status: log.status,
-                    remarks: log.remarks,
-                  })
+                  const issue = getIssueTag(log)
 
                   return (
                     <TableRow key={log.id}>
                       <TableCell>
-                        <p className="font-medium">{log.task?.title || project.name}</p>
+                        <p className="font-medium">{project.name}</p>
                         <p className="text-xs text-muted-foreground">{project.location}</p>
                       </TableCell>
+                      <TableCell>{new Date(log.date).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Avatar className="h-6 w-6">
-                            <AvatarFallback className="text-[10px]">
-                              {(log.submitted_by?.full_name || 'U')
-                                .split(' ')
-                                .map((n) => n[0])
-                                .join('')
-                                .slice(0, 2)
-                                .toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="text-sm">{log.submitted_by?.full_name || 'Unknown User'}</span>
-                        </div>
+                        <Badge variant="outline" className="capitalize">
+                          {log.status.replace(/_/g, ' ')}
+                        </Badge>
                       </TableCell>
-                      <TableCell>{new Date(log.log_date).toLocaleDateString()}</TableCell>
                       <TableCell>
                         <Badge className={issue.className}>{issue.label}</Badge>
                       </TableCell>

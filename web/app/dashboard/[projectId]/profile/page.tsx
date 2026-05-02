@@ -75,8 +75,8 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     .join('')
     .toUpperCase() || 'U'
 
-  const lastLoginLabel = user.last_login_at
-    ? new Date(user.last_login_at).toLocaleString()
+  const lastLoginLabel = user.created_at
+    ? `Joined ${new Date(user.created_at).toLocaleDateString()}`
     : '—'
 
   return (
@@ -85,8 +85,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
         <CardContent className="space-y-5 p-5">
           <div className="overflow-hidden rounded-2xl bg-linear-to-br from-slate-100 to-slate-300 p-3 shadow-inner">
             <Avatar className="h-56 w-full rounded-2xl object-cover">
-              <AvatarImage src={user.profile_photo_url || undefined} className="object-cover" />
-              <AvatarFallback className="text-4xl">{initials}</AvatarFallback>
+                            <AvatarFallback className="text-4xl">{initials}</AvatarFallback>
             </Avatar>
           </div>
 

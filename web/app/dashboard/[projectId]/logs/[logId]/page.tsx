@@ -5,11 +5,22 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Progress } from '@/components/ui/progress'
-import { getLog, getProject, parseActivitiesField } from '@/lib/api'
+import {
+  getLog,
+  getProject,
+  submitLog,
+  reviewLog,
+  consultantApproveLog,
+  pmApproveLog,
+  rejectLog,
+  listLogLabor,
+  listLogMaterials,
+  listLogEquipment,
+} from '@/lib/api'
 import type { LogDetailResponse, ProjectDetail } from '@/lib/api-types'
 import type { LogStatus } from '@/lib/domain'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, FileText, MapPin, PenTool, Users, Loader2 } from 'lucide-react'
+import { useProjectRole } from '@/lib/project-role-context'
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, FileText, MapPin, Users, Loader2 } from 'lucide-react'
 
 interface LogDetailPageProps {
   params: Promise<{ projectId: string; logId: string }>
@@ -18,10 +29,9 @@ interface LogDetailPageProps {
 const statusConfig: Record<LogStatus, { label: string; className: string }> = {
   draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700' },
   submitted: { label: 'Submitted', className: 'bg-amber-100 text-amber-700' },
-  under_review: { label: 'Under Review', className: 'bg-orange-100 text-orange-700' },
+  reviewed: { label: 'Reviewed', className: 'bg-orange-100 text-orange-700' },
   consultant_approved: { label: 'Consultant Approved', className: 'bg-indigo-100 text-indigo-700' },
-  approved: { label: 'Approved', className: 'bg-green-100 text-green-700' },
-  rejected: { label: 'Rejected', className: 'bg-red-100 text-red-700' },
+  pm_approved: { label: 'PM Approved', className: 'bg-green-100 text-green-700' },
 }
 
 function checkItem(label: string, complete: boolean) {
@@ -37,36 +47,54 @@ function checkItem(label: string, complete: boolean) {
 
 export default function LogDetailPage({ params }: LogDetailPageProps) {
   const { projectId, logId } = use(params)
+  const userRole = useProjectRole()
 
   const [project, setProject] = useState<ProjectDetail | null>(null)
   const [log, setLog] = useState<LogDetailResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [labor, setLabor] = useState<{ worker_type: string; hours_worked: number; cost: number }[]>([])
+  const [materials, setMaterials] = useState<{ name: string; quantity: number; unit: string; cost: number }[]>([])
+  const [equipment, setEquipment] = useState<{ name: string; hours_used: number; cost: number }[]>([])
+
+  const loadData = async () => {
+    setLoading(true)
+    try {
+      const [proj, logData, laborData, materialData, equipData] = await Promise.all([
+        getProject(projectId),
+        getLog(logId),
+        listLogLabor(logId).catch(() => []),
+        listLogMaterials(logId).catch(() => []),
+        listLogEquipment(logId).catch(() => []),
+      ])
+      setProject(proj)
+      setLog(logData)
+      setLabor(laborData)
+      setMaterials(materialData)
+      setEquipment(equipData)
+    } catch {
+      setProject(null)
+      setLog(null)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      try {
-        const [proj, logData] = await Promise.all([
-          getProject(projectId),
-          getLog(logId),
-        ])
-        if (cancelled) return
-        setProject(proj)
-        setLog(logData)
-      } catch {
-        if (!cancelled) {
-          setProject(null)
-          setLog(null)
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
+    loadData()
   }, [projectId, logId])
+
+  const handleAction = async (action: () => Promise<unknown>) => {
+    setActionLoading(true)
+    try {
+      await action()
+      await loadData()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Action failed')
+    } finally {
+      setActionLoading(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -78,10 +106,16 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
 
   if (!project || !log) return null
 
-  const activities = parseActivitiesField(log.activities as string[] | string)
-  const submitterName = log.submitted_by?.full_name
-  const workProgress = log.progress_pct_today
-  const evidenceImages = log.photos?.length ? log.photos : []
+  // Determine which actions the current role can perform based on log status
+  const canSubmit = log.status === 'draft' && (userRole === 'site_engineer' || userRole === 'owner' || userRole === 'project_manager')
+  const canReview = log.status === 'submitted' && (userRole === 'office_engineer' || userRole === 'owner' || userRole === 'project_manager')
+  const canConsultantApprove = log.status === 'reviewed' && (userRole === 'consultant' || userRole === 'owner' || userRole === 'project_manager')
+  const canPmApprove = log.status === 'consultant_approved' && (userRole === 'project_manager' || userRole === 'owner')
+  const canReject = ['submitted', 'reviewed', 'consultant_approved'].includes(log.status) && userRole !== 'site_engineer'
+
+  const totalLaborCost = labor.reduce((s, l) => s + l.cost, 0)
+  const totalMaterialCost = materials.reduce((s, m) => s + m.cost, 0)
+  const totalEquipmentCost = equipment.reduce((s, e) => s + e.cost, 0)
 
   return (
     <div className="space-y-6">
@@ -95,14 +129,14 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
           <div>
             <h1 className="text-2xl font-semibold">#{log.id.slice(0, 8).toUpperCase()}</h1>
             <p className="text-sm text-muted-foreground">
-              {new Date(log.log_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
-              {' • '}
-              {log.task?.title || 'Unknown Task'}
+              {new Date(log.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
             </p>
           </div>
         </div>
 
-        <Badge className={statusConfig[log.status].className}>{statusConfig[log.status].label}</Badge>
+        <Badge className={statusConfig[log.status]?.className ?? 'bg-gray-100 text-gray-700'}>
+          {statusConfig[log.status]?.label ?? log.status}
+        </Badge>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.6fr_0.9fr]">
@@ -111,99 +145,100 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
             <CardContent className="p-5">
               <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Overall Progress</p>
-                  <div className="mt-3 flex items-end gap-3">
-                    <span className="text-5xl font-semibold">{workProgress}%</span>
-                    <span className="pb-2 text-sm text-muted-foreground">reported this log</span>
-                  </div>
-                  <Progress value={Math.min(100, workProgress)} className="mt-4 h-2" />
-
-                  {log.status === 'rejected' && (
-                    <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
-                      <div className="flex items-start gap-3 text-red-700">
-                        <AlertTriangle className="mt-0.5 h-5 w-5" />
-                        <div>
-                          <p className="font-semibold">Log rejected</p>
-                          <p className="text-sm text-red-700/90">
-                            {log.remarks || 'Review remarks from the approval chain.'}
-                          </p>
-                        </div>
+                  <p className="text-sm font-medium text-muted-foreground">Log Details</p>
+                  <div className="mt-3 space-y-2">
+                    {log.weather && (
+                      <p className="text-sm"><span className="font-medium">Weather:</span> {log.weather}</p>
+                    )}
+                    {log.notes && (
+                      <div>
+                        <p className="text-sm font-medium">Notes:</p>
+                        <p className="text-sm text-muted-foreground">{log.notes}</p>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Status</p>
-                    <Badge className={`mt-2 ${statusConfig[log.status].className}`}>{statusConfig[log.status].label}</Badge>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Submitter</p>
-                    <p className="mt-1 text-sm font-medium">{submitterName || '—'}</p>
+                    <Badge className={`mt-2 ${statusConfig[log.status]?.className ?? ''}`}>
+                      {statusConfig[log.status]?.label ?? log.status}
+                    </Badge>
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Project</p>
                     <p className="mt-1 text-sm font-medium">{project.name}</p>
-                    <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3.5 w-3.5" />{project.location}</p>
+                    <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                      <MapPin className="h-3.5 w-3.5" />{project.location}
+                    </p>
                   </div>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Work Activities</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {activities.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No activities listed.</p>
-                ) : (
-                  activities.map((activity, index) => (
-                    <div key={`${activity}-${index}`} className="flex items-start gap-3 rounded-lg border border-border p-3">
-                      <div className="mt-0.5 rounded-full bg-blue-50 p-1.5 text-blue-700">
-                        <PenTool className="h-3.5 w-3.5" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">Task Activity {index + 1}</p>
-                        <p className="text-sm text-muted-foreground">{activity}</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Material Consumption</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Detailed material lines appear here when the API returns labor/material/equipment on log detail.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
+          {/* Labor */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Site Evidence</CardTitle>
+              <CardTitle className="text-base">Labor ({labor.length})</CardTitle>
             </CardHeader>
             <CardContent>
-              {evidenceImages.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No photos attached.</p>
+              {labor.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No labor records.</p>
               ) : (
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {evidenceImages.map((image, index) => (
-                    <div key={image} className="relative overflow-hidden rounded-lg border border-border bg-slate-100">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={image} alt="" className="h-24 w-full object-cover" />
-                      <div className="p-2 text-xs font-medium text-slate-700">Evidence {index + 1}</div>
+                <div className="space-y-2">
+                  {labor.map((l, i) => (
+                    <div key={i} className="flex items-center justify-between rounded border p-2 text-sm">
+                      <span className="font-medium">{l.worker_type}</span>
+                      <span>{l.hours_worked}h - ETB {l.cost.toLocaleString()}</span>
                     </div>
                   ))}
+                  <p className="text-right text-sm font-medium">Total: ETB {totalLaborCost.toLocaleString()}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Materials */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Materials ({materials.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {materials.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No materials recorded.</p>
+              ) : (
+                <div className="space-y-2">
+                  {materials.map((m, i) => (
+                    <div key={i} className="flex items-center justify-between rounded border p-2 text-sm">
+                      <span className="font-medium">{m.name}</span>
+                      <span>{m.quantity} {m.unit} - ETB {m.cost.toLocaleString()}</span>
+                    </div>
+                  ))}
+                  <p className="text-right text-sm font-medium">Total: ETB {totalMaterialCost.toLocaleString()}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Equipment */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Equipment ({equipment.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {equipment.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No equipment recorded.</p>
+              ) : (
+                <div className="space-y-2">
+                  {equipment.map((e, i) => (
+                    <div key={i} className="flex items-center justify-between rounded border p-2 text-sm">
+                      <span className="font-medium">{e.name}</span>
+                      <span>{e.hours_used}h - ETB {e.cost.toLocaleString()}</span>
+                    </div>
+                  ))}
+                  <p className="text-right text-sm font-medium">Total: ETB {totalEquipmentCost.toLocaleString()}</p>
                 </div>
               )}
             </CardContent>
@@ -214,56 +249,86 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Review Checklist</CardTitle>
-                <Badge variant="outline">Under Review</Badge>
+                <CardTitle className="text-base">Approval Progress</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {checkItem('Data integrity checked', log.status !== 'draft')}
-              {checkItem('Visual verification completed', ['approved', 'consultant_approved'].includes(log.status))}
-              {checkItem('Safety compliance audit', log.status === 'approved')}
-              <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground">Notes</p>
-                <p className="mt-1">{log.remarks || 'Review additional evidence before final approval.'}</p>
-              </div>
+              {checkItem('Log created (draft)', true)}
+              {checkItem('Submitted by site engineer', log.status !== 'draft')}
+              {checkItem('Reviewed by office engineer', ['reviewed', 'consultant_approved', 'pm_approved'].includes(log.status))}
+              {checkItem('Consultant approved', ['consultant_approved', 'pm_approved'].includes(log.status))}
+              {checkItem('PM final approval', log.status === 'pm_approved')}
+              {log.notes && (
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  <p className="font-medium text-foreground">Notes</p>
+                  <p className="mt-1">{log.notes}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Current Actions</CardTitle>
+              <CardTitle className="text-base">Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Button className="w-full">Approve</Button>
-              <Button variant="outline" className="w-full">Keep Under Review</Button>
-              <Button variant="destructive" className="w-full">Reject Log</Button>
+              {canSubmit && (
+                <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => submitLog(logId))}>
+                  Submit Log
+                </Button>
+              )}
+              {canReview && (
+                <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => reviewLog(logId))}>
+                  Mark as Reviewed
+                </Button>
+              )}
+              {canConsultantApprove && (
+                <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => consultantApproveLog(logId))}>
+                  Consultant Approve
+                </Button>
+              )}
+              {canPmApprove && (
+                <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => pmApproveLog(logId))}>
+                  PM Final Approve
+                </Button>
+              )}
+              {canReject && (
+                <Button variant="destructive" className="w-full" disabled={actionLoading} onClick={() => handleAction(() => rejectLog(logId))}>
+                  Reject Log
+                </Button>
+              )}
+              {!canSubmit && !canReview && !canConsultantApprove && !canPmApprove && !canReject && (
+                <p className="text-sm text-muted-foreground text-center py-2">No actions available for your role at this status.</p>
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Activity Timeline</CardTitle>
+              <CardTitle className="text-base">Approval Workflow</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
               <div className="flex items-start gap-3">
                 <Clock3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
-                  <p className="font-medium">Log submitted</p>
-                  <p className="text-muted-foreground">Recorded for {new Date(log.log_date).toLocaleDateString()}</p>
+                  <p className="font-medium">Log created</p>
+                  <p className="text-muted-foreground">Date: {new Date(log.date).toLocaleDateString()}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <Users className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="font-medium">Approval chain</p>
-                  <p className="text-muted-foreground">Office engineer → consultant → PM</p>
+                  <p className="text-muted-foreground">Site Eng → Office Eng → Consultant → PM</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <FileText className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
-                  <p className="font-medium">Report attached</p>
-                  <p className="text-muted-foreground">Daily quantity and photo evidence included</p>
+                  <p className="font-medium">Cost summary</p>
+                  <p className="text-muted-foreground">
+                    Labor: ETB {totalLaborCost.toLocaleString()} | Materials: ETB {totalMaterialCost.toLocaleString()} | Equipment: ETB {totalEquipmentCost.toLocaleString()}
+                  </p>
                 </div>
               </div>
             </CardContent>

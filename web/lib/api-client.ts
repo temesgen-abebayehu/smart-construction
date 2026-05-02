@@ -159,11 +159,8 @@ export async function registerRequest(body: {
 }
 
 export async function logoutRequest(): Promise<void> {
-  try {
-    await apiRequest<{ message?: string }>('/auth/logout', { method: 'POST' })
-  } catch {
-    /* still clear client session */
-  }
+  // Backend has no /auth/logout endpoint — just clear tokens client-side
+  clearTokens()
 }
 
 export async function fetchCurrentUser(): Promise<UserMe> {
