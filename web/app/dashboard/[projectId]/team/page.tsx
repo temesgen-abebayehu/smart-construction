@@ -277,7 +277,8 @@ export default function TeamPage({ params }: TeamPageProps) {
                   </span>
                 </div>
                 <CardDescription>
-                  {role === 'project_manager' && 'Owns the project, gives final approval on daily logs'}
+                  {role === 'owner' && 'Project owner with full administrative access'}
+                  {role === 'project_manager' && 'Manages the project, gives final approval on daily logs'}
                   {role === 'office_engineer' && 'Reviews document completeness before consultant approval'}
                   {role === 'consultant' && 'Verifies reported work matches actual site work, approves logs'}
                   {role === 'site_engineer' && 'Submits daily logs for assigned tasks'}
@@ -288,9 +289,10 @@ export default function TeamPage({ params }: TeamPageProps) {
                   {members.map((member) => {
                     const initials = member.user.full_name
                       .split(' ')
+                      .filter((n) => n.length > 0)
                       .map((n) => n[0])
                       .join('')
-                      .toUpperCase()
+                      .toUpperCase() || 'U'
 
                     return (
                       <div

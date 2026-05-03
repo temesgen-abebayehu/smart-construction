@@ -15,6 +15,7 @@ import type {
   ProjectDetail,
   ProjectListItem,
   ProjectMemberRow,
+  ProjectMemberWithUserRow,
   TaskListItem,
   UserMe,
 } from './api-types'
@@ -464,38 +465,23 @@ export async function listProjectMembers(projectId: string) {
   return { total: members.length, data: members }
 }
 
-/** Enrich flat member rows with user details */
+/** List members with user details — single API call, no N+1 */
 export async function listProjectMembersEnriched(projectId: string): Promise<EnrichedMemberRow[]> {
-  const { data: members } = await listProjectMembers(projectId)
-  const enriched: EnrichedMemberRow[] = []
-  for (const m of members) {
-    try {
-      const user = await apiRequest<UserMe>(`/users/${m.user_id}`)
-      enriched.push({
-        id: m.id,
-        user: {
-          id: user.id,
-          full_name: user.full_name,
-          email: user.email,
-          phone_number: user.phone_number,
-        },
-        role: m.role,
-        project_id: m.project_id,
-      })
-    } catch {
-      enriched.push({
-        id: m.id,
-        user: {
-          id: m.user_id,
-          full_name: 'Unknown User',
-          email: '',
-        },
-        role: m.role,
-        project_id: m.project_id,
-      })
-    }
-  }
-  return enriched
+  const res = await apiRequest<ProjectMemberWithUserRow[]>(
+    `/projects/${projectId}/members`,
+  )
+  const members = Array.isArray(res) ? res : []
+  return members.map((m) => ({
+    id: m.id,
+    user: {
+      id: m.user.id,
+      full_name: m.user.full_name,
+      email: m.user.email,
+      phone_number: m.user.phone_number,
+    },
+    role: m.role,
+    project_id: m.project_id,
+  }))
 }
 
 /* ── Messages ── */

@@ -1,12 +1,17 @@
 from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+import logging
 
 from app.models.user import User
+from app.models.project import ProjectMember, ProjectInvitation
 from app.schemas.user import UserCreate, UserUpdate
 from app.schemas.token import Token
 from app.repositories.user import UserRepository
 from app.core.security import verify_password, create_access_token, create_refresh_token
+
+logger = logging.getLogger(__name__)
 
 class UserService:
     @staticmethod
@@ -17,7 +22,30 @@ class UserService:
                 status_code=400,
                 detail="The user with this username already exists in the system.",
             )
-        return await UserRepository.create(db, user_in=user_in)
+        new_user = await UserRepository.create(db, user_in=user_in)
+
+        # Auto-accept pending invitations for this email
+        result = await db.execute(
+            select(ProjectInvitation).where(
+                ProjectInvitation.email == user_in.email,
+                ProjectInvitation.status == "pending",
+            )
+        )
+        pending = list(result.scalars().all())
+        for inv in pending:
+            member = ProjectMember(
+                project_id=inv.project_id,
+                user_id=new_user.id,
+                role=inv.role,
+            )
+            db.add(member)
+            inv.status = "accepted"
+            db.add(inv)
+            logger.info(f"Auto-accepted invitation for {user_in.email} to project {inv.project_id}")
+        if pending:
+            await db.commit()
+
+        return new_user
 
     @staticmethod
     async def authenticate_user(db: AsyncSession, email: str, password: str) -> Token:
@@ -26,7 +54,36 @@ class UserService:
             raise HTTPException(status_code=401, detail="Incorrect email or password")
         elif not user.is_active:
             raise HTTPException(status_code=400, detail="Inactive user")
-        
+
+        # Auto-accept pending invitations for this user
+        result = await db.execute(
+            select(ProjectInvitation).where(
+                ProjectInvitation.email == email,
+                ProjectInvitation.status == "pending",
+            )
+        )
+        pending = list(result.scalars().all())
+        for inv in pending:
+            # Check not already a member
+            existing = await db.execute(
+                select(ProjectMember).where(
+                    ProjectMember.project_id == inv.project_id,
+                    ProjectMember.user_id == user.id,
+                )
+            )
+            if not existing.scalars().first():
+                member = ProjectMember(
+                    project_id=inv.project_id,
+                    user_id=user.id,
+                    role=inv.role,
+                )
+                db.add(member)
+            inv.status = "accepted"
+            db.add(inv)
+            logger.info(f"Auto-accepted invitation for {email} to project {inv.project_id}")
+        if pending:
+            await db.commit()
+
         access_token = create_access_token(subject=user.id)
         refresh_token = create_refresh_token(subject=user.id)
         return Token(access_token=access_token, refresh_token=refresh_token, token_type="bearer")

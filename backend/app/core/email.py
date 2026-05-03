@@ -12,22 +12,23 @@ def send_invitation_email(to_email: str, project_name: str, token: str):
         
     try:
         msg = EmailMessage()
-        msg['Subject'] = f"Invitation to join project: {project_name}"
+        msg['Subject'] = f"You've been invited to join: {project_name}"
         msg['From'] = settings.SMTP_EMAIL
         msg['To'] = to_email
-        
-        # Build URL for invitation depending on frontend setup.
-        # Placeholder endpoint format for local dev
-        invite_link = f"http://localhost:3000/invite?token={token}"
-        
-        msg.set_content(f"""
-        You've been invited to join the project: {project_name}.
-        
-        Please use the following link to accept your invitation:
-        {invite_link}
-        
-        If you don't have an account, please sign up using this email before accepting the invitation.
-        """)
+
+        signup_link = f"http://localhost:3000/signup?email={to_email}"
+        login_link = f"http://localhost:3000/login?email={to_email}"
+
+        msg.set_content(f"""You've been invited to join the project: {project_name}.
+
+If you already have an account, simply log in and the project will appear in your dashboard:
+{login_link}
+
+If you're new, sign up with this email address and you'll be automatically added to the project:
+{signup_link}
+
+No extra steps needed — just sign up or log in and you're in.
+""")
         
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
             server.starttls()

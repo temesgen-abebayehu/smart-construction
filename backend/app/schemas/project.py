@@ -64,6 +64,21 @@ class ProjectMemberResponse(ProjectMemberBase):
     project_id: UUID
     model_config = ConfigDict(from_attributes=True)
 
+class UserBasic(BaseModel):
+    id: UUID
+    full_name: str
+    email: EmailStr
+    phone_number: str | None = None
+    model_config = ConfigDict(from_attributes=True)
+
+class ProjectMemberWithUserResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    user_id: UUID
+    role: ProjectRole
+    user: UserBasic
+    model_config = ConfigDict(from_attributes=True)
+
 # Project Schemas
 class ProjectBase(BaseModel):
     name: str
