@@ -172,12 +172,20 @@ class ProjectMemberService:
 class ProjectInvitationService:
     @staticmethod
     async def create_invitation(db: AsyncSession, project_id: UUID, invite_in: ProjectInvitationCreate) -> ProjectInvitation:
+        from app.repositories.user import UserRepository
+
         project = await project_repo.get_by_id(db, project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        
+
+        # Check if already a member
+        existing_user = await UserRepository.get_by_email(db, email=invite_in.email)
+        if existing_user:
+            existing_member = await member_repo.get_by_project_and_user(db, project_id, existing_user.id)
+            if existing_member:
+                raise HTTPException(status_code=409, detail="User is already a member of this project")
+
         # Check if already invited and pending
-        
         existing_result = await db.execute(select(ProjectInvitation).where(
             ProjectInvitation.project_id == project_id,
             ProjectInvitation.email == invite_in.email,
@@ -187,20 +195,41 @@ class ProjectInvitationService:
             raise HTTPException(status_code=409, detail="User already has a pending invitation")
 
         token = secrets.token_urlsafe(32)
-        db_obj = ProjectInvitation(
-            project_id=project_id,
-            email=invite_in.email,
-            role=invite_in.role.value,
-            token=token
-        )
+        user_exists = existing_user is not None
+
+        # If user already registered, add them directly as a member
+        if existing_user:
+            member = ProjectMember(
+                project_id=project_id,
+                user_id=existing_user.id,
+                role=invite_in.role.value,
+            )
+            db.add(member)
+
+            # Create invitation record as "accepted" for audit
+            db_obj = ProjectInvitation(
+                project_id=project_id,
+                email=invite_in.email,
+                role=invite_in.role.value,
+                token=token,
+                status="accepted",
+            )
+        else:
+            # User not registered — create pending invitation
+            db_obj = ProjectInvitation(
+                project_id=project_id,
+                email=invite_in.email,
+                role=invite_in.role.value,
+                token=token,
+            )
+
         db.add(db_obj)
         await db.commit()
         await db.refresh(db_obj)
-        
-        # Send email in background using asyncio
-        # Note: In production you would use Celery/arq for reliable background tasks
+
+        # Send appropriate email
         loop = asyncio.get_event_loop()
-        loop.run_in_executor(None, send_invitation_email, invite_in.email, project.name, token)
+        loop.run_in_executor(None, send_invitation_email, invite_in.email, project.name, token, user_exists)
 
         return db_obj
 

@@ -132,16 +132,25 @@ export default function TeamPage({ params }: TeamPageProps) {
     }
   }, [projectId])
 
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null)
+
   const handleInvite = async () => {
     if (!inviteEmail.trim()) return
     setInviteLoading(true)
     setInviteError(null)
+    setInviteSuccess(null)
     try {
-      await inviteProjectMember(projectId, { email: inviteEmail.trim(), role: inviteRole })
-      setInviteOpen(false)
+      const result = await inviteProjectMember(projectId, { email: inviteEmail.trim(), role: inviteRole })
+      if (result.status === 'accepted') {
+        setInviteSuccess(`${inviteEmail.trim()} has been added to the project directly.`)
+      } else {
+        setInviteSuccess(`Invitation sent to ${inviteEmail.trim()}. They will be added when they sign up.`)
+      }
       setInviteEmail('')
       setInviteRole('site_engineer')
       await refreshMembers()
+      // Auto-close after 2s
+      setTimeout(() => { setInviteOpen(false); setInviteSuccess(null) }, 2000)
     } catch (e) {
       setInviteError(e instanceof Error ? e.message : 'Failed to send invitation')
     } finally {
@@ -414,6 +423,9 @@ export default function TeamPage({ params }: TeamPageProps) {
             </div>
             {inviteError && (
               <p className="text-sm text-destructive">{inviteError}</p>
+            )}
+            {inviteSuccess && (
+              <p className="text-sm text-emerald-600">{inviteSuccess}</p>
             )}
           </div>
           <DialogFooter>
