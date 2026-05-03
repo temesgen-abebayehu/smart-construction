@@ -151,7 +151,7 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
                 className={cn(
                   "group relative flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
                   isActive 
-                    ? "bg-white/14 text-sidebar-primary shadow-sm" 
+                    ? "bg-card/14 text-sidebar-primary shadow-sm" 
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                 )}
                 title={collapsed ? item.label : undefined}

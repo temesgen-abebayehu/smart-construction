@@ -238,7 +238,7 @@ export default function ReportsPage({ params }: ReportsPageProps) {
                   <span>PLANNED</span>
                   <span>ACTUAL</span>
                 </div>
-                <div className="relative h-32 overflow-hidden rounded-xl border border-dashed border-blue-200 bg-white">
+                <div className="relative h-32 overflow-hidden rounded-xl border border-dashed border-blue-200 bg-card">
                   <div className="absolute left-4 right-4 top-1/2 h-px bg-slate-200" />
                   <div className="absolute left-6 right-8 top-12 h-1 rounded-full bg-blue-600/70" />
                   <div className="absolute left-6 top-16 h-12 w-[72%] rounded-tl-full border-l-2 border-b-2 border-blue-500/80" />
@@ -291,7 +291,7 @@ export default function ReportsPage({ params }: ReportsPageProps) {
           <CardContent className="space-y-4">
             <p className="text-4xl font-semibold">{riskScore.toFixed(1)}%</p>
             <p className="text-sm text-blue-100">AI-based risk prediction</p>
-            <div className="space-y-2 rounded-lg border border-white/20 bg-white/10 p-3 text-sm leading-6 text-blue-50">
+            <div className="space-y-2 rounded-lg border border-white/20 bg-card/10 p-3 text-sm leading-6 text-blue-50">
               {prediction?.reason ? (
                 <p><strong className="text-white">Insight:</strong> {prediction.reason}</p>
               ) : (

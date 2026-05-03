@@ -38,8 +38,8 @@ export default function NewProjectPage() {
     name: '',
     description: '',
     location: '',
-    planned_start_date: '',
-    planned_end_date: '',
+    planned_start_date: new Date().toISOString().split('T')[0],
+    planned_end_date: new Date(Date.now() + 90 * 86400000).toISOString().split('T')[0],
     total_budget: '',
   })
 

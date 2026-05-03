@@ -91,7 +91,7 @@ export default function SettingsPage({ params }: SettingsPageProps) {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border bg-muted/50 p-4">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <KeyRound className="h-4 w-4 text-muted-foreground" />
                   Password Management
@@ -111,7 +111,7 @@ export default function SettingsPage({ params }: SettingsPageProps) {
             <SectionTitle icon={Palette} title="Visual Identity" description="Choose your interface theme and language." />
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 rounded-2xl border bg-slate-50 p-3">
+            <div className="grid grid-cols-2 gap-3 rounded-2xl border bg-muted/50 p-3">
               <Button variant="default" className="h-12 justify-start gap-2" type="button">
                 <Palette className="h-4 w-4" />
                 Light
@@ -149,7 +149,7 @@ export default function SettingsPage({ params }: SettingsPageProps) {
             { title: 'Critical System Status', description: 'Real-time alerts for infrastructure maintenance.' },
             { title: 'Budget Variance Alerts', description: 'Notify when cost exceeds ±5% of predicted risk.' },
           ].map((item, index) => (
-            <div key={item.title} className="rounded-2xl border bg-slate-50 p-4 shadow-sm">
+            <div key={item.title} className="rounded-2xl border bg-muted/50 p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-medium">{item.title}</p>
@@ -168,14 +168,14 @@ export default function SettingsPage({ params }: SettingsPageProps) {
             <SectionTitle icon={ShieldCheck} title="Security Audit" description="Review recent access sessions and login history." />
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between rounded-xl border bg-white p-4">
+            <div className="flex items-center justify-between rounded-xl border bg-card p-4">
               <div>
                 <p className="font-medium">London HQ - Desktop Chrome</p>
                 <p className="text-sm text-muted-foreground">Active Now</p>
               </div>
               <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Active Now</Badge>
             </div>
-            <div className="flex items-center justify-between rounded-xl border bg-white p-4">
+            <div className="flex items-center justify-between rounded-xl border bg-card p-4">
               <div>
                 <p className="font-medium">Dubai Site Office - Tablet</p>
                 <p className="text-sm text-muted-foreground">3 hours ago</p>
@@ -190,8 +190,8 @@ export default function SettingsPage({ params }: SettingsPageProps) {
             <SectionTitle icon={BrainCircuit} title="Platform Integration" description="Sync with third-party CAD and BIM software." />
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center gap-3 rounded-xl border bg-slate-50 p-4">
-              <div className="rounded-lg bg-white p-2 shadow-sm">
+            <div className="flex items-center gap-3 rounded-xl border bg-muted/50 p-4">
+              <div className="rounded-lg bg-card p-2 shadow-sm">
                 <SquareTerminal className="h-4 w-4 text-blue-700" />
               </div>
               <div className="min-w-0 flex-1">

@@ -41,7 +41,7 @@ export function Header({ onOpenDashboard }: HeaderProps) {
           <div className="hidden md:flex items-center gap-4">
             {isAuthenticated ? (
               <>
-                <span className="text-sm text-primary-foreground/80">
+                <span className="text-sm text-primary-foreground/80 max-w-[180px] truncate inline-block">
                   Welcome, {user?.full_name}
                 </span>
                 <Button 

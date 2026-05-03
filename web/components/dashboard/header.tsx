@@ -26,6 +26,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { type ProjectRole, roleLabels } from '@/lib/domain'
 import { ProjectSelectionModal } from '@/components/project-selection-modal'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 interface DashboardHeaderProps {
   projectId: string
@@ -73,6 +74,9 @@ export function DashboardHeader({ projectId, projectName, userRole }: DashboardH
 
       {/* Right - Actions */}
       <div className="flex items-center gap-2">
+        {/* Theme Toggle */}
+        <ThemeToggle />
+
         {/* Notifications */}
         <Button variant="ghost" size="icon" className="relative" asChild>
           <Link href={`/dashboard/${projectId}/notifications`} aria-label="Notifications">
@@ -90,7 +94,7 @@ export function DashboardHeader({ projectId, projectName, userRole }: DashboardH
                                 <AvatarFallback className="text-xs">{initials}</AvatarFallback>
               </Avatar>
               <div className="hidden lg:block text-left">
-                <p className="text-sm font-medium leading-none">{user?.full_name}</p>
+                <p className="text-sm font-medium leading-none max-w-[120px] truncate">{user?.full_name}</p>
                 <p className="text-xs text-muted-foreground">{roleLabels[userRole]}</p>
               </div>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />

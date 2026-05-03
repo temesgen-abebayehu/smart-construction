@@ -234,7 +234,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
               </div>
             )}
 
-            <div className="rounded-md border border-white/20 bg-white/10 p-3 text-sm">
+            <div className="rounded-md border border-white/20 bg-card/10 p-3 text-sm">
               <div className="flex items-center gap-2 text-blue-50">
                 <AlertTriangle className="h-4 w-4" />
                 <span>{aiMessage}</span>

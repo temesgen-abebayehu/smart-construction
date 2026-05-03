@@ -28,7 +28,7 @@ interface ProfilePageProps {
 
 function StatRow({ label, value, accent }: { label: string; value: ReactNode; accent?: string }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border bg-white px-4 py-3 text-sm shadow-sm">
+    <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3 text-sm shadow-sm">
       <span className="text-muted-foreground">{label}</span>
       <span className={accent}>{value}</span>
     </div>
@@ -78,7 +78,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   useEffect(() => {
     if (user) {
       setEditName(user.full_name)
-      setEditPhone(user.phone_number || user.phone || '')
+      setEditPhone(user.phone_number || user.phone_number|| '')
       setEditEmail(user.email)
     }
   }, [user])
@@ -154,7 +154,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
             </Avatar>
           </div>
 
-          <div className="space-y-3 rounded-2xl border bg-slate-50 p-4">
+          <div className="space-y-3 rounded-2xl border bg-muted/50 p-4">
             <StatRow
               label="Account Status"
               value={
@@ -183,7 +183,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
       </Card>
 
       <Card className="border-0 shadow-sm">
-        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b bg-white/60 pb-4">
+        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b bg-card/60 pb-4">
           <div>
             <CardTitle className="text-xl">Personal Information</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">Manage your profile and contact preferences.</p>
@@ -192,7 +192,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
             <Button variant="outline" size="sm" className="gap-2" onClick={() => {
               setEditing(false)
               setEditName(user.full_name)
-              setEditPhone(user.phone_number || user.phone || '')
+              setEditPhone(user.phone_number || user.phone_number || '')
               setEditEmail(user.email)
               setSaveError(null)
             }}>
@@ -253,7 +253,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
             <StatRow label="Current Role" value={roleLabels[role]} />
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-slate-50 p-4 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-muted/50 p-4 text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               <UserCircle2 className="h-4 w-4" />
               <span>{user.email}</span>
