@@ -15,6 +15,7 @@ import type {
   ProjectDetail,
   ProjectListItem,
   ProjectMemberRow,
+  ProjectMemberWithUserRow,
   TaskListItem,
   UserMe,
 } from './api-types'
@@ -117,6 +118,7 @@ function normalizeProjectDetail(raw: unknown): ProjectDetail {
 /** Backend TaskResponse → frontend TaskListItem (name → title) */
 function normalizeTaskItem(raw: unknown): TaskListItem {
   const r = raw as Record<string, unknown>
+  const assigneeRaw = r.assignee as Record<string, unknown> | null | undefined
   return {
     id: String(r.id ?? ''),
     title: String(r.name ?? r.title ?? ''),
@@ -125,6 +127,12 @@ function normalizeTaskItem(raw: unknown): TaskListItem {
     start_date: (r.start_date as string | null | undefined) ?? null,
     end_date: (r.end_date as string | null | undefined) ?? null,
     project_id: String(r.project_id ?? ''),
+    assigned_to: (r.assigned_to as string | null | undefined) ?? null,
+    assignee: assigneeRaw ? {
+      id: String(assigneeRaw.id ?? ''),
+      full_name: String(assigneeRaw.full_name ?? ''),
+      email: String(assigneeRaw.email ?? ''),
+    } : null,
   }
 }
 
@@ -320,7 +328,7 @@ export async function listProjectTasks(
 
 export async function createTask(
   projectId: string,
-  body: { name: string; status?: string; start_date?: string; end_date?: string },
+  body: { name: string; status?: string; start_date?: string; end_date?: string; assigned_to?: string },
 ) {
   return apiRequest<TaskListItem>(`/projects/${projectId}/tasks`, {
     method: 'POST',
@@ -329,12 +337,13 @@ export async function createTask(
 }
 
 export async function getTask(taskId: string) {
-  return apiRequest<TaskListItem>(`/projects/tasks/${taskId}`)
+  const raw = await apiRequest<unknown>(`/projects/tasks/${taskId}`)
+  return normalizeTaskItem(raw)
 }
 
 export async function updateTask(
   taskId: string,
-  body: { name?: string; status?: string; progress_percentage?: number; start_date?: string; end_date?: string },
+  body: { name?: string; status?: string; progress_percentage?: number; start_date?: string; end_date?: string; assigned_to?: string },
 ) {
   return apiRequest<TaskListItem>(`/projects/tasks/${taskId}`, {
     method: 'PUT',
@@ -464,38 +473,23 @@ export async function listProjectMembers(projectId: string) {
   return { total: members.length, data: members }
 }
 
-/** Enrich flat member rows with user details */
+/** List members with user details — single API call, no N+1 */
 export async function listProjectMembersEnriched(projectId: string): Promise<EnrichedMemberRow[]> {
-  const { data: members } = await listProjectMembers(projectId)
-  const enriched: EnrichedMemberRow[] = []
-  for (const m of members) {
-    try {
-      const user = await apiRequest<UserMe>(`/users/${m.user_id}`)
-      enriched.push({
-        id: m.id,
-        user: {
-          id: user.id,
-          full_name: user.full_name,
-          email: user.email,
-          phone_number: user.phone_number,
-        },
-        role: m.role,
-        project_id: m.project_id,
-      })
-    } catch {
-      enriched.push({
-        id: m.id,
-        user: {
-          id: m.user_id,
-          full_name: 'Unknown User',
-          email: '',
-        },
-        role: m.role,
-        project_id: m.project_id,
-      })
-    }
-  }
-  return enriched
+  const res = await apiRequest<ProjectMemberWithUserRow[]>(
+    `/projects/${projectId}/members`,
+  )
+  const members = Array.isArray(res) ? res : []
+  return members.map((m) => ({
+    id: m.id,
+    user: {
+      id: m.user.id,
+      full_name: m.user.full_name,
+      email: m.user.email,
+      phone_number: m.user.phone_number,
+    },
+    role: m.role,
+    project_id: m.project_id,
+  }))
 }
 
 /* ── Messages ── */

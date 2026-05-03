@@ -9,14 +9,13 @@ import { Progress } from '@/components/ui/progress'
 import { getPrediction, getProject, listProjectLogs, listProjectTasks } from '@/lib/api'
 import type { LogListItem, PredictionResponse, ProjectDetail, TaskListItem } from '@/lib/api-types'
 import { AlertTriangle, Bot, CalendarDays, DollarSign, LayoutDashboard, ListTodo, PieChart, TrendingUp, Loader2 } from 'lucide-react'
+import { useCurrency } from '@/lib/currency-context'
+import { CurrencyPicker } from '@/components/currency-picker'
 
 interface ReportsPageProps {
   params: Promise<{ projectId: string }>
 }
 
-function formatMillions(amount: number) {
-  return `ETB ${(amount / 1_000_000).toFixed(1)}M`
-}
 
 function MetricCard({
   title,
@@ -51,6 +50,7 @@ function MetricCard({
 
 export default function ReportsPage({ params }: ReportsPageProps) {
   const { projectId } = use(params)
+  const { formatBudget } = useCurrency()
 
   const [project, setProject] = useState<ProjectDetail | null>(null)
   const [projectTasks, setProjectTasks] = useState<TaskListItem[]>([])
@@ -211,8 +211,8 @@ export default function ReportsPage({ params }: ReportsPageProps) {
         />
         <MetricCard
           title="Budget Used"
-          value={formatMillions(totalSpent)}
-          hint={`${formatMillions(budgetRemaining)} remaining`}
+          value={formatBudget(totalSpent)}
+          hint={`${formatBudget(budgetRemaining)} remaining`}
           icon={DollarSign}
           tone="border-amber-200 bg-amber-50 text-amber-600"
         />
@@ -238,7 +238,7 @@ export default function ReportsPage({ params }: ReportsPageProps) {
                   <span>PLANNED</span>
                   <span>ACTUAL</span>
                 </div>
-                <div className="relative h-32 overflow-hidden rounded-xl border border-dashed border-blue-200 bg-white">
+                <div className="relative h-32 overflow-hidden rounded-xl border border-dashed border-blue-200 bg-card">
                   <div className="absolute left-4 right-4 top-1/2 h-px bg-slate-200" />
                   <div className="absolute left-6 right-8 top-12 h-1 rounded-full bg-blue-600/70" />
                   <div className="absolute left-6 top-16 h-12 w-[72%] rounded-tl-full border-l-2 border-b-2 border-blue-500/80" />
@@ -264,7 +264,7 @@ export default function ReportsPage({ params }: ReportsPageProps) {
           <CardContent className="space-y-5">
             <div className="mx-auto grid h-40 w-40 place-items-center rounded-full border-14 border-slate-100 border-t-blue-700 border-r-indigo-500 border-b-slate-300 border-l-slate-200">
               <div className="text-center">
-                <p className="text-2xl font-semibold">{formatMillions(totalBudget)}</p>
+                <p className="text-2xl font-semibold">{formatBudget(totalBudget)}</p>
                 <p className="text-xs text-muted-foreground">Total budget</p>
               </div>
             </div>
@@ -291,7 +291,7 @@ export default function ReportsPage({ params }: ReportsPageProps) {
           <CardContent className="space-y-4">
             <p className="text-4xl font-semibold">{riskScore.toFixed(1)}%</p>
             <p className="text-sm text-blue-100">AI-based risk prediction</p>
-            <div className="space-y-2 rounded-lg border border-white/20 bg-white/10 p-3 text-sm leading-6 text-blue-50">
+            <div className="space-y-2 rounded-lg border border-white/20 bg-card/10 p-3 text-sm leading-6 text-blue-50">
               {prediction?.reason ? (
                 <p><strong className="text-white">Insight:</strong> {prediction.reason}</p>
               ) : (

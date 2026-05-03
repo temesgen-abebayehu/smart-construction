@@ -70,7 +70,7 @@ const roleColors: Record<ProjectRole, string> = {
   site_engineer: 'bg-green-100 text-green-700 border-green-300',
 }
 
-const ALL_ROLES: ProjectRole[] = ['owner', 'project_manager', 'office_engineer', 'consultant', 'site_engineer']
+const ALL_ROLES: ProjectRole[] = ['project_manager', 'office_engineer', 'consultant', 'site_engineer']
 
 export default function TeamPage({ params }: TeamPageProps) {
   const { projectId } = use(params)
@@ -132,16 +132,25 @@ export default function TeamPage({ params }: TeamPageProps) {
     }
   }, [projectId])
 
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null)
+
   const handleInvite = async () => {
     if (!inviteEmail.trim()) return
     setInviteLoading(true)
     setInviteError(null)
+    setInviteSuccess(null)
     try {
-      await inviteProjectMember(projectId, { email: inviteEmail.trim(), role: inviteRole })
-      setInviteOpen(false)
+      const result = await inviteProjectMember(projectId, { email: inviteEmail.trim(), role: inviteRole })
+      if (result.status === 'accepted') {
+        setInviteSuccess(`${inviteEmail.trim()} has been added to the project directly.`)
+      } else {
+        setInviteSuccess(`Invitation sent to ${inviteEmail.trim()}. They will be added when they sign up.`)
+      }
       setInviteEmail('')
       setInviteRole('site_engineer')
       await refreshMembers()
+      // Auto-close after 2s
+      setTimeout(() => { setInviteOpen(false); setInviteSuccess(null) }, 2000)
     } catch (e) {
       setInviteError(e instanceof Error ? e.message : 'Failed to send invitation')
     } finally {
@@ -200,7 +209,7 @@ export default function TeamPage({ params }: TeamPageProps) {
     {} as Record<ProjectRole, typeof projectMembers>,
   )
 
-  const canManageTeam = userRole === 'project_manager' || userRole === 'owner'
+  const canManageTeam = userRole === 'project_manager'
 
   if (loading) {
     return (
@@ -277,7 +286,8 @@ export default function TeamPage({ params }: TeamPageProps) {
                   </span>
                 </div>
                 <CardDescription>
-                  {role === 'project_manager' && 'Owns the project, gives final approval on daily logs'}
+                  {role === 'owner' && 'Project owner with full administrative access'}
+                  {role === 'project_manager' && 'Manages the project, gives final approval on daily logs'}
                   {role === 'office_engineer' && 'Reviews document completeness before consultant approval'}
                   {role === 'consultant' && 'Verifies reported work matches actual site work, approves logs'}
                   {role === 'site_engineer' && 'Submits daily logs for assigned tasks'}
@@ -288,9 +298,10 @@ export default function TeamPage({ params }: TeamPageProps) {
                   {members.map((member) => {
                     const initials = member.user.full_name
                       .split(' ')
+                      .filter((n) => n.length > 0)
                       .map((n) => n[0])
                       .join('')
-                      .toUpperCase()
+                      .toUpperCase() || 'U'
 
                     return (
                       <div
@@ -412,6 +423,9 @@ export default function TeamPage({ params }: TeamPageProps) {
             </div>
             {inviteError && (
               <p className="text-sm text-destructive">{inviteError}</p>
+            )}
+            {inviteSuccess && (
+              <p className="text-sm text-emerald-600">{inviteSuccess}</p>
             )}
           </div>
           <DialogFooter>

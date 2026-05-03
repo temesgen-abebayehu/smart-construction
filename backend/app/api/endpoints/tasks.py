@@ -1,14 +1,29 @@
 from typing import Any, List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import DbSession, get_current_active_user, require_project_role, get_project_member
 from app.models.user import User
 from app.models.commons import ProjectRole
+from app.models.project import Project
 from app.models.task import Task, TaskDependency
 from app.schemas.task import TaskCreate, TaskUpdate, TaskResponse, TaskDependencyCreate, TaskDependencyResponse
 from app.repositories.log import TaskRepository, TaskDependencyRepository
+
+
+async def _recalculate_project_progress(db, project_id: UUID):
+    """Recalculate project progress_percentage as average of all task progress."""
+    result = await db.execute(
+        select(func.avg(Task.progress_percentage)).where(Task.project_id == project_id)
+    )
+    avg = result.scalar()
+    project = await db.get(Project, project_id)
+    if project:
+        project.progress_percentage = round(avg or 0, 2)
+        db.add(project)
+        await db.commit()
 
 router = APIRouter()
 task_repo = TaskRepository()
@@ -27,11 +42,16 @@ async def create_task(
         status=task_in.status.value if task_in.status else "pending",
         start_date=task_in.start_date,
         end_date=task_in.end_date,
+        assigned_to=task_in.assigned_to,
     )
     db.add(task)
     await db.commit()
-    await db.refresh(task)
-    return task
+    await _recalculate_project_progress(db, project_id)
+    # Re-fetch with assignee loaded
+    result = await db.execute(
+        select(Task).options(selectinload(Task.assignee)).where(Task.id == task.id)
+    )
+    return result.scalars().first()
 
 @router.get("/{project_id}/tasks", response_model=List[TaskResponse])
 async def list_tasks(
@@ -39,11 +59,19 @@ async def list_tasks(
     skip: int = 0, limit: int = 100,
     _: User = Depends(get_current_active_user),
 ) -> Any:
-    return await task_repo.get_by_project(db, project_id, skip=skip, limit=limit, status=status)
+    stmt = select(Task).options(selectinload(Task.assignee)).where(Task.project_id == project_id)
+    if status:
+        stmt = stmt.where(Task.status == status)
+    stmt = stmt.offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
 
 @router.get("/tasks/{task_id}", response_model=TaskResponse)
 async def get_task(task_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
-    task = await task_repo.get_by_id(db, task_id)
+    result = await db.execute(
+        select(Task).options(selectinload(Task.assignee)).where(Task.id == task_id)
+    )
+    task = result.scalars().first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
@@ -56,11 +84,21 @@ async def update_task(
     task = await task_repo.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    return await task_repo.update(db, task, task_in)
+    updated = await task_repo.update(db, task, task_in)
+    await _recalculate_project_progress(db, task.project_id)
+    # Re-fetch with assignee loaded
+    result = await db.execute(
+        select(Task).options(selectinload(Task.assignee)).where(Task.id == updated.id)
+    )
+    return result.scalars().first()
 
 @router.delete("/tasks/{task_id}", status_code=204)
 async def delete_task(task_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> None:
+    task = await task_repo.get_by_id(db, task_id)
+    project_id = task.project_id if task else None
     await task_repo.delete(db, task_id)
+    if project_id:
+        await _recalculate_project_progress(db, project_id)
 
 # ── Task Dependencies ──
 

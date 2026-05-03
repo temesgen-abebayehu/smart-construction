@@ -1,12 +1,12 @@
 'use client'
 
 import { use, useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Dialog,
   DialogContent,
@@ -16,6 +16,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import {
   Table,
   TableBody,
@@ -31,14 +36,14 @@ import {
   Eye,
   Pencil,
   Search,
-  SlidersHorizontal,
   TriangleAlert,
   Loader2,
+  UserCircle2,
 } from 'lucide-react'
 import { useProjectRole } from '@/lib/project-role-context'
-import type { TaskListItem } from '@/lib/api-types'
+import type { TaskListItem, EnrichedMemberRow } from '@/lib/api-types'
 import type { TaskStatus } from '@/lib/domain'
-import { createTask, listProjectTasks } from '@/lib/api'
+import { createTask, updateTask, listProjectTasks, listProjectMembersEnriched } from '@/lib/api'
 
 interface TasksPageProps {
   params: Promise<{ projectId: string }>
@@ -79,10 +84,15 @@ export default function TasksPage({ params }: TasksPageProps) {
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newTaskName, setNewTaskName] = useState('')
-  const [newTaskStart, setNewTaskStart] = useState('')
-  const [newTaskEnd, setNewTaskEnd] = useState('')
+  const today = new Date().toISOString().split('T')[0]
+  const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
+  const [newTaskStart, setNewTaskStart] = useState(today)
+  const [newTaskEnd, setNewTaskEnd] = useState(nextWeek)
+  const [newTaskAssignee, setNewTaskAssignee] = useState<string | null>(null)
+  const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const canCreateTask = userRole === 'project_manager' || userRole === 'owner'
+  const [members, setMembers] = useState<EnrichedMemberRow[]>([])
+  const canCreateTask = userRole === 'project_manager'
 
   const loadTasks = async () => {
     setLoading(true)
@@ -98,6 +108,7 @@ export default function TasksPage({ params }: TasksPageProps) {
 
   useEffect(() => {
     loadTasks()
+    listProjectMembersEnriched(projectId).then(setMembers).catch(() => setMembers([]))
   }, [projectId])
 
   const handleCreateTask = async () => {
@@ -109,11 +120,13 @@ export default function TasksPage({ params }: TasksPageProps) {
         name: newTaskName.trim(),
         start_date: newTaskStart ? `${newTaskStart}T00:00:00` : undefined,
         end_date: newTaskEnd ? `${newTaskEnd}T00:00:00` : undefined,
+        assigned_to: newTaskAssignee || undefined,
       })
       setNewTaskOpen(false)
       setNewTaskName('')
-      setNewTaskStart('')
-      setNewTaskEnd('')
+      setNewTaskStart(today)
+      setNewTaskEnd(nextWeek)
+      setNewTaskAssignee(null)
       await loadTasks()
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Failed to create task')
@@ -290,6 +303,63 @@ export default function TasksPage({ params }: TasksPageProps) {
                         </div>
                       </div>
 
+                      <div className="grid gap-2">
+                        <label className="text-sm font-medium">Assign to</label>
+                        <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" type="button" className="justify-start gap-2 font-normal">
+                              {newTaskAssignee ? (
+                                <>
+                                  <Avatar className="h-5 w-5">
+                                    <AvatarFallback className="text-[10px]">
+                                      {members.find(m => m.user.id === newTaskAssignee)?.user.full_name
+                                        .split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase() || 'U'}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  {members.find(m => m.user.id === newTaskAssignee)?.user.full_name || 'Unknown'}
+                                </>
+                              ) : (
+                                <>
+                                  <UserCircle2 className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-muted-foreground">Unassigned</span>
+                                </>
+                              )}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 p-1" align="start">
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"
+                              onClick={() => { setNewTaskAssignee(null); setAssigneePopoverOpen(false) }}
+                            >
+                              <UserCircle2 className="h-6 w-6 text-muted-foreground" />
+                              <span>Unassigned</span>
+                            </button>
+                            <div className="max-h-48 overflow-y-auto">
+                              {members.map((m) => {
+                                const initials = m.user.full_name.split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase() || 'U'
+                                return (
+                                  <button
+                                    key={m.user.id}
+                                    type="button"
+                                    className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted ${newTaskAssignee === m.user.id ? 'bg-muted' : ''}`}
+                                    onClick={() => { setNewTaskAssignee(m.user.id); setAssigneePopoverOpen(false) }}
+                                  >
+                                    <Avatar className="h-6 w-6">
+                                      <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
+                                    </Avatar>
+                                    <div className="text-left">
+                                      <p className="font-medium">{m.user.full_name}</p>
+                                      {m.user.email && <p className="text-xs text-muted-foreground">{m.user.email}</p>}
+                                    </div>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+
                       {createError && (
                         <p className="text-sm text-destructive">{createError}</p>
                       )}
@@ -312,6 +382,7 @@ export default function TasksPage({ params }: TasksPageProps) {
             <TableHeader>
               <TableRow>
                 <TableHead>Task Details</TableHead>
+                <TableHead>Assignee</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Timeline</TableHead>
                 <TableHead>Progress</TableHead>
@@ -321,7 +392,7 @@ export default function TasksPage({ params }: TasksPageProps) {
             <TableBody>
               {pageTasks.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
                     No tasks found for current filter.
                   </TableCell>
                 </TableRow>
@@ -333,6 +404,67 @@ export default function TasksPage({ params }: TasksPageProps) {
                     <TableRow key={task.id}>
                       <TableCell>
                         <p className="font-medium">{task.title}</p>
+                      </TableCell>
+
+                      <TableCell>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button type="button" className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-muted transition-colors cursor-pointer">
+                              {task.assignee ? (
+                                <>
+                                  <Avatar className="h-6 w-6">
+                                    <AvatarFallback className="text-[10px]">
+                                      {task.assignee.full_name.split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase() || 'U'}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-sm">{task.assignee.full_name}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <UserCircle2 className="h-5 w-5 text-muted-foreground" />
+                                  <span className="text-sm text-muted-foreground">Unassigned</span>
+                                </>
+                              )}
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 p-1" align="start">
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"
+                              onClick={async () => {
+                                await updateTask(task.id, { assigned_to: undefined })
+                                await loadTasks()
+                              }}
+                            >
+                              <UserCircle2 className="h-6 w-6 text-muted-foreground" />
+                              <span>Unassigned</span>
+                            </button>
+                            <div className="max-h-48 overflow-y-auto">
+                              {members.map((m) => {
+                                const ini = m.user.full_name.split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase() || 'U'
+                                return (
+                                  <button
+                                    key={m.user.id}
+                                    type="button"
+                                    className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted ${task.assigned_to === m.user.id ? 'bg-muted' : ''}`}
+                                    onClick={async () => {
+                                      await updateTask(task.id, { assigned_to: m.user.id })
+                                      await loadTasks()
+                                    }}
+                                  >
+                                    <Avatar className="h-6 w-6">
+                                      <AvatarFallback className="text-[10px]">{ini}</AvatarFallback>
+                                    </Avatar>
+                                    <div className="text-left">
+                                      <p className="font-medium">{m.user.full_name}</p>
+                                      {m.user.email && <p className="text-xs text-muted-foreground">{m.user.email}</p>}
+                                    </div>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
                       </TableCell>
 
                       <TableCell>
@@ -361,9 +493,9 @@ export default function TasksPage({ params }: TasksPageProps) {
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                            <Link href={`/dashboard/${projectId}/tasks`} aria-label="View task">
+                            <a href={`/dashboard/${projectId}/tasks/${task.id}`} aria-label="View task">
                               <Eye className="h-4 w-4" />
-                            </Link>
+                            </a>
                           </Button>
                         </div>
                       </TableCell>

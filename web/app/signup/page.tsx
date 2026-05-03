@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,12 +11,22 @@ import { Building2, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 
 export default function SignupPage() {
+  return (
+    <Suspense>
+      <SignupForm />
+    </Suspense>
+  )
+}
+
+function SignupForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { signup, isLoading } = useAuth()
   const [showPassword, setShowPassword] = useState(false)
+  const invitedEmail = searchParams.get('email') || ''
   const [formData, setFormData] = useState({
     full_name: '',
-    email: '',
+    email: invitedEmail,
     phone_number: '',
     password: '',
     confirm_password: '',

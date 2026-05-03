@@ -145,6 +145,12 @@ export interface TaskListItem {
   start_date?: string | null
   end_date?: string | null
   project_id: string
+  assigned_to?: string | null
+  assignee?: {
+    id: string
+    full_name: string
+    email: string
+  } | null
 }
 
 /* ── Logs ── */
@@ -182,7 +188,21 @@ export interface ProjectMemberRow {
   role: ProjectRole
 }
 
-/** Frontend-enriched member with user details fetched separately */
+/** Backend ProjectMemberWithUserResponse — includes nested user */
+export interface ProjectMemberWithUserRow {
+  id: string
+  user_id: string
+  project_id: string
+  role: ProjectRole
+  user: {
+    id: string
+    full_name: string
+    email: string
+    phone_number?: string | null
+  }
+}
+
+/** Frontend-enriched member with user details */
 export interface EnrichedMemberRow {
   id: string
   user: {

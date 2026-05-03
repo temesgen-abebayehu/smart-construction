@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,10 +11,19 @@ import { Building2, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { login, isLoading } = useAuth()
   const [showPassword, setShowPassword] = useState(false)
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(searchParams.get('email') || '')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
@@ -92,15 +101,7 @@ export default function LoginPage() {
               </div>
               
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password">Password</Label>
-                  <Link 
-                    href="/forgot-password" 
-                    className="text-sm text-accent hover:underline"
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
+                <Label htmlFor="password">Password</Label>
                 <div className="relative">
                   <Input
                     id="password"
@@ -131,13 +132,20 @@ export default function LoginPage() {
                   'Sign in'
                 )}
               </Button>
-              
-              <p className="text-center text-sm text-muted-foreground">
-                {"Don't have an account? "}
-                <Link href="/signup" className="text-accent hover:underline font-medium">
-                  Sign up
+
+              <div className="space-y-2 text-sm">
+                <Link href="/forgot-password" className="text-accent hover:underline font-medium">
+                  Forgot password?
                 </Link>
-              </p>
+                <div className="flex items-center justify-center gap-2 mt-2">
+                <p className="text-muted-foreground">
+                  {"Don't have an account? "}
+                  <Link href="/signup" className="text-accent hover:underline font-medium">
+                    Sign up
+                  </Link>
+                </p>
+                </div>
+              </div>
             </form>
           </CardContent>
         </Card>

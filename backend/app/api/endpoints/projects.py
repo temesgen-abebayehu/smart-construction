@@ -8,11 +8,13 @@ from app.models.commons import ProjectRole
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectDashboard,
     ProjectMemberCreate, ProjectMemberUpdate, ProjectMemberResponse,
+    ProjectMemberWithUserResponse,
     ProjectInvitationCreate, ProjectInvitationResponse, ProjectInvitationAccept
 )
 from app.services.project import ProjectService, ProjectMemberService, ProjectInvitationService
 from app.repositories.project import ProjectRepository, ProjectMemberRepository
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.models.project import ProjectMember
 
 router = APIRouter()
@@ -75,12 +77,16 @@ async def add_member(
 ) -> Any:
     return await ProjectMemberService.add_member(db, project_id, member_in)
 
-@router.get("/{project_id}/members", response_model=List[ProjectMemberResponse])
+@router.get("/{project_id}/members", response_model=List[ProjectMemberWithUserResponse])
 async def list_members(
     project_id: UUID, db: DbSession,
     _: User = Depends(get_current_active_user),
 ) -> Any:
-    result = await db.execute(select(ProjectMember).where(ProjectMember.project_id == project_id))
+    result = await db.execute(
+        select(ProjectMember)
+        .options(selectinload(ProjectMember.user))
+        .where(ProjectMember.project_id == project_id)
+    )
     return list(result.scalars().all())
 
 @router.patch("/{project_id}/members/{user_id}", response_model=ProjectMemberResponse,
