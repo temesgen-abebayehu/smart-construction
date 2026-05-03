@@ -13,11 +13,13 @@ class Task(Base):
     name = Column(String(255), nullable=False)
     status = Column(String(50), default=TaskStatus.PENDING.value)
     progress_percentage = Column(Float, default=0.0)
-    
+    assigned_to = Column(SQL_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
     start_date = Column(DateTime(timezone=True))
     end_date = Column(DateTime(timezone=True))
-    
+
     project = relationship("Project")
+    assignee = relationship("User", foreign_keys=[assigned_to])
     
 class TaskDependency(Base):
     __tablename__ = "task_dependencies"

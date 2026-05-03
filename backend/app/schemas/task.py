@@ -8,6 +8,7 @@ class TaskBase(BaseModel):
     status: TaskStatus = TaskStatus.PENDING
     start_date: datetime | None = None
     end_date: datetime | None = None
+    assigned_to: UUID | None = None
 
 class TaskCreate(TaskBase):
     pass
@@ -18,11 +19,19 @@ class TaskUpdate(BaseModel):
     progress_percentage: float | None = None
     start_date: datetime | None = None
     end_date: datetime | None = None
+    assigned_to: UUID | None = None
+
+class AssigneeBasic(BaseModel):
+    id: UUID
+    full_name: str
+    email: str
+    model_config = ConfigDict(from_attributes=True)
 
 class TaskResponse(TaskBase):
     id: UUID
     project_id: UUID
     progress_percentage: float
+    assignee: AssigneeBasic | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class TaskDependencyBase(BaseModel):

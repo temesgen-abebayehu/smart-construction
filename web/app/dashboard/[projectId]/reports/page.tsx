@@ -14,8 +14,10 @@ interface ReportsPageProps {
   params: Promise<{ projectId: string }>
 }
 
-function formatMillions(amount: number) {
-  return `ETB ${(amount / 1_000_000).toFixed(1)}M`
+function formatBudget(amount: number) {
+  if (amount >= 1_000_000) return `ETB ${(amount / 1_000_000).toFixed(1)}M`
+  if (amount >= 1_000) return `ETB ${(amount / 1_000).toFixed(1)}K`
+  return `ETB ${amount.toLocaleString()}`
 }
 
 function MetricCard({
@@ -211,8 +213,8 @@ export default function ReportsPage({ params }: ReportsPageProps) {
         />
         <MetricCard
           title="Budget Used"
-          value={formatMillions(totalSpent)}
-          hint={`${formatMillions(budgetRemaining)} remaining`}
+          value={formatBudget(totalSpent)}
+          hint={`${formatBudget(budgetRemaining)} remaining`}
           icon={DollarSign}
           tone="border-amber-200 bg-amber-50 text-amber-600"
         />
@@ -264,7 +266,7 @@ export default function ReportsPage({ params }: ReportsPageProps) {
           <CardContent className="space-y-5">
             <div className="mx-auto grid h-40 w-40 place-items-center rounded-full border-14 border-slate-100 border-t-blue-700 border-r-indigo-500 border-b-slate-300 border-l-slate-200">
               <div className="text-center">
-                <p className="text-2xl font-semibold">{formatMillions(totalBudget)}</p>
+                <p className="text-2xl font-semibold">{formatBudget(totalBudget)}</p>
                 <p className="text-xs text-muted-foreground">Total budget</p>
               </div>
             </div>

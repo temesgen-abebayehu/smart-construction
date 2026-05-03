@@ -118,6 +118,7 @@ function normalizeProjectDetail(raw: unknown): ProjectDetail {
 /** Backend TaskResponse → frontend TaskListItem (name → title) */
 function normalizeTaskItem(raw: unknown): TaskListItem {
   const r = raw as Record<string, unknown>
+  const assigneeRaw = r.assignee as Record<string, unknown> | null | undefined
   return {
     id: String(r.id ?? ''),
     title: String(r.name ?? r.title ?? ''),
@@ -126,6 +127,12 @@ function normalizeTaskItem(raw: unknown): TaskListItem {
     start_date: (r.start_date as string | null | undefined) ?? null,
     end_date: (r.end_date as string | null | undefined) ?? null,
     project_id: String(r.project_id ?? ''),
+    assigned_to: (r.assigned_to as string | null | undefined) ?? null,
+    assignee: assigneeRaw ? {
+      id: String(assigneeRaw.id ?? ''),
+      full_name: String(assigneeRaw.full_name ?? ''),
+      email: String(assigneeRaw.email ?? ''),
+    } : null,
   }
 }
 
@@ -321,7 +328,7 @@ export async function listProjectTasks(
 
 export async function createTask(
   projectId: string,
-  body: { name: string; status?: string; start_date?: string; end_date?: string },
+  body: { name: string; status?: string; start_date?: string; end_date?: string; assigned_to?: string },
 ) {
   return apiRequest<TaskListItem>(`/projects/${projectId}/tasks`, {
     method: 'POST',
@@ -330,12 +337,13 @@ export async function createTask(
 }
 
 export async function getTask(taskId: string) {
-  return apiRequest<TaskListItem>(`/projects/tasks/${taskId}`)
+  const raw = await apiRequest<unknown>(`/projects/tasks/${taskId}`)
+  return normalizeTaskItem(raw)
 }
 
 export async function updateTask(
   taskId: string,
-  body: { name?: string; status?: string; progress_percentage?: number; start_date?: string; end_date?: string },
+  body: { name?: string; status?: string; progress_percentage?: number; start_date?: string; end_date?: string; assigned_to?: string },
 ) {
   return apiRequest<TaskListItem>(`/projects/tasks/${taskId}`, {
     method: 'PUT',

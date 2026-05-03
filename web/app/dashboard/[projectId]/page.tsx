@@ -30,8 +30,10 @@ interface DashboardPageProps {
   params: Promise<{ projectId: string }>
 }
 
-function formatMillions(amount: number) {
-  return `ETB ${(amount / 1_000_000).toFixed(1)}M`
+function formatBudget(amount: number) {
+  if (amount >= 1_000_000) return `ETB ${(amount / 1_000_000).toFixed(1)}M`
+  if (amount >= 1_000) return `ETB ${(amount / 1_000).toFixed(1)}K`
+  return `ETB ${amount.toLocaleString()}`
 }
 
 function getIssueTag(log: LogListItem) {
@@ -185,15 +187,15 @@ export default function DashboardPage({ params }: DashboardPageProps) {
               <div className="space-y-1 text-sm">
                 <div className="flex items-center justify-between gap-8">
                   <span className="text-muted-foreground">Contract Total</span>
-                  <span className="font-medium">{formatMillions(totalBudget)}</span>
+                  <span className="font-medium">{formatBudget(totalBudget)}</span>
                 </div>
                 <div className="flex items-center justify-between gap-8">
                   <span className="text-muted-foreground">Actual Spent</span>
-                  <span className="font-medium">{formatMillions(totalSpent)}</span>
+                  <span className="font-medium">{formatBudget(totalSpent)}</span>
                 </div>
                 <div className="flex items-center justify-between gap-8">
                   <span className="text-muted-foreground">Remaining</span>
-                  <span className="font-medium">{formatMillions(remaining)}</span>
+                  <span className="font-medium">{formatBudget(remaining)}</span>
                 </div>
               </div>
             </div>

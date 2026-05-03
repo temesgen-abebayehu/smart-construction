@@ -145,6 +145,12 @@ export interface TaskListItem {
   start_date?: string | null
   end_date?: string | null
   project_id: string
+  assigned_to?: string | null
+  assignee?: {
+    id: string
+    full_name: string
+    email: string
+  } | null
 }
 
 /* ── Logs ── */
