@@ -84,8 +84,10 @@ export default function TasksPage({ params }: TasksPageProps) {
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newTaskName, setNewTaskName] = useState('')
-  const [newTaskStart, setNewTaskStart] = useState('')
-  const [newTaskEnd, setNewTaskEnd] = useState('')
+  const today = new Date().toISOString().split('T')[0]
+  const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
+  const [newTaskStart, setNewTaskStart] = useState(today)
+  const [newTaskEnd, setNewTaskEnd] = useState(nextWeek)
   const [newTaskAssignee, setNewTaskAssignee] = useState<string | null>(null)
   const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -122,8 +124,8 @@ export default function TasksPage({ params }: TasksPageProps) {
       })
       setNewTaskOpen(false)
       setNewTaskName('')
-      setNewTaskStart('')
-      setNewTaskEnd('')
+      setNewTaskStart(today)
+      setNewTaskEnd(nextWeek)
       setNewTaskAssignee(null)
       await loadTasks()
     } catch (err) {
