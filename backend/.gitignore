@@ -27,3 +27,6 @@ htmlcov/
 
 # Internal docs
 docs/
+
+# ML model artifacts (large files; downloaded by build.sh from GitHub Releases)
+ml/rf_classifier.pkl
