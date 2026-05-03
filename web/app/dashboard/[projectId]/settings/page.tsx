@@ -1,216 +1,381 @@
 'use client'
 
-import { use, useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { use, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import { Card, CardContent } from '@/components/ui/card'
 import { useAuth } from '@/lib/auth-context'
-import { getProject } from '@/lib/api'
-import type { ProjectDetail } from '@/lib/api-types'
-import { BellRing, BrainCircuit, KeyRound, Palette, ShieldCheck, SquareTerminal, UserCog, Loader2 } from 'lucide-react'
+import { updateMe } from '@/lib/api'
+import { apiRequest } from '@/lib/api-client'
+import {
+  BellRing,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Loader2,
+  Mail,
+  ShieldCheck,
+  UserCog,
+} from 'lucide-react'
 
 interface SettingsPageProps {
   params: Promise<{ projectId: string }>
 }
 
-function SectionTitle({ icon: Icon, title, description }: { icon: typeof UserCog; title: string; description: string }) {
+function SectionHeader({
+  icon: Icon,
+  title,
+  description,
+  open,
+}: {
+  icon: typeof UserCog
+  title: string
+  description: string
+  open: boolean
+}) {
   return (
-    <div className="flex items-start gap-3">
-      <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
-        <Icon className="h-4 w-4" />
+    <div className="flex items-center justify-between w-full">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-primary/10 p-2 text-primary">
+          <Icon className="h-4 w-4" />
+        </div>
+        <div>
+          <h2 className="text-base font-semibold">{title}</h2>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
       </div>
-      <div>
-        <h2 className="text-base font-semibold">{title}</h2>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </div>
+      <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
     </div>
   )
 }
 
 export default function SettingsPage({ params }: SettingsPageProps) {
   const { projectId } = use(params)
-  const { user } = useAuth()
-  const [project, setProject] = useState<ProjectDetail | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { user, logout, refreshUser } = useAuth()
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      try {
-        const p = await getProject(projectId)
-        if (!cancelled) setProject(p)
-      } catch {
-        if (!cancelled) setProject(null)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+  // Section open states
+  const [accountOpen, setAccountOpen] = useState(true)
+  const [notifOpen, setNotifOpen] = useState(false)
+  const [securityOpen, setSecurityOpen] = useState(false)
+
+  // Account - change email
+  const [editEmail, setEditEmail] = useState(user?.email || '')
+  const [emailSaving, setEmailSaving] = useState(false)
+  const [emailMsg, setEmailMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Account - change password
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [showNewPw, setShowNewPw] = useState(false)
+  const [pwSaving, setPwSaving] = useState(false)
+  const [pwMsg, setPwMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Notifications
+  const [notifInvites, setNotifInvites] = useState(true)
+  const [notifLogs, setNotifLogs] = useState(true)
+  const [notifTasks, setNotifTasks] = useState(true)
+  const [notifBudget, setNotifBudget] = useState(false)
+
+  // Security - forgot password
+  const [resetSending, setResetSending] = useState(false)
+  const [resetMsg, setResetMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const handleEmailChange = async () => {
+    if (!editEmail.trim() || editEmail === user?.email) return
+    setEmailSaving(true)
+    setEmailMsg(null)
+    try {
+      await updateMe({ email: editEmail.trim() })
+      await refreshUser()
+      setEmailMsg({ type: 'success', text: 'Email updated successfully.' })
+    } catch (e) {
+      setEmailMsg({ type: 'error', text: e instanceof Error ? e.message : 'Failed to update email' })
+    } finally {
+      setEmailSaving(false)
     }
-  }, [projectId])
-
-  if (loading) {
-    return (
-      <div className="flex justify-center py-24 text-muted-foreground">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    )
   }
 
-  if (!project) return null
+  const handlePasswordChange = async () => {
+    if (newPw.length < 8) {
+      setPwMsg({ type: 'error', text: 'Password must be at least 8 characters.' })
+      return
+    }
+    if (newPw !== confirmPw) {
+      setPwMsg({ type: 'error', text: 'Passwords do not match.' })
+      return
+    }
+    setPwSaving(true)
+    setPwMsg(null)
+    try {
+      await updateMe({ password: newPw })
+      setPwMsg({ type: 'success', text: 'Password changed successfully.' })
+      setCurrentPw('')
+      setNewPw('')
+      setConfirmPw('')
+    } catch (e) {
+      setPwMsg({ type: 'error', text: e instanceof Error ? e.message : 'Failed to change password' })
+    } finally {
+      setPwSaving(false)
+    }
+  }
+
+  const handleSendResetLink = async () => {
+    if (!user?.email) return
+    setResetSending(true)
+    setResetMsg(null)
+    try {
+      await apiRequest('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email: user.email }),
+      })
+      setResetMsg({ type: 'success', text: `Reset link sent to ${user.email}` })
+    } catch {
+      setResetMsg({ type: 'error', text: 'Failed to send reset link.' })
+    } finally {
+      setResetSending(false)
+    }
+  }
+
+  const handleLogoutAllDevices = async () => {
+    await logout()
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Manage your architectural workspace preferences and security configurations. Project: {project.name}
+          Manage your account, notifications, and security preferences.
         </p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card className="shadow-sm">
-          <CardHeader className="pb-4">
-            <SectionTitle icon={UserCog} title="Account Information" description="Email, password, and profile preferences." />
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <div className="space-y-2">
-                <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Email Address</Label>
-                <Input defaultValue={user?.email || ''} readOnly />
+      {/* Account & Profile */}
+      <Collapsible open={accountOpen} onOpenChange={setAccountOpen}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <button type="button" className="w-full p-5 text-left cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg">
+              <SectionHeader icon={UserCog} title="Account" description="Email, password, and profile." open={accountOpen} />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-6 pt-0 px-5 pb-5">
+              {/* Change Email */}
+              <div className="space-y-3 rounded-lg border p-4">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  Email Address
+                </div>
+                <div className="flex gap-3">
+                  <Input
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={() => void handleEmailChange()}
+                    disabled={emailSaving || editEmail === user?.email}
+                    size="sm"
+                  >
+                    {emailSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Update'}
+                  </Button>
+                </div>
+                {emailMsg && (
+                  <p className={`text-xs ${emailMsg.type === 'success' ? 'text-emerald-600' : 'text-destructive'}`}>
+                    {emailMsg.text}
+                  </p>
+                )}
               </div>
-              <div className="flex items-end">
-                <Button variant="secondary" type="button">Change</Button>
-              </div>
-            </div>
 
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <div className="rounded-xl border bg-muted/50 p-4">
+              {/* Change Password */}
+              <div className="space-y-3 rounded-lg border p-4">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <KeyRound className="h-4 w-4 text-muted-foreground" />
-                  Password Management
+                  Change Password
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">Update via profile when connected to the API.</p>
-                <p className="text-xs text-muted-foreground">Secure your account with a strong password.</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs text-muted-foreground">New Password</Label>
+                    <div className="relative">
+                      <Input
+                        type={showNewPw ? 'text' : 'password'}
+                        placeholder="Minimum 8 characters"
+                        value={newPw}
+                        onChange={(e) => setNewPw(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowNewPw(!showNewPw)}
+                      >
+                        {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs text-muted-foreground">Confirm Password</Label>
+                    <Input
+                      type="password"
+                      placeholder="Re-enter password"
+                      value={confirmPw}
+                      onChange={(e) => setConfirmPw(e.target.value)}
+                    />
+                    {confirmPw && confirmPw !== newPw && (
+                      <p className="text-xs text-destructive">Passwords do not match</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  {pwMsg && (
+                    <p className={`text-xs ${pwMsg.type === 'success' ? 'text-emerald-600' : 'text-destructive'}`}>
+                      {pwMsg.text}
+                    </p>
+                  )}
+                  <Button
+                    onClick={() => void handlePasswordChange()}
+                    disabled={pwSaving || !newPw}
+                    size="sm"
+                    className="ml-auto"
+                  >
+                    {pwSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Change Password
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-end">
-                <Button className="bg-blue-700 hover:bg-blue-800" type="button">Update</Button>
-              </div>
-            </div>
-          </CardContent>
+            </CardContent>
+          </CollapsibleContent>
         </Card>
+      </Collapsible>
 
-        <Card className="shadow-sm">
-          <CardHeader className="pb-4">
-            <SectionTitle icon={Palette} title="Visual Identity" description="Choose your interface theme and language." />
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 rounded-2xl border bg-muted/50 p-3">
-              <Button variant="default" className="h-12 justify-start gap-2" type="button">
-                <Palette className="h-4 w-4" />
-                Light
-              </Button>
-              <Button variant="secondary" className="h-12 justify-start gap-2" type="button">
-                <SquareTerminal className="h-4 w-4" />
-                Dark
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Regional Language</Label>
-              <Select defaultValue="en-uk">
-                <SelectTrigger>
-                  <SelectValue placeholder="Select language" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="en-uk">English (United Kingdom)</SelectItem>
-                  <SelectItem value="en-us">English (United States)</SelectItem>
-                  <SelectItem value="am-et">Amharic (Ethiopia)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
+      {/* Notifications */}
+      <Collapsible open={notifOpen} onOpenChange={setNotifOpen}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <button type="button" className="w-full p-5 text-left cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg">
+              <SectionHeader icon={BellRing} title="Notifications" description="Control email alerts for project events." open={notifOpen} />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-4 pt-0 px-5 pb-5">
+              {[
+                {
+                  label: 'Team Invitations',
+                  desc: 'Receive emails when you are invited to a new project.',
+                  checked: notifInvites,
+                  onChange: setNotifInvites,
+                },
+                {
+                  label: 'Daily Log Updates',
+                  desc: 'Get notified when daily logs are submitted or require your approval.',
+                  checked: notifLogs,
+                  onChange: setNotifLogs,
+                },
+                {
+                  label: 'Task Assignments',
+                  desc: 'Receive emails when a task is assigned to you or updated.',
+                  checked: notifTasks,
+                  onChange: setNotifTasks,
+                },
+                {
+                  label: 'Budget Alerts',
+                  desc: 'Get notified when spending exceeds budget thresholds.',
+                  checked: notifBudget,
+                  onChange: setNotifBudget,
+                },
+              ].map((item) => (
+                <div key={item.label} className="flex items-start justify-between gap-4 rounded-lg border p-4">
+                  <div>
+                    <p className="text-sm font-medium">{item.label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
+                  </div>
+                  <Switch checked={item.checked} onCheckedChange={item.onChange} />
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">
+                Notification preferences are stored locally. Email delivery requires SMTP configuration.
+              </p>
+            </CardContent>
+          </CollapsibleContent>
         </Card>
-      </div>
+      </Collapsible>
 
-      <Card className="shadow-sm">
-        <CardHeader className="pb-4">
-          <SectionTitle icon={BellRing} title="Intelligence Alerts" description="Control automated project alerts and summaries." />
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
-          {[
-            { title: 'Daily Log Summaries', description: 'Receive automated project digests every morning.' },
-            { title: 'Critical System Status', description: 'Real-time alerts for infrastructure maintenance.' },
-            { title: 'Budget Variance Alerts', description: 'Notify when cost exceeds ±5% of predicted risk.' },
-          ].map((item, index) => (
-            <div key={item.title} className="rounded-2xl border bg-muted/50 p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
+      {/* Security */}
+      <Collapsible open={securityOpen} onOpenChange={setSecurityOpen}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <button type="button" className="w-full p-5 text-left cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg">
+              <SectionHeader icon={ShieldCheck} title="Security" description="Password reset, sessions, and account security." open={securityOpen} />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-4 pt-0 px-5 pb-5">
+              {/* Send password reset link */}
+              <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
                 <div>
-                  <p className="font-medium">{item.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
+                  <p className="text-sm font-medium">Password Reset via Email</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Send a password reset link to <span className="font-medium">{user?.email}</span>.
+                  </p>
+                  {resetMsg && (
+                    <p className={`text-xs mt-1 ${resetMsg.type === 'success' ? 'text-emerald-600' : 'text-destructive'}`}>
+                      {resetMsg.text}
+                    </p>
+                  )}
                 </div>
-                <Switch defaultChecked={index !== 2} />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleSendResetLink()}
+                  disabled={resetSending}
+                >
+                  {resetSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+                  Send Link
+                </Button>
               </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card className="shadow-sm">
-          <CardHeader className="pb-4">
-            <SectionTitle icon={ShieldCheck} title="Security Audit" description="Review recent access sessions and login history." />
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between rounded-xl border bg-card p-4">
-              <div>
-                <p className="font-medium">London HQ - Desktop Chrome</p>
-                <p className="text-sm text-muted-foreground">Active Now</p>
+              {/* Current session */}
+              <div className="rounded-lg border p-4 space-y-3">
+                <p className="text-sm font-medium">Current Session</p>
+                <div className="flex items-center justify-between text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Logged in as</p>
+                    <p className="font-medium">{user?.full_name}</p>
+                    <p className="text-xs text-muted-foreground">{user?.email}</p>
+                  </div>
+                  <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                    Active
+                  </span>
+                </div>
               </div>
-              <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Active Now</Badge>
-            </div>
-            <div className="flex items-center justify-between rounded-xl border bg-card p-4">
-              <div>
-                <p className="font-medium">Dubai Site Office - Tablet</p>
-                <p className="text-sm text-muted-foreground">3 hours ago</p>
+
+              {/* Logout */}
+              <div className="flex items-start justify-between gap-4 rounded-lg border border-destructive/20 bg-destructive/5 p-4">
+                <div>
+                  <p className="text-sm font-medium">Sign Out</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    End your current session and return to the login page.
+                  </p>
+                </div>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => void handleLogoutAllDevices()}
+                >
+                  Sign Out
+                </Button>
               </div>
-              <Badge variant="secondary">3 hours ago</Badge>
-            </div>
-          </CardContent>
+            </CardContent>
+          </CollapsibleContent>
         </Card>
-
-        <Card className="shadow-sm">
-          <CardHeader className="pb-4">
-            <SectionTitle icon={BrainCircuit} title="Platform Integration" description="Sync with third-party CAD and BIM software." />
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-3 rounded-xl border bg-muted/50 p-4">
-              <div className="rounded-lg bg-card p-2 shadow-sm">
-                <SquareTerminal className="h-4 w-4 text-blue-700" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">CAD Synchronization</p>
-                <p className="text-sm text-muted-foreground">Connected to Revit and AutoCAD pipelines.</p>
-              </div>
-              <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Online</Badge>
-            </div>
-            <div className="flex justify-end">
-              <Button variant="outline" type="button">Manage API Keys</Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="flex justify-end gap-3">
-        <Button variant="secondary" type="button">Reset Defaults</Button>
-        <Button type="button">Save Settings</Button>
-      </div>
+      </Collapsible>
     </div>
   )
 }
