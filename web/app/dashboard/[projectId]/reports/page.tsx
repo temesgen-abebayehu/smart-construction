@@ -9,16 +9,13 @@ import { Progress } from '@/components/ui/progress'
 import { getPrediction, getProject, listProjectLogs, listProjectTasks } from '@/lib/api'
 import type { LogListItem, PredictionResponse, ProjectDetail, TaskListItem } from '@/lib/api-types'
 import { AlertTriangle, Bot, CalendarDays, DollarSign, LayoutDashboard, ListTodo, PieChart, TrendingUp, Loader2 } from 'lucide-react'
+import { useCurrency } from '@/lib/currency-context'
+import { CurrencyPicker } from '@/components/currency-picker'
 
 interface ReportsPageProps {
   params: Promise<{ projectId: string }>
 }
 
-function formatBudget(amount: number) {
-  if (amount >= 1_000_000) return `ETB ${(amount / 1_000_000).toFixed(1)}M`
-  if (amount >= 1_000) return `ETB ${(amount / 1_000).toFixed(1)}K`
-  return `ETB ${amount.toLocaleString()}`
-}
 
 function MetricCard({
   title,
@@ -53,6 +50,7 @@ function MetricCard({
 
 export default function ReportsPage({ params }: ReportsPageProps) {
   const { projectId } = use(params)
+  const { formatBudget } = useCurrency()
 
   const [project, setProject] = useState<ProjectDetail | null>(null)
   const [projectTasks, setProjectTasks] = useState<TaskListItem[]>([])

@@ -23,6 +23,8 @@ import {
   Loader2,
 } from 'lucide-react'
 import { useProjectRole } from '@/lib/project-role-context'
+import { useCurrency } from '@/lib/currency-context'
+import { CurrencyPicker } from '@/components/currency-picker'
 import { getPrediction, getProject, getProjectDashboard, listProjectLogs, listProjectTasks } from '@/lib/api'
 import type { LogListItem, PredictionResponse, ProjectDetail, TaskListItem } from '@/lib/api-types'
 
@@ -30,11 +32,6 @@ interface DashboardPageProps {
   params: Promise<{ projectId: string }>
 }
 
-function formatBudget(amount: number) {
-  if (amount >= 1_000_000) return `ETB ${(amount / 1_000_000).toFixed(1)}M`
-  if (amount >= 1_000) return `ETB ${(amount / 1_000).toFixed(1)}K`
-  return `ETB ${amount.toLocaleString()}`
-}
 
 function getIssueTag(log: LogListItem) {
   const remark = (log.notes || '').toLowerCase()
@@ -53,6 +50,7 @@ function getIssueTag(log: LogListItem) {
 export default function DashboardPage({ params }: DashboardPageProps) {
   const { projectId } = use(params)
   const userRole = useProjectRole()
+  const { formatBudget } = useCurrency()
 
   const [project, setProject] = useState<ProjectDetail | null>(null)
   const [tasks, setTasks] = useState<TaskListItem[]>([])
@@ -170,7 +168,10 @@ export default function DashboardPage({ params }: DashboardPageProps) {
 
         <Card className="shadow-sm">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Financial Burn & Capital</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Financial Burn & Capital</CardTitle>
+              <CurrencyPicker />
+            </div>
             <CardDescription>Budget performance for this project</CardDescription>
           </CardHeader>
           <CardContent>
