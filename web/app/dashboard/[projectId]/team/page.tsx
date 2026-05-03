@@ -70,7 +70,7 @@ const roleColors: Record<ProjectRole, string> = {
   site_engineer: 'bg-green-100 text-green-700 border-green-300',
 }
 
-const ALL_ROLES: ProjectRole[] = ['owner', 'project_manager', 'office_engineer', 'consultant', 'site_engineer']
+const ALL_ROLES: ProjectRole[] = ['project_manager', 'office_engineer', 'consultant', 'site_engineer']
 
 export default function TeamPage({ params }: TeamPageProps) {
   const { projectId } = use(params)
@@ -200,7 +200,7 @@ export default function TeamPage({ params }: TeamPageProps) {
     {} as Record<ProjectRole, typeof projectMembers>,
   )
 
-  const canManageTeam = userRole === 'project_manager' || userRole === 'owner'
+  const canManageTeam = userRole === 'project_manager'
 
   if (loading) {
     return (

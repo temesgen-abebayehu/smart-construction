@@ -74,11 +74,11 @@ class ProjectService:
         await db.commit()
         await db.refresh(db_obj)
 
-        # Creator automatically becomes OWNER
+        # Creator automatically becomes PROJECT_MANAGER
         member = ProjectMember(
             project_id=db_obj.id,
             user_id=creator_id,
-            role=ProjectRole.OWNER.value,
+            role=ProjectRole.PROJECT_MANAGER.value,
         )
         db.add(member)
         await db.commit()
