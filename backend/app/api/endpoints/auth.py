@@ -1,12 +1,16 @@
 from typing import Any
+from datetime import timedelta
 from fastapi import APIRouter
+import asyncio
 
 from app.api.dependencies import DbSession
 from app.schemas.user import UserCreate, UserResponse
 from app.schemas.token import Token, LoginRequest, RefreshTokenRequest
 from app.services.user import UserService
 from app.core.config import settings
-from app.core.security import ALGORITHM, create_access_token, create_refresh_token
+from app.core.security import ALGORITHM, create_access_token, create_refresh_token, get_password_hash
+from app.core.email import send_password_reset_email
+from pydantic import BaseModel, EmailStr
 import jwt
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from pydantic import ValidationError
@@ -14,6 +18,13 @@ from fastapi import HTTPException, status
 from app.repositories.user import UserRepository
 
 router = APIRouter()
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 @router.post("/register", response_model=UserResponse, status_code=201)
 async def register_user(
@@ -94,3 +105,50 @@ async def refresh_token_endpoint(
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+@router.post("/forgot-password")
+async def forgot_password(*, db: DbSession, body: ForgotPasswordRequest) -> Any:
+    """Send a password reset link to the user's email."""
+    user = await UserRepository.get_by_email(db, email=body.email)
+    # Always return success to prevent email enumeration
+    if user:
+        # Create a short-lived token (15 minutes)
+        reset_token = jwt.encode(
+            {
+                "sub": str(user.id),
+                "type": "password_reset",
+                "exp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+                + timedelta(minutes=15),
+            },
+            settings.SECRET_KEY,
+            algorithm=ALGORITHM,
+        )
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, send_password_reset_email, body.email, reset_token)
+    return {"message": "If an account with that email exists, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(*, db: DbSession, body: ResetPasswordRequest) -> Any:
+    """Reset password using a token from the email link."""
+    try:
+        payload = jwt.decode(body.token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "password_reset":
+            raise HTTPException(status_code=400, detail="Invalid reset token")
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Invalid reset token")
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Reset link has expired. Please request a new one.")
+    except (InvalidTokenError, ValidationError):
+        raise HTTPException(status_code=400, detail="Invalid reset token")
+
+    user = await UserRepository.get_by_id(db, id=user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.hashed_password = get_password_hash(body.new_password)
+    db.add(user)
+    await db.commit()
+    return {"message": "Password has been reset successfully."}

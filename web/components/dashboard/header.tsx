@@ -40,6 +40,7 @@ export function DashboardHeader({ projectId, projectName, userRole }: DashboardH
   
   const initials = user?.full_name
     .split(' ')
+    .filter(n => n.length > 0)
     .map(n => n[0])
     .join('')
     .toUpperCase() || 'U'
@@ -103,11 +104,11 @@ export function DashboardHeader({ projectId, projectName, userRole }: DashboardH
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => router.push(`/dashboard/${projectId}/profile`)}>
               <User className="mr-2 h-4 w-4" />
               Profile
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => router.push(`/dashboard/${projectId}/settings`)}>
               <Settings className="mr-2 h-4 w-4" />
               Settings
             </DropdownMenuItem>
