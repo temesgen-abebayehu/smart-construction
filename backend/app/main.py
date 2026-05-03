@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.api.routes import api_router
 from app.database.session import engine
 from app.models.user import Base
+from app.services.ml_predictor import load_artifacts as load_ml_artifacts
 
 # Import all model modules so their tables register into Base.metadata
 import app.models.user
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         # await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+    load_ml_artifacts()
     yield
 
 app = FastAPI(

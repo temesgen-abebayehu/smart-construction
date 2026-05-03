@@ -68,11 +68,19 @@ def predict(features_dict: dict) -> Optional[PredictionResult]:
     Returns None if the model isn't loaded.
     """
     if _model is None or _imputer is None or _features is None:
+        logger.warning("ml_predictor.predict: model not loaded, returning None")
         return None
+
+    logger.info("ml_predictor.predict: input features=%s", features_dict)
 
     # Build a DataFrame with the exact column order the model expects.
     row = pd.DataFrame([{f: features_dict.get(f) for f in _features}])
-    imputed = pd.DataFrame(_imputer.transform(row), columns=_features)
+    imputed_array = _imputer.transform(row)
+    imputed = pd.DataFrame(imputed_array, columns=_features)
+    logger.info(
+        "ml_predictor.predict: imputed values (None -> training median)=%s",
+        imputed.iloc[0].to_dict(),
+    )
 
     pred_class = int(_model.predict(imputed)[0])
     proba = _model.predict_proba(imputed)[0]
@@ -82,9 +90,11 @@ def predict(features_dict: dict) -> Optional[PredictionResult]:
         for cls, p in zip(_model.classes_, proba)
     }
 
-    return {
+    result: PredictionResult = {
         "class_index": pred_class,
         "risk_level": CLASS_TO_LEVEL.get(pred_class, str(pred_class)),
         "confidence": float(max(proba)),
         "probabilities": probabilities,
     }
+    logger.info("ml_predictor.predict: result=%s", result)
+    return result

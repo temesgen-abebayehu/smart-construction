@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -14,6 +15,7 @@ from app.repositories.project import ProjectRepository
 from app.services import ml_predictor
 from app.services.feature_extractor import build_features
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 project_repo = ProjectRepository()
 
@@ -103,14 +105,25 @@ def _rule_based_risk(budget_efficiency: float, schedule_deviation: float,
 async def _resolve_risk(db, project, m: dict) -> tuple[str, float, str, dict | None, dict]:
     """Returns (risk_level, confidence, source, ml_result, features)."""
     if ml_predictor.is_loaded():
+        logger.info("prediction: ML model is loaded, building features and calling predictor")
         features = await build_features(db, project)
         ml_result = ml_predictor.predict(features)
         if ml_result:
+            logger.info(
+                "prediction: ML path SUCCESS — risk_level=%s confidence=%.3f class_index=%d",
+                ml_result["risk_level"], ml_result["confidence"], ml_result["class_index"],
+            )
             return ml_result["risk_level"], ml_result["confidence"], "ml", ml_result, features
+        logger.warning("prediction: ML predictor returned None, falling back to rule-based")
+    else:
+        logger.warning(
+            "prediction: ML model NOT loaded (file missing at startup or load failed) — using rule-based fallback"
+        )
 
     level, confidence = _rule_based_risk(
         m["budget_efficiency"], m["schedule_deviation"], m["task_completion_rate"]
     )
+    logger.info("prediction: rule-based path — risk_level=%s confidence=%.2f", level, confidence)
     return level, confidence, "rule-based", None, {}
 
 
@@ -147,15 +160,22 @@ async def get_risk_prediction(
     - `delay_estimate_days` and `budget_overrun_estimate` are always derived from
       project schedule/budget math (the classifier doesn't predict numeric values).
     """
+    logger.info("prediction: GET /projects/%s/prediction called", project_id)
     project = await project_repo.get_by_id(db, project_id)
     if not project:
+        logger.warning("prediction: project_id=%s not found", project_id)
         raise HTTPException(status_code=404, detail="Project not found")
 
     m = await _compute_metrics(db, project)
+    logger.info(
+        "prediction: metrics — total_tasks=%d completed=%d progress=%.2f budget_ratio=%.3f schedule_dev=%.3f",
+        m["total_tasks"], m["completed_tasks"], m["progress"], m["budget_ratio"], m["schedule_deviation"],
+    )
+
     risk_level, confidence_score, source, ml_result, features = await _resolve_risk(db, project, m)
     factors = _build_factors(project, m, ml_result, features)
 
-    return RiskPredictionResponse(
+    response = RiskPredictionResponse(
         project_id=project_id,
         risk_level=risk_level,
         delay_estimate_days=m["delay_estimate_days"],
@@ -164,3 +184,8 @@ async def get_risk_prediction(
         source=source,
         factors=factors,
     )
+    logger.info(
+        "prediction: RESPONSE source=%s risk_level=%s delay_days=%d overrun=%.2f confidence=%.2f",
+        source, risk_level, m["delay_estimate_days"], m["budget_overrun_estimate"], confidence_score,
+    )
+    return response
