@@ -245,7 +245,21 @@ export interface PredictionResponse {
   delay_estimate_days: number
   budget_overrun_estimate: number
   confidence_score: number
+  source: string
+  reason: string
+  recommendation: string
   factors: Record<string, unknown>
+}
+
+export interface WeatherResponse {
+  project_id: string
+  location: string | null
+  resolved_location: string | null
+  temperature: number | null
+  humidity: number | null
+  latitude: number | null
+  longitude: number | null
+  fetched_at: string | null
 }
 
 /* ── Budget ── */
