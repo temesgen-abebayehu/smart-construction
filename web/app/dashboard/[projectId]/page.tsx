@@ -20,13 +20,16 @@ import {
   Bot,
   CheckCircle2,
   Clock3,
+  CloudSun,
+  Droplets,
   Loader2,
+  Thermometer,
 } from 'lucide-react'
 import { useProjectRole } from '@/lib/project-role-context'
 import { useCurrency } from '@/lib/currency-context'
 import { CurrencyPicker } from '@/components/currency-picker'
-import { getPrediction, getProject, getProjectDashboard, listProjectLogs, listProjectTasks } from '@/lib/api'
-import type { LogListItem, PredictionResponse, ProjectDetail, TaskListItem } from '@/lib/api-types'
+import { getPrediction, getProject, getProjectDashboard, getWeather, listProjectLogs, listProjectTasks } from '@/lib/api'
+import type { LogListItem, PredictionResponse, ProjectDetail, TaskListItem, WeatherResponse } from '@/lib/api-types'
 
 interface DashboardPageProps {
   params: Promise<{ projectId: string }>
@@ -56,6 +59,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
   const [tasks, setTasks] = useState<TaskListItem[]>([])
   const [logs, setLogs] = useState<LogListItem[]>([])
   const [prediction, setPrediction] = useState<PredictionResponse | null>(null)
+  const [weather, setWeather] = useState<WeatherResponse | null>(null)
   const [dashboardSummary, setDashboardSummary] = useState<{
     task_summary: { total: number; completed: number; in_progress: number; pending: number }
     delay_risk_status: string
@@ -67,12 +71,13 @@ export default function DashboardPage({ params }: DashboardPageProps) {
     ;(async () => {
       setLoading(true)
       try {
-        const [proj, taskRes, logRes, pred, dashboard] = await Promise.all([
+        const [proj, taskRes, logRes, pred, dashboard, wthr] = await Promise.all([
           getProject(projectId),
           listProjectTasks(projectId, { limit: 100 }),
           listProjectLogs(projectId, { limit: 100 }),
           getPrediction(projectId).catch(() => null),
           getProjectDashboard(projectId).catch(() => null),
+          getWeather(projectId).catch(() => null),
         ])
         if (cancelled) return
         setProject(proj)
@@ -80,6 +85,8 @@ export default function DashboardPage({ params }: DashboardPageProps) {
         setLogs(logRes.data ?? [])
         setPrediction(pred)
         setDashboardSummary(dashboard)
+        setWeather(wthr)
+        console.log({wthr})
       } catch {
         if (!cancelled) {
           setProject(null)
@@ -122,7 +129,9 @@ export default function DashboardPage({ params }: DashboardPageProps) {
   const riskLevel = prediction?.risk_level ?? dashboardSummary?.delay_risk_status ?? 'low'
   const riskLevelScore = riskLevel === 'high' ? 75 : riskLevel === 'medium' ? 55 : 35
 
-  const aiMessage = prediction
+  const aiMessage = prediction?.reason
+    ? prediction.reason
+    : prediction
     ? `Delay estimate: ${prediction.delay_estimate_days} days | Budget overrun: ETB ${prediction.budget_overrun_estimate.toLocaleString()}`
     : 'Current schedule stability is healthy'
 
@@ -203,7 +212,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
           </CardContent>
         </Card>
 
-        <Card className="border-blue-600 bg-linear-to-br from-blue-700 to-indigo-700 text-white shadow-sm">
+        <Card className="border-blue-600 bg-gradient-to-br from-blue-700 to-indigo-700 text-white shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">AI Predictor</CardTitle>
@@ -234,15 +243,49 @@ export default function DashboardPage({ params }: DashboardPageProps) {
               </div>
             )}
 
-            <div className="rounded-md border border-white/20 bg-card/10 p-3 text-sm">
-              <div className="flex items-center gap-2 text-blue-50">
-                <AlertTriangle className="h-4 w-4" />
+            <div className="rounded-md border border-white/20 bg-card/10 p-3 text-sm space-y-1.5">
+              <div className="flex items-start gap-2 text-blue-50">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <span>{aiMessage}</span>
               </div>
+              {prediction?.recommendation && (
+                <p className="text-xs text-blue-200 pl-6">{prediction.recommendation}</p>
+              )}
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Weather Card */}
+      {weather && (weather.temperature != null || weather.humidity != null) && (
+        <Card className="shadow-sm">
+          <CardContent className="flex items-center justify-between p-4">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-sky-100 p-2 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400">
+                <CloudSun className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Site Weather</p>
+                <p className="text-xs text-muted-foreground">{weather.resolved_location || weather.location || project.location}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              {weather.temperature != null && (
+                <div className="flex items-center gap-1.5 text-sm">
+                  <Thermometer className="h-4 w-4 text-orange-500" />
+                  <span className="font-medium">{weather.temperature.toFixed(1)}&deg;C</span>
+                </div>
+              )}
+              {weather.humidity != null && (
+                <div className="flex items-center gap-1.5 text-sm">
+                  <Droplets className="h-4 w-4 text-blue-500" />
+                  <span className="font-medium">{weather.humidity.toFixed(0)}%</span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between">

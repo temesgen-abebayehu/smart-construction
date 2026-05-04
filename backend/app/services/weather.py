@@ -72,8 +72,19 @@ async def get_weather(location: Optional[str]) -> Optional[WeatherData]:
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             geo = await _geocode(client, location)
+
+            # Fallback: try parent city if specific location fails
+            if not geo and "," in location:
+                parts = [p.strip() for p in location.split(",")]
+                for i in range(1, len(parts)):
+                    fallback = ", ".join(parts[i:])
+                    logger.info("get_weather: trying fallback location=%r", fallback)
+                    geo = await _geocode(client, fallback)
+                    if geo:
+                        break
+
             if not geo:
-                logger.info("get_weather: geocode returned no match for location=%r", location)
+                logger.info("get_weather: geocode returned no match for location=%r (including fallbacks)", location)
                 return None
 
             lat, lng = geo["latitude"], geo["longitude"]

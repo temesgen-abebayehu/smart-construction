@@ -18,6 +18,7 @@ import type {
   ProjectMemberWithUserRow,
   TaskListItem,
   UserMe,
+  WeatherResponse,
 } from './api-types'
 import type { AuthUser, ProjectRole, ProjectStatus } from './domain'
 
@@ -517,6 +518,12 @@ export async function markMessageRead(messageId: string) {
 
 export async function getPrediction(projectId: string) {
   return apiRequest<PredictionResponse>(`/projects/${projectId}/prediction`)
+}
+
+/* ── Weather ── */
+
+export async function getWeather(projectId: string) {
+  return apiRequest<WeatherResponse>(`/projects/${projectId}/weather`)
 }
 
 /* ── Budget ── */

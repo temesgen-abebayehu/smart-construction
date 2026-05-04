@@ -27,6 +27,8 @@ class RiskPredictionResponse(BaseModel):
     budget_overrun_estimate: float
     confidence_score: float           # 0.0 – 1.0
     source: str                       # "ml" | "rule-based"
+    reason: str                       # Human-readable insight
+    recommendation: str               # Actionable recommendation
     factors: dict
 
 
@@ -147,6 +149,44 @@ def _build_factors(project, m: dict, ml_result: dict | None, features: dict) -> 
     return factors
 
 
+def _generate_insights(m: dict, risk_level: str) -> tuple[str, str]:
+    """Generate human-readable reason and recommendation from metrics."""
+    reasons = []
+    recommendations = []
+
+    if m["budget_efficiency"] > 1.2:
+        reasons.append(f"Budget spending is {m['budget_efficiency']:.0%} of progress — overspending detected")
+        recommendations.append("Review cost allocations and pause non-critical procurement")
+    elif m["budget_efficiency"] > 1.0:
+        reasons.append("Budget usage is slightly ahead of progress")
+        recommendations.append("Monitor spending closely over the next reporting period")
+
+    if m["schedule_deviation"] > 0.15:
+        reasons.append(f"Project is {m['schedule_deviation']:.0%} behind expected schedule")
+        recommendations.append("Consider adding resources or re-sequencing critical path tasks")
+    elif m["schedule_deviation"] > 0.05:
+        reasons.append("Minor schedule slippage detected")
+        recommendations.append("Ensure pending tasks are unblocked and assigned")
+
+    if m["total_tasks"] > 0 and m["task_completion_rate"] < 0.3:
+        reasons.append(f"Only {m['task_completion_rate']:.0%} of tasks completed")
+        recommendations.append("Prioritize completing in-progress tasks before starting new ones")
+
+    if m["total_tasks"] == 0:
+        reasons.append("No tasks created yet — risk assessment is limited")
+        recommendations.append("Break down the project into tasks for better tracking")
+
+    if not reasons:
+        if risk_level == "low":
+            reasons.append("Project is on track with healthy budget and schedule metrics")
+            recommendations.append("Continue current pace and maintain regular daily log submissions")
+        else:
+            reasons.append("Multiple minor factors contributing to elevated risk")
+            recommendations.append("Review project metrics and address any emerging bottlenecks")
+
+    return "; ".join(reasons), "; ".join(recommendations)
+
+
 @router.get("/{project_id}/prediction", response_model=RiskPredictionResponse)
 async def get_risk_prediction(
     project_id: UUID, db: DbSession,
@@ -174,6 +214,7 @@ async def get_risk_prediction(
 
     risk_level, confidence_score, source, ml_result, features = await _resolve_risk(db, project, m)
     factors = _build_factors(project, m, ml_result, features)
+    reason, recommendation = _generate_insights(m, risk_level)
 
     response = RiskPredictionResponse(
         project_id=project_id,
@@ -182,6 +223,8 @@ async def get_risk_prediction(
         budget_overrun_estimate=round(m["budget_overrun_estimate"], 2),
         confidence_score=round(confidence_score, 2),
         source=source,
+        reason=reason,
+        recommendation=recommendation,
         factors=factors,
     )
     logger.info(
