@@ -165,6 +165,17 @@ class ProjectMemberService:
         member = await member_repo.get_by_project_and_user(db, project_id, user_id)
         if not member:
             raise HTTPException(status_code=404, detail="Member not found")
+        # Prevent removing the last PM
+        if member.role == ProjectRole.PROJECT_MANAGER.value:
+            result = await db.execute(
+                select(ProjectMember).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.role == ProjectRole.PROJECT_MANAGER.value,
+                )
+            )
+            pm_count = len(list(result.scalars().all()))
+            if pm_count <= 1:
+                raise HTTPException(status_code=400, detail="Cannot remove the only Project Manager. Assign another PM first.")
         await db.delete(member)
         await db.commit()
         return True

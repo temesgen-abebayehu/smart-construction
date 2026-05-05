@@ -24,13 +24,16 @@ import {
 import {
   ArrowLeft,
   Calendar,
+  GitBranch,
   Loader2,
   PencilLine,
+  Plus,
   Save,
+  Trash2,
   UserCircle2,
   X,
 } from 'lucide-react'
-import { getTask, updateTask, listProjectMembersEnriched } from '@/lib/api'
+import { getTask, updateTask, listProjectMembersEnriched, listProjectTasks, listTaskDependencies, addTaskDependency, removeTaskDependency } from '@/lib/api'
 import type { TaskListItem, EnrichedMemberRow } from '@/lib/api-types'
 import type { TaskStatus } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
@@ -52,10 +55,13 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
 
   const [task, setTask] = useState<TaskListItem | null>(null)
   const [members, setMembers] = useState<EnrichedMemberRow[]>([])
+  const [allTasks, setAllTasks] = useState<TaskListItem[]>([])
+  const [deps, setDeps] = useState<{ id: string; task_id: string; depends_on_task_id: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [depAdding, setDepAdding] = useState(false)
 
   // Editable fields
   const [editName, setEditName] = useState('')
@@ -74,13 +80,17 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
       setLoading(true)
       setError(null)
       try {
-        const [t, m] = await Promise.all([
+        const [t, m, tasksRes, d] = await Promise.all([
           getTask(taskId),
           listProjectMembersEnriched(projectId),
+          listProjectTasks(projectId, { limit: 200 }),
+          listTaskDependencies(taskId).catch(() => []),
         ])
         if (cancelled) return
         setTask(t)
         setMembers(m)
+        setAllTasks(tasksRes.data.filter(tk => tk.id !== taskId))
+        setDeps(d)
         setEditName(t.title)
         setEditStatus(t.status)
         setEditProgress(String(t.progress_percentage))
@@ -364,6 +374,95 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
               </CardContent>
             </Card>
           )}
+
+          {/* Dependencies */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <GitBranch className="h-4 w-4" />
+                  Dependencies
+                </CardTitle>
+                {canEdit && !depAdding && (
+                  <Button variant="ghost" size="sm" className="h-7 gap-1" onClick={() => setDepAdding(true)}>
+                    <Plus className="h-3.5 w-3.5" />
+                    Add
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {depAdding && (
+                <div className="space-y-2 rounded-lg border p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Must complete before this task:</p>
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {allTasks
+                      .filter(t => !deps.some(d => d.depends_on_task_id === t.id))
+                      .map(t => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-muted"
+                          onClick={async () => {
+                            await addTaskDependency(taskId, t.id)
+                            const d = await listTaskDependencies(taskId).catch(() => [])
+                            setDeps(d)
+                          }}
+                        >
+                          <span>{t.title}</span>
+                          <Badge variant="outline" className="text-[10px]">{t.status}</Badge>
+                        </button>
+                      ))}
+                    {allTasks.filter(t => !deps.some(d => d.depends_on_task_id === t.id)).length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-2">No available tasks to add.</p>
+                    )}
+                  </div>
+                  <Button variant="outline" size="sm" className="w-full" onClick={() => setDepAdding(false)}>
+                    Done
+                  </Button>
+                </div>
+              )}
+
+              {deps.length === 0 && !depAdding && (
+                <p className="text-xs text-muted-foreground text-center py-2">No dependencies.</p>
+              )}
+
+              {deps.map((dep) => {
+                const blockerTask = allTasks.find(t => t.id === dep.depends_on_task_id)
+                return (
+                  <div key={dep.id} className="flex items-center justify-between rounded-lg border p-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="text-sm truncate">{blockerTask?.title ?? dep.depends_on_task_id.slice(0, 8)}</span>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] shrink-0 ${
+                          blockerTask?.status === 'completed'
+                            ? 'border-emerald-300 text-emerald-700'
+                            : 'border-amber-300 text-amber-700'
+                        }`}
+                      >
+                        {blockerTask?.status === 'completed' ? 'Done' : 'Blocking'}
+                      </Badge>
+                    </div>
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={async () => {
+                          await removeTaskDependency(taskId, dep.id)
+                          setDeps(prev => prev.filter(d => d.id !== dep.id))
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                )
+              })}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

@@ -354,6 +354,25 @@ export async function deleteTask(taskId: string) {
   return apiRequest<void>(`/projects/tasks/${taskId}`, { method: 'DELETE' })
 }
 
+/* ── Task Dependencies ── */
+
+export async function listTaskDependencies(taskId: string) {
+  return apiRequest<{ id: string; task_id: string; depends_on_task_id: string }[]>(
+    `/projects/tasks/${taskId}/dependencies`,
+  )
+}
+
+export async function addTaskDependency(taskId: string, dependsOnTaskId: string) {
+  return apiRequest<{ id: string; task_id: string; depends_on_task_id: string }>(
+    `/projects/tasks/${taskId}/dependencies`,
+    { method: 'POST', body: JSON.stringify({ depends_on_task_id: dependsOnTaskId }) },
+  )
+}
+
+export async function removeTaskDependency(taskId: string, depId: string) {
+  return apiRequest<void>(`/projects/tasks/${taskId}/dependencies/${depId}`, { method: 'DELETE' })
+}
+
 /* ── Daily Logs ── */
 
 export async function listProjectLogs(

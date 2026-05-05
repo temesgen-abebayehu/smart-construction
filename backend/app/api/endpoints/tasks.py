@@ -87,6 +87,19 @@ async def update_task(
     task = await task_repo.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    # Block start if dependencies are not completed
+    new_status = task_in.status.value if task_in.status else None
+    if new_status == "in_progress" or (task_in.progress_percentage and task_in.progress_percentage > 0 and task.status == "pending"):
+        deps = await dep_repo.get_by_task(db, task_id)
+        for dep in deps:
+            blocker = await task_repo.get_by_id(db, dep.depends_on_task_id)
+            if blocker and blocker.status != "completed":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot start — dependency '{blocker.name}' is not completed yet"
+                )
+
     updated = await task_repo.update(db, task, task_in)
     # Auto-update status based on progress
     if updated.progress_percentage >= 100 and updated.status != "completed":
@@ -132,3 +145,16 @@ async def list_dependencies(
     task_id: UUID, db: DbSession, _: User = Depends(get_current_active_user),
 ) -> Any:
     return await dep_repo.get_by_task(db, task_id)
+
+@router.delete("/tasks/{task_id}/dependencies/{dep_id}", status_code=204)
+async def remove_dependency(
+    task_id: UUID, dep_id: UUID, db: DbSession,
+    _: User = Depends(get_current_active_user),
+) -> None:
+    result = await db.execute(
+        select(TaskDependency).where(TaskDependency.id == dep_id, TaskDependency.task_id == task_id)
+    )
+    dep = result.scalars().first()
+    if dep:
+        await db.delete(dep)
+        await db.commit()
