@@ -17,6 +17,7 @@ class DailyLog(Base):
     status = Column(String(50), default=LogStatus.DRAFT.value)
     notes = Column(Text)
     weather = Column(String(100))
+    rejection_reason = Column(Text, nullable=True)
     
     # Relationships to isolated sub-entities
     shifts = relationship("Shift", back_populates="log", cascade="all, delete-orphan")

@@ -419,8 +419,11 @@ export async function pmApproveLog(logId: string) {
   return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/pm-approve`, { method: 'PATCH' })
 }
 
-export async function rejectLog(logId: string) {
-  return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/reject`, { method: 'PATCH' })
+export async function rejectLog(logId: string, rejectionReason: string) {
+  return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/reject`, {
+    method: 'PATCH',
+    body: JSON.stringify({ rejection_reason: rejectionReason }),
+  })
 }
 
 // Daily log sub-entities
