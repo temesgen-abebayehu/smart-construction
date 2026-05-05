@@ -1,9 +1,9 @@
 import uuid
-from sqlalchemy import Column, String, Float, ForeignKey, Text, DateTime
+from sqlalchemy import Column, String, Float, ForeignKey, Text, DateTime, Integer
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID as SQL_UUID
 
-from app.models.user import Base
+from app.models.user import Base, utcnow
 from app.models.commons import ProjectStatus
 
 class Client(Base):
@@ -39,14 +39,19 @@ class Project(Base):
     total_budget = Column(Float, nullable=False)
     budget_spent = Column(Float, default=0.0)
     
+    timezone = Column(String(64), nullable=False, server_default="Africa/Addis_Ababa")
+    fiscal_year_start_month = Column(Integer, nullable=False, server_default="1")
+    week_starts_on = Column(Integer, nullable=False, server_default="0")  # 0=Mon, 6=Sun
+
     client_id = Column(SQL_UUID(as_uuid=True), ForeignKey("clients.id"))
     client = relationship("Client", back_populates="projects", lazy="selectin")
-    
+
     owner_id = Column(SQL_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    owner = relationship("User", foreign_keys=[owner_id])
-    
+    owner = relationship("User", foreign_keys=[owner_id], lazy="selectin")
+
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
     invitations = relationship("ProjectInvitation", back_populates="project", cascade="all, delete-orphan")
+    progress_snapshots = relationship("ProjectProgressSnapshot", back_populates="project", cascade="all, delete-orphan")
 
 class ProjectMember(Base):
     __tablename__ = "project_members"
@@ -66,5 +71,20 @@ class ProjectInvitation(Base):
     role = Column(String(50), nullable=False)
     token = Column(String(255), unique=True, nullable=False, index=True)
     status = Column(String(50), default="pending") # pending, accepted, expired
-    
+
     project = relationship("Project", back_populates="invitations")
+
+
+class ProjectProgressSnapshot(Base):
+    """Frozen snapshot of project progress + budget at a point in time. Powers the S-curve."""
+    __tablename__ = "project_progress_snapshots"
+    id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    project_id = Column(SQL_UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False, index=True)
+    snapshot_date = Column(DateTime(timezone=True), nullable=False, default=utcnow, index=True)
+    progress_percentage = Column(Float, nullable=False)
+    budget_spent = Column(Float, nullable=False)
+    total_budget = Column(Float, nullable=False)
+    planned_progress = Column(Float, nullable=True)
+    captured_by = Column(String(50), nullable=False, default="report_run")
+
+    project = relationship("Project", back_populates="progress_snapshots")

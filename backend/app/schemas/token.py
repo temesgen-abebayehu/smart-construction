@@ -14,3 +14,6 @@ class RefreshTokenRequest(BaseModel):
 
 class TokenPayload(BaseModel):
     sub: str | None = None
+
+class GoogleSignInRequest(BaseModel):
+    id_token: str

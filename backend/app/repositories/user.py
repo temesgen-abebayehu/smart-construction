@@ -17,6 +17,43 @@ class UserRepository:
         return result.scalars().first()
 
     @staticmethod
+    async def get_by_google_id(db: AsyncSession, google_id: str) -> User | None:
+        result = await db.execute(select(User).where(User.google_id == google_id))
+        return result.scalars().first()
+
+    @staticmethod
+    async def create_oauth_user(
+        db: AsyncSession,
+        *,
+        email: str,
+        full_name: str,
+        google_id: str,
+    ) -> User:
+        db_obj = User(
+            full_name=full_name,
+            email=email,
+            hashed_password=None,
+            google_id=google_id,
+            auth_provider="google",
+            is_admin=False,
+            is_active=True,
+        )
+        db.add(db_obj)
+        await db.commit()
+        await db.refresh(db_obj)
+        return db_obj
+
+    @staticmethod
+    async def link_google_id(db: AsyncSession, user: User, google_id: str) -> User:
+        user.google_id = google_id
+        if user.auth_provider == "local":
+            user.auth_provider = "google"
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        return user
+
+    @staticmethod
     async def get_all(db: AsyncSession, skip: int = 0, limit: int = 100) -> list[User]:
         result = await db.execute(select(User).offset(skip).limit(limit))
         return list(result.scalars().all())

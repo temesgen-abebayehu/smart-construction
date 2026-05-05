@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     SMTP_HOST: str | None = None
     SMTP_PORT: int | None = None
 
+    # Google Sign-In (optional). When unset, /auth/google returns 503.
+    GOOGLE_CLIENT_ID: str | None = None
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

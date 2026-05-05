@@ -77,7 +77,10 @@ async def get_project_member(
     project_id: UUID,
     db: DbSession,
     current_user: CurrentUser
-) -> ProjectMember:
+) -> ProjectMember | None:
+    # Admins have full access to any project — no membership required.
+    if current_user.is_admin:
+        return None
     from app.repositories.project import ProjectMemberRepository
     repo = ProjectMemberRepository()
     member = await repo.get_by_project_and_user(db, project_id, current_user.id)
@@ -89,7 +92,22 @@ async def get_project_member(
     return member
 
 def require_project_role(allowed_roles: list[ProjectRole]):
-    async def role_checker(member: ProjectMember = Depends(get_project_member)) -> ProjectMember:
+    async def role_checker(
+        project_id: UUID,
+        db: DbSession,
+        current_user: CurrentUser,
+    ) -> ProjectMember | None:
+        # Admins bypass role enforcement entirely.
+        if current_user.is_admin:
+            return None
+        from app.repositories.project import ProjectMemberRepository
+        repo = ProjectMemberRepository()
+        member = await repo.get_by_project_and_user(db, project_id, current_user.id)
+        if not member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User is not a member of this project"
+            )
         if member.role not in [role.value for role in allowed_roles]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

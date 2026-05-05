@@ -8,9 +8,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.api.dependencies import DbSession, get_current_active_user
-from app.models.user import User
-from app.models.task import Task
 from app.models.commons import TaskStatus
+from app.models.task import Task
+from app.models.user import User
 from app.repositories.project import ProjectRepository
 from app.services import ml_predictor
 from app.services.feature_extractor import build_features
@@ -196,14 +196,12 @@ async def get_risk_prediction(
     Risk + delay + budget-overrun prediction for a project.
 
     - `risk_level` and `confidence_score` come from the trained Random Forest classifier
-      when the model is loaded; otherwise from a rule-based fallback.
+    when the model is loaded; otherwise from a rule-based fallback.
     - `delay_estimate_days` and `budget_overrun_estimate` are always derived from
-      project schedule/budget math (the classifier doesn't predict numeric values).
+    project schedule/budget math.
     """
-    logger.info("prediction: GET /projects/%s/prediction called", project_id)
     project = await project_repo.get_by_id(db, project_id)
     if not project:
-        logger.warning("prediction: project_id=%s not found", project_id)
         raise HTTPException(status_code=404, detail="Project not found")
 
     m = await _compute_metrics(db, project)
@@ -216,7 +214,7 @@ async def get_risk_prediction(
     factors = _build_factors(project, m, ml_result, features)
     reason, recommendation = _generate_insights(m, risk_level)
 
-    response = RiskPredictionResponse(
+    return RiskPredictionResponse(
         project_id=project_id,
         risk_level=risk_level,
         delay_estimate_days=m["delay_estimate_days"],
@@ -227,8 +225,3 @@ async def get_risk_prediction(
         recommendation=recommendation,
         factors=factors,
     )
-    logger.info(
-        "prediction: RESPONSE source=%s risk_level=%s delay_days=%d overrun=%.2f confidence=%.2f",
-        source, risk_level, m["delay_estimate_days"], m["budget_overrun_estimate"], confidence_score,
-    )
-    return response

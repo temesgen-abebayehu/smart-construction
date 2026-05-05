@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Google Sign-In Test — Smart Construction</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 760px;
+      margin: 32px auto;
+      padding: 0 20px;
+      color: #1a1a1a;
+      background: #fafafa;
+    }
+    h1 { margin-top: 0; font-size: 24px; }
+    h2 { font-size: 16px; margin-top: 28px; color: #444; text-transform: uppercase; letter-spacing: 0.5px; }
+    .card {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; color: #555; }
+    input[type=text] {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-family: inherit;
+      margin-bottom: 12px;
+    }
+    button {
+      background: #1a73e8;
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover { background: #1557b0; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    button.secondary { background: #5f6368; }
+    button.secondary:hover { background: #3c4043; }
+    pre {
+      background: #f4f4f4;
+      padding: 12px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 12px;
+      max-height: 220px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .status { padding: 10px 14px; border-radius: 4px; margin-top: 12px; font-size: 14px; }
+    .status.ok { background: #e6f4ea; color: #137333; border: 1px solid #ceead6; }
+    .status.error { background: #fce8e6; color: #c5221f; border: 1px solid #f5c0bb; }
+    .status.info { background: #e8f0fe; color: #1967d2; border: 1px solid #d2e3fc; }
+    .hidden { display: none; }
+    .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .muted { color: #777; font-size: 12px; margin-top: 6px; }
+    .badge {
+      display: inline-block; background: #e8f0fe; color: #1967d2;
+      padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Google Sign-In Test</h1>
+<p class="muted">Tests the <code>POST /api/v1/auth/google</code> endpoint end-to-end.</p>
+
+<!-- 1. Configuration -->
+<div class="card">
+  <h2>1. Configure</h2>
+  <label>Google Client ID <span class="badge">from Google Cloud Console</span></label>
+  <input type="text" id="clientId" placeholder="xxxxx.apps.googleusercontent.com" />
+
+  <label>Backend URL</label>
+  <input type="text" id="backendUrl" placeholder="http://localhost:8000" value="http://localhost:8000" />
+
+  <button onclick="saveConfig()">Save &amp; Initialize Google Sign-In</button>
+  <div id="configStatus"></div>
+</div>
+
+<!-- 2. Sign in -->
+<div class="card hidden" id="signinCard">
+  <h2>2. Sign in with Google</h2>
+  <div id="googleBtn"></div>
+  <div id="signinStatus"></div>
+
+  <div id="tokenSection" class="hidden" style="margin-top: 16px;">
+    <label>ID Token (from Google):</label>
+    <pre id="idToken"></pre>
+    <div id="tokenInfo" class="muted"></div>
+  </div>
+</div>
+
+<!-- 3. Test backend -->
+<div class="card hidden" id="backendCard">
+  <h2>3. Send to backend</h2>
+  <div class="row">
+    <button onclick="callBackend()">POST /api/v1/auth/google</button>
+    <button class="secondary" onclick="resetAll()">Reset</button>
+  </div>
+  <div id="backendStatus"></div>
+  <div id="backendResponseSection" class="hidden" style="margin-top: 12px;">
+    <label>Backend response:</label>
+    <pre id="backendResponse"></pre>
+  </div>
+</div>
+
+<script>
+  // ----- Persistence -----
+  const LS_CLIENT_ID = "gsi_client_id";
+  const LS_BACKEND_URL = "gsi_backend_url";
+
+  let currentIdToken = null;
+
+  // Restore saved config on load
+  document.addEventListener("DOMContentLoaded", () => {
+    const savedClientId = localStorage.getItem(LS_CLIENT_ID);
+    const savedBackend = localStorage.getItem(LS_BACKEND_URL);
+    if (savedClientId) document.getElementById("clientId").value = savedClientId;
+    if (savedBackend) document.getElementById("backendUrl").value = savedBackend;
+    if (savedClientId) {
+      // Auto-initialize if we already have config
+      setTimeout(saveConfig, 200);
+    }
+  });
+
+  // ----- Step 1: Config & init Google -----
+  function saveConfig() {
+    const clientId = document.getElementById("clientId").value.trim();
+    const backendUrl = document.getElementById("backendUrl").value.trim();
+    const status = document.getElementById("configStatus");
+
+    if (!clientId) {
+      status.className = "status error";
+      status.textContent = "Client ID is required.";
+      return;
+    }
+    if (!backendUrl) {
+      status.className = "status error";
+      status.textContent = "Backend URL is required.";
+      return;
+    }
+
+    localStorage.setItem(LS_CLIENT_ID, clientId);
+    localStorage.setItem(LS_BACKEND_URL, backendUrl);
+
+    if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+      status.className = "status error";
+      status.textContent = "Google Identity Services not loaded yet. Try again in a moment.";
+      return;
+    }
+
+    try {
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: handleCredentialResponse,
+      });
+      window.google.accounts.id.renderButton(
+        document.getElementById("googleBtn"),
+        { theme: "outline", size: "large", text: "signin_with", shape: "rectangular" }
+      );
+    } catch (e) {
+      status.className = "status error";
+      status.textContent = "Init failed: " + e.message;
+      return;
+    }
+
+    status.className = "status ok";
+    status.textContent = "✓ Initialized. Sign in below.";
+    document.getElementById("signinCard").classList.remove("hidden");
+  }
+
+  // ----- Step 2: Got the Google ID token -----
+  function handleCredentialResponse(response) {
+    currentIdToken = response.credential;
+    document.getElementById("idToken").textContent = currentIdToken;
+
+    // Decode JWT payload (base64-decode the middle segment) to show email/name
+    try {
+      const parts = currentIdToken.split(".");
+      const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+      document.getElementById("tokenInfo").innerHTML =
+        "Subject (Google ID): <code>" + payload.sub + "</code><br>" +
+        "Email: <code>" + payload.email + "</code><br>" +
+        "Name: <code>" + (payload.name || "(none)") + "</code><br>" +
+        "Audience: <code>" + payload.aud + "</code><br>" +
+        "Expires: <code>" + new Date(payload.exp * 1000).toLocaleString() + "</code>";
+    } catch (e) {
+      document.getElementById("tokenInfo").textContent = "Could not decode token: " + e.message;
+    }
+
+    document.getElementById("tokenSection").classList.remove("hidden");
+    const status = document.getElementById("signinStatus");
+    status.className = "status ok";
+    status.textContent = "✓ Got ID token from Google.";
+
+    document.getElementById("backendCard").classList.remove("hidden");
+  }
+
+  // ----- Step 3: Send token to backend -----
+  async function callBackend() {
+    if (!currentIdToken) {
+      alert("Sign in first.");
+      return;
+    }
+    const backendUrl = document.getElementById("backendUrl").value.trim().replace(/\/$/, "");
+    const url = backendUrl + "/api/v1/auth/google";
+    const status = document.getElementById("backendStatus");
+    const responseEl = document.getElementById("backendResponse");
+    const responseSection = document.getElementById("backendResponseSection");
+
+    status.className = "status info";
+    status.textContent = "Calling " + url + " ...";
+    responseSection.classList.add("hidden");
+
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_token: currentIdToken }),
+      });
+      const text = await resp.text();
+      let pretty;
+      try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch { pretty = text; }
+      responseEl.textContent = "HTTP " + resp.status + " " + resp.statusText + "\n\n" + pretty;
+      responseSection.classList.remove("hidden");
+
+      if (resp.ok) {
+        status.className = "status ok";
+        status.textContent = "✓ Backend accepted the token. JWT tokens returned.";
+      } else {
+        status.className = "status error";
+        status.textContent = "✗ Backend rejected the request (" + resp.status + ").";
+      }
+    } catch (e) {
+      status.className = "status error";
+      status.textContent = "Network error: " + e.message + " (is the backend running and CORS open?)";
+    }
+  }
+
+  // ----- Reset -----
+  function resetAll() {
+    currentIdToken = null;
+    document.getElementById("tokenSection").classList.add("hidden");
+    document.getElementById("backendResponseSection").classList.add("hidden");
+    document.getElementById("signinStatus").textContent = "";
+    document.getElementById("backendStatus").textContent = "";
+    if (window.google && window.google.accounts && window.google.accounts.id) {
+      window.google.accounts.id.disableAutoSelect();
+    }
+  }
+</script>
+
+</body>
+</html>
