@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # Defaults to Neon URL if not found in environment
     DATABASE_URL: str = os.getenv("DATABASE_URL")
     
+    # Frontend URL for email links
+    FRONTEND_URL: str = "https://smart-construction-three.vercel.app"
+
     # Email settings
     SMTP_EMAIL: str | None = None
     SMTP_PASSWORD: str | None = None

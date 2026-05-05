@@ -20,14 +20,14 @@ def send_invitation_email(to_email: str, project_name: str, token: str, user_exi
             msg.set_content(f"""You've been added to the project: {project_name}.
 
 Log in to access the project in your dashboard:
-http://localhost:3000/login?email={to_email}
+{settings.FRONTEND_URL}/login?email={to_email}
 """)
         else:
             msg['Subject'] = f"You've been invited to join: {project_name}"
             msg.set_content(f"""You've been invited to join the project: {project_name}.
 
 Sign up with this email address to get started:
-http://localhost:3000/signup?email={to_email}
+{settings.FRONTEND_URL}/signup?email={to_email}
 
 Once you create your account, you'll be automatically added to the project.
 """)
@@ -49,7 +49,7 @@ def send_password_reset_email(to_email: str, token: str):
         msg['From'] = settings.SMTP_EMAIL
         msg['To'] = to_email
 
-        reset_link = f"http://localhost:3000/reset-password?token={token}"
+        reset_link = f"{settings.FRONTEND_URL}/reset-password?token={token}"
 
         msg.set_content(f"""You requested a password reset for your Smart Construction account.
 
