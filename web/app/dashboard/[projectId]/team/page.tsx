@@ -63,14 +63,12 @@ interface TeamPageProps {
 }
 
 const roleColors: Record<ProjectRole, string> = {
-  owner: 'bg-purple-100 text-purple-700 border-purple-300',
   project_manager: 'bg-primary/10 text-primary border-primary/30',
-  office_engineer: 'bg-blue-100 text-blue-700 border-blue-300',
   consultant: 'bg-amber-100 text-amber-700 border-amber-300',
   site_engineer: 'bg-green-100 text-green-700 border-green-300',
 }
 
-const ALL_ROLES: ProjectRole[] = ['project_manager', 'office_engineer', 'consultant', 'site_engineer']
+const ALL_ROLES: ProjectRole[] = ['project_manager', 'consultant', 'site_engineer']
 
 export default function TeamPage({ params }: TeamPageProps) {
   const { projectId } = use(params)
@@ -286,11 +284,9 @@ export default function TeamPage({ params }: TeamPageProps) {
                   </span>
                 </div>
                 <CardDescription>
-                  {role === 'owner' && 'Project owner with full administrative access'}
-                  {role === 'project_manager' && 'Manages the project, gives final approval on daily logs'}
-                  {role === 'office_engineer' && 'Reviews document completeness before consultant approval'}
-                  {role === 'consultant' && 'Verifies reported work matches actual site work, approves logs'}
-                  {role === 'site_engineer' && 'Submits daily logs for assigned tasks'}
+                  {role === 'project_manager' && 'Creates projects, manages team, gives final approval on daily logs, views ML prediction and budget'}
+                  {role === 'consultant' && 'Reviews and approves field work submitted by site engineers'}
+                  {role === 'site_engineer' && 'Submits daily logs for assigned tasks, views own tasks and logs only'}
                 </CardDescription>
               </CardHeader>
               <CardContent>

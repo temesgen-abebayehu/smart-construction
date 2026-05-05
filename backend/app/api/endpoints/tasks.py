@@ -56,12 +56,15 @@ async def create_task(
 @router.get("/{project_id}/tasks", response_model=List[TaskResponse])
 async def list_tasks(
     project_id: UUID, db: DbSession, status: str = None,
+    assigned_to: UUID = None,
     skip: int = 0, limit: int = 100,
     _: User = Depends(get_current_active_user),
 ) -> Any:
     stmt = select(Task).options(selectinload(Task.assignee)).where(Task.project_id == project_id)
     if status:
         stmt = stmt.where(Task.status == status)
+    if assigned_to:
+        stmt = stmt.where(Task.assigned_to == assigned_to)
     stmt = stmt.offset(skip).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
@@ -85,6 +88,17 @@ async def update_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     updated = await task_repo.update(db, task, task_in)
+    # Auto-update status based on progress
+    if updated.progress_percentage >= 100 and updated.status != "completed":
+        updated.status = "completed"
+        db.add(updated)
+        await db.commit()
+        await db.refresh(updated)
+    elif updated.progress_percentage > 0 and updated.status == "pending":
+        updated.status = "in_progress"
+        db.add(updated)
+        await db.commit()
+        await db.refresh(updated)
     await _recalculate_project_progress(db, task.project_id)
     # Re-fetch with assignee loaded
     result = await db.execute(

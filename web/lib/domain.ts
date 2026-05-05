@@ -1,4 +1,4 @@
-export type ProjectRole = 'owner' | 'project_manager' | 'office_engineer' | 'consultant' | 'site_engineer'
+export type ProjectRole = 'project_manager' | 'consultant' | 'site_engineer'
 
 export type ProjectStatus = 'planning' | 'in_progress' | 'completed' | 'on_hold'
 
@@ -7,9 +7,9 @@ export type TaskStatus = 'pending' | 'in_progress' | 'completed'
 export type LogStatus =
   | 'draft'
   | 'submitted'
-  | 'reviewed'
   | 'consultant_approved'
   | 'pm_approved'
+  | 'rejected'
 
 /** Current user shape used across the app (from GET /users/me). */
 export interface AuthUser {
@@ -24,9 +24,7 @@ export interface AuthUser {
 }
 
 export const roleLabels: Record<ProjectRole, string> = {
-  owner: 'Owner',
   project_manager: 'Project Manager',
-  office_engineer: 'Office Engineer',
   consultant: 'Consultant',
   site_engineer: 'Site Engineer',
 }

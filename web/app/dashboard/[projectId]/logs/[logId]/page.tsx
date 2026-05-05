@@ -106,12 +106,15 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
 
   if (!project || !log) return null
 
-  // Determine which actions the current role can perform based on log status
-  const canSubmit = log.status === 'draft' && (userRole === 'site_engineer' || userRole === 'owner' || userRole === 'project_manager')
-  const canReview = log.status === 'submitted' && (userRole === 'office_engineer' || userRole === 'owner' || userRole === 'project_manager')
-  const canConsultantApprove = log.status === 'reviewed' && (userRole === 'consultant' || userRole === 'owner' || userRole === 'project_manager')
-  const canPmApprove = log.status === 'consultant_approved' && (userRole === 'project_manager' || userRole === 'owner')
-  const canReject = ['submitted', 'reviewed', 'consultant_approved'].includes(log.status) && userRole !== 'site_engineer'
+  // 3-step approval: Site Engineer submits → Consultant approves → PM final approval
+  const canSubmit = (log.status === 'draft' || log.status === 'rejected') && userRole === 'site_engineer'
+  const canReview = false // removed — no office_engineer role
+  const canConsultantApprove = log.status === 'submitted' && userRole === 'consultant'
+  const canPmApprove = log.status === 'consultant_approved' && userRole === 'project_manager'
+  const canReject = (
+    (log.status === 'submitted' && userRole === 'consultant') ||
+    (log.status === 'consultant_approved' && userRole === 'project_manager')
+  )
 
   const totalLaborCost = labor.reduce((s, l) => s + l.cost, 0)
   const totalMaterialCost = materials.reduce((s, m) => s + m.cost, 0)

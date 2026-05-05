@@ -110,7 +110,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
     )
   }
 
-  const isProjectManager = userRole === 'project_manager' || userRole === 'owner'
+  const isProjectManager = userRole === 'project_manager'
 
   const taskSummary = dashboardSummary?.task_summary
   const activeCount = taskSummary?.in_progress ?? tasks.filter((t) => t.status === 'in_progress').length
@@ -141,7 +141,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className={`grid gap-4 ${isProjectManager ? 'xl:grid-cols-3' : 'xl:grid-cols-1'}`}>
         <Card className="shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Project Status</CardTitle>
@@ -175,7 +175,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm">
+        {isProjectManager && <Card className="shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Financial Burn & Capital</CardTitle>
@@ -210,9 +210,9 @@ export default function DashboardPage({ params }: DashboardPageProps) {
               </div>
             </div>
           </CardContent>
-        </Card>
+        </Card>}
 
-        <Card className="border-blue-600 bg-gradient-to-br from-blue-700 to-indigo-700 text-white shadow-sm">
+        {isProjectManager && <Card className="border-blue-600 bg-gradient-to-br from-blue-700 to-indigo-700 text-white shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">AI Predictor</CardTitle>
@@ -253,7 +253,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
               )}
             </div>
           </CardContent>
-        </Card>
+        </Card>}
       </div>
 
       {/* Weather Card */}

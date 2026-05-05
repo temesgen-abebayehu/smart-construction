@@ -41,6 +41,7 @@ import {
   UserCircle2,
 } from 'lucide-react'
 import { useProjectRole } from '@/lib/project-role-context'
+import { useAuth } from '@/lib/auth-context'
 import type { TaskListItem, EnrichedMemberRow } from '@/lib/api-types'
 import type { TaskStatus } from '@/lib/domain'
 import { createTask, updateTask, listProjectTasks, listProjectMembersEnriched } from '@/lib/api'
@@ -74,6 +75,7 @@ function estimateHours(start?: string | null, end?: string | null) {
 export default function TasksPage({ params }: TasksPageProps) {
   const { projectId } = use(params)
   const userRole = useProjectRole()
+  const { user } = useAuth()
 
   const [projectTasks, setProjectTasks] = useState<TaskListItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -97,7 +99,10 @@ export default function TasksPage({ params }: TasksPageProps) {
   const loadTasks = async () => {
     setLoading(true)
     try {
-      const taskRes = await listProjectTasks(projectId, { limit: 100 })
+      const taskRes = await listProjectTasks(projectId, {
+        limit: 100,
+        assigned_to: userRole === 'site_engineer' ? user?.id : undefined,
+      })
       setProjectTasks(taskRes.data)
     } catch {
       setProjectTasks([])
