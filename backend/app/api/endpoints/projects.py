@@ -108,7 +108,11 @@ async def remove_member(project_id: UUID, user_id: UUID, db: DbSession) -> None:
 async def create_invitation(
     *, db: DbSession, project_id: UUID, invite_in: ProjectInvitationCreate,
 ) -> Any:
-    return await ProjectInvitationService.create_invitation(db, project_id, invite_in)
+    result = await ProjectInvitationService.create_invitation(db, project_id, invite_in)
+    # Build response with email_sent flag
+    resp = ProjectInvitationResponse.model_validate(result)
+    resp.email_sent = getattr(result, '_email_sent', True)
+    return resp
 
 @router.get("/{project_id}/invitations", response_model=List[ProjectInvitationResponse],
             dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])

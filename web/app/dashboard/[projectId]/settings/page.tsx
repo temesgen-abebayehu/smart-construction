@@ -133,10 +133,14 @@ export default function SettingsPage({ params }: SettingsPageProps) {
     setResetSending(true)
     setResetMsg(null)
     try {
-      await apiRequest('/auth/forgot-password', {
+      const result = await apiRequest<{ email_sent: boolean }>('/auth/forgot-password', {
         method: 'POST',
         body: JSON.stringify({ email: user.email }),
       })
+      if (result.email_sent === false) {
+        setResetMsg({ type: 'error', text: 'Failed to send reset email. Check SMTP configuration.' })
+        return
+      }
       setResetMsg({ type: 'success', text: `Reset link sent to ${user.email}` })
     } catch {
       setResetMsg({ type: 'error', text: 'Failed to send reset link.' })

@@ -5,10 +5,12 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-def send_invitation_email(to_email: str, project_name: str, token: str, user_exists: bool = False):
+
+def send_invitation_email(to_email: str, project_name: str, token: str, user_exists: bool = False) -> bool:
+    """Returns True if email was sent, False otherwise."""
     if not settings.SMTP_HOST or not settings.SMTP_PORT or not settings.SMTP_EMAIL:
         logger.warning(f"SMTP not configured. Skipping email to {to_email}. Token: {token}")
-        return
+        return False
 
     try:
         msg = EmailMessage()
@@ -31,17 +33,20 @@ http://localhost:3000/signup?email={to_email}
 
 Once you create your account, you'll be automatically added to the project.
 """)
-        
+
         _send(msg)
         logger.info(f"Successfully sent invitation email to {to_email}")
+        return True
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {str(e)}")
+        return False
 
 
-def send_password_reset_email(to_email: str, token: str):
+def send_password_reset_email(to_email: str, token: str) -> bool:
+    """Returns True if email was sent, False otherwise."""
     if not settings.SMTP_HOST or not settings.SMTP_PORT or not settings.SMTP_EMAIL:
         logger.warning(f"SMTP not configured. Skipping reset email to {to_email}. Token: {token}")
-        return
+        return False
 
     try:
         msg = EmailMessage()
@@ -60,8 +65,10 @@ If you didn't request this, you can safely ignore this email.
 """)
         _send(msg)
         logger.info(f"Successfully sent password reset email to {to_email}")
+        return True
     except Exception as e:
         logger.error(f"Failed to send reset email to {to_email}: {str(e)}")
+        return False
 
 
 def _send(msg: EmailMessage):

@@ -136,6 +136,7 @@ class ProjectInvitationResponse(ProjectInvitationBase):
     project_id: UUID
     token: str
     status: str  # "pending" = new user, "accepted" = existing user added directly
+    email_sent: bool = True
     model_config = ConfigDict(from_attributes=True)
     
 class ProjectInvitationAccept(BaseModel):

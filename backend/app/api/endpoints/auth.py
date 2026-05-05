@@ -124,9 +124,10 @@ async def forgot_password(*, db: DbSession, body: ForgotPasswordRequest) -> Any:
             settings.SECRET_KEY,
             algorithm=ALGORITHM,
         )
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(None, send_password_reset_email, body.email, reset_token)
-    return {"message": "If an account with that email exists, a reset link has been sent."}
+        email_sent = send_password_reset_email(body.email, reset_token)
+        if not email_sent:
+            return {"message": "Failed to send reset email. Please check SMTP configuration or try again later.", "email_sent": False}
+    return {"message": "If an account with that email exists, a reset link has been sent.", "email_sent": True}
 
 
 @router.post("/reset-password")

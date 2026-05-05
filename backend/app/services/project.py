@@ -238,9 +238,10 @@ class ProjectInvitationService:
         await db.commit()
         await db.refresh(db_obj)
 
-        # Send appropriate email
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(None, send_invitation_email, invite_in.email, project.name, token, user_exists)
+        # Send email synchronously so we can report success/failure
+        email_sent = send_invitation_email(invite_in.email, project.name, token, user_exists)
+        # Attach email_sent flag to the object for the response
+        db_obj._email_sent = email_sent
 
         return db_obj
 

@@ -143,11 +143,16 @@ export default function TeamPage({ params }: TeamPageProps) {
     setInviteError(null)
     setInviteSuccess(null)
     try {
-      const result = await inviteProjectMember(projectId, { email: inviteEmail.trim(), role: inviteRole })
+      const result = await inviteProjectMember(projectId, { email: inviteEmail.trim(), role: inviteRole }) as { status: string; email_sent?: boolean }
       if (result.status === 'accepted') {
-        setInviteSuccess(`${inviteEmail.trim()} has been added to the project directly.`)
+        const emailNote = result.email_sent === false ? ' (notification email failed to send)' : ''
+        setInviteSuccess(`${inviteEmail.trim()} has been added to the project directly.${emailNote}`)
       } else {
-        setInviteSuccess(`Invitation sent to ${inviteEmail.trim()}. They will be added when they sign up.`)
+        if (result.email_sent === false) {
+          setInviteError(`Invitation created but email failed to send to ${inviteEmail.trim()}. Check SMTP configuration.`)
+        } else {
+          setInviteSuccess(`Invitation sent to ${inviteEmail.trim()}. They will be added when they sign up.`)
+        }
       }
       setInviteEmail('')
       setInviteRole('site_engineer')

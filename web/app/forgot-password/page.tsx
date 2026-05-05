@@ -21,10 +21,14 @@ export default function ForgotPasswordPage() {
     setLoading(true)
     setError('')
     try {
-      await apiRequest('/auth/forgot-password', {
+      const result = await apiRequest<{ message: string; email_sent: boolean }>('/auth/forgot-password', {
         method: 'POST',
         body: JSON.stringify({ email: email.trim() }),
       })
+      if (result.email_sent === false) {
+        setError('Failed to send reset email. Please try again later or contact support.')
+        return
+      }
       setSent(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
