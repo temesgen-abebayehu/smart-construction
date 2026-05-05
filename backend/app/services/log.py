@@ -12,24 +12,20 @@ from app.repositories.log import DailyLogRepository
 log_repo = DailyLogRepository()
 
 # Workflow transitions: who can trigger what
+# 3-step chain: Site Engineer submits → Consultant approves → PM final approval
 WORKFLOW_TRANSITIONS = {
     "submit": {
-        "from_status": LogStatus.DRAFT,
+        "from_status": [LogStatus.DRAFT, LogStatus.REJECTED],
         "to_status": LogStatus.SUBMITTED,
         "allowed_roles": [ProjectRole.SITE_ENGINEER],
     },
-    "review": {
-        "from_status": LogStatus.SUBMITTED,
-        "to_status": LogStatus.REVIEWED,
-        "allowed_roles": [ProjectRole.OFFICE_ENGINEER],
-    },
     "consultant-approve": {
-        "from_status": LogStatus.REVIEWED,
+        "from_status": [LogStatus.SUBMITTED],
         "to_status": LogStatus.CONSULTANT_APPROVED,
         "allowed_roles": [ProjectRole.CONSULTANT],
     },
     "pm-approve": {
-        "from_status": LogStatus.CONSULTANT_APPROVED,
+        "from_status": [LogStatus.CONSULTANT_APPROVED],
         "to_status": LogStatus.PM_APPROVED,
         "allowed_roles": [ProjectRole.PROJECT_MANAGER],
     },
@@ -70,10 +66,11 @@ class DailyLogService:
             raise HTTPException(status_code=404, detail="Daily log not found")
 
         # Verify current status
-        if log.status != transition["from_status"].value:
+        allowed_from = [s.value for s in transition["from_status"]]
+        if log.status not in allowed_from:
             raise HTTPException(
                 status_code=400,
-                detail=f"Log must be in '{transition['from_status'].value}' status for action '{action}'. Current: '{log.status}'"
+                detail=f"Log must be in {allowed_from} status for action '{action}'. Current: '{log.status}'"
             )
 
         # Verify role permission
@@ -96,11 +93,14 @@ class DailyLogService:
         return log
 
     @staticmethod
-    async def reject_log(db: AsyncSession, log_id: UUID) -> DailyLog:
+    async def reject_log(db: AsyncSession, log_id: UUID, rejection_reason: str) -> DailyLog:
         log = await log_repo.get_by_id(db, log_id)
         if not log:
             raise HTTPException(status_code=404, detail="Daily log not found")
-        log.status = LogStatus.DRAFT.value
+        if log.status not in [LogStatus.SUBMITTED.value, LogStatus.CONSULTANT_APPROVED.value]:
+            raise HTTPException(status_code=400, detail=f"Cannot reject log in '{log.status}' status")
+        log.status = LogStatus.REJECTED.value
+        log.rejection_reason = rejection_reason
         db.add(log)
         await db.commit()
         await db.refresh(log)

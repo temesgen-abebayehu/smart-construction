@@ -39,37 +39,37 @@ const getNavItems = (projectId: string, role: ProjectRole) => {
       label: 'Dashboard',
       href: `/dashboard/${projectId}`,
       icon: LayoutDashboard,
-      roles: ['owner', 'project_manager', 'office_engineer', 'consultant', 'site_engineer'] as ProjectRole[],
+      roles: ['project_manager', 'consultant', 'site_engineer'] as ProjectRole[],
     },
     {
       label: 'Tasks',
       href: `/dashboard/${projectId}/tasks`,
       icon: ListTodo,
-      roles: ['owner', 'project_manager', 'office_engineer', 'consultant', 'site_engineer'] as ProjectRole[],
+      roles: ['project_manager', 'site_engineer'] as ProjectRole[],
     },
     {
       label: 'Daily Logs',
       href: `/dashboard/${projectId}/logs`,
       icon: ClipboardList,
-      roles: ['owner', 'project_manager', 'office_engineer', 'consultant', 'site_engineer'] as ProjectRole[],
+      roles: ['project_manager', 'consultant', 'site_engineer'] as ProjectRole[],
     },
     {
       label: 'Team',
       href: `/dashboard/${projectId}/team`,
       icon: Users,
-      roles: ['owner', 'project_manager', 'office_engineer'] as ProjectRole[],
+      roles: ['project_manager'] as ProjectRole[],
     },
     {
       label: 'Reports',
       href: `/dashboard/${projectId}/reports`,
       icon: FileText,
-      roles: ['owner', 'project_manager'] as ProjectRole[],
+      roles: ['project_manager'] as ProjectRole[],
     },
     {
       label: 'Settings',
       href: `/dashboard/${projectId}/settings`,
       icon: Settings,
-      roles: ['owner', 'project_manager'] as ProjectRole[],
+      roles: ['project_manager'] as ProjectRole[],
     },
   ]
 
@@ -85,6 +85,7 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
   
   const initials = user?.full_name
     .split(' ')
+    .filter(n => n.length > 0)
     .map(n => n[0])
     .join('')
     .toUpperCase() || 'U'

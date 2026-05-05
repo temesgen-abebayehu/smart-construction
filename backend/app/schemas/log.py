@@ -84,7 +84,11 @@ class DailyLogUpdate(BaseModel):
 class DailyLogResponse(DailyLogBase):
     id: UUID
     project_id: UUID
-    task_id: UUID | None = None  # None for project-level logs
+    task_id: UUID | None = None
     created_by_id: UUID
     status: LogStatus
+    rejection_reason: str | None = None
     model_config = ConfigDict(from_attributes=True)
+
+class DailyLogReject(BaseModel):
+    rejection_reason: str

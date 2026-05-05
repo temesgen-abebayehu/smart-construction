@@ -57,24 +57,24 @@ import {
 import type { EnrichedMemberRow } from '@/lib/api-types'
 import { roleLabels, type ProjectRole } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
+import { useAuth } from '@/lib/auth-context'
 
 interface TeamPageProps {
   params: Promise<{ projectId: string }>
 }
 
 const roleColors: Record<ProjectRole, string> = {
-  owner: 'bg-purple-100 text-purple-700 border-purple-300',
   project_manager: 'bg-primary/10 text-primary border-primary/30',
-  office_engineer: 'bg-blue-100 text-blue-700 border-blue-300',
   consultant: 'bg-amber-100 text-amber-700 border-amber-300',
   site_engineer: 'bg-green-100 text-green-700 border-green-300',
 }
 
-const ALL_ROLES: ProjectRole[] = ['project_manager', 'office_engineer', 'consultant', 'site_engineer']
+const ALL_ROLES: ProjectRole[] = ['project_manager', 'consultant', 'site_engineer']
 
 export default function TeamPage({ params }: TeamPageProps) {
   const { projectId } = use(params)
   const userRole = useProjectRole()
+  const { user } = useAuth()
 
   const [rows, setRows] = useState<EnrichedMemberRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -104,6 +104,9 @@ export default function TeamPage({ params }: TeamPageProps) {
     name: string
   } | null>(null)
   const [removeLoading, setRemoveLoading] = useState(false)
+
+  // Member profile dialog
+  const [profileMember, setProfileMember] = useState<typeof projectMembers[number] | null>(null)
 
   const refreshMembers = useCallback(async () => {
     try {
@@ -286,11 +289,9 @@ export default function TeamPage({ params }: TeamPageProps) {
                   </span>
                 </div>
                 <CardDescription>
-                  {role === 'owner' && 'Project owner with full administrative access'}
-                  {role === 'project_manager' && 'Manages the project, gives final approval on daily logs'}
-                  {role === 'office_engineer' && 'Reviews document completeness before consultant approval'}
-                  {role === 'consultant' && 'Verifies reported work matches actual site work, approves logs'}
-                  {role === 'site_engineer' && 'Submits daily logs for assigned tasks'}
+                  {role === 'project_manager' && 'Creates projects, manages team, gives final approval on daily logs, views ML prediction and budget'}
+                  {role === 'consultant' && 'Reviews and approves field work submitted by site engineers'}
+                  {role === 'site_engineer' && 'Submits daily logs for assigned tasks, views own tasks and logs only'}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -308,12 +309,22 @@ export default function TeamPage({ params }: TeamPageProps) {
                         key={member.id}
                         className="flex items-start gap-4 p-4 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors"
                       >
-                        <Avatar className="h-12 w-12">
-                          <AvatarFallback>{initials}</AvatarFallback>
-                        </Avatar>
+                        <button
+                          type="button"
+                          className="shrink-0 cursor-pointer"
+                          onClick={() => setProfileMember(member)}
+                        >
+                          <Avatar className="h-12 w-12">
+                            <AvatarFallback>{initials}</AvatarFallback>
+                          </Avatar>
+                        </button>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
-                            <div>
+                            <button
+                              type="button"
+                              className="text-left cursor-pointer hover:underline"
+                              onClick={() => setProfileMember(member)}
+                            >
                               <p className="font-semibold">{member.user.full_name}</p>
                               {member.user.email && (
                                 <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
@@ -327,9 +338,9 @@ export default function TeamPage({ params }: TeamPageProps) {
                                   <span>{member.user.phone}</span>
                                 </div>
                               )}
-                            </div>
+                            </button>
 
-                            {canManageTeam && (
+                            {canManageTeam && member.user.id !== user?.id && (
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                   <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
@@ -538,6 +549,57 @@ export default function TeamPage({ params }: TeamPageProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Member Profile Dialog */}
+      <Dialog open={!!profileMember} onOpenChange={(open) => { if (!open) setProfileMember(null) }}>
+        <DialogContent className="sm:max-w-md">
+          {profileMember && (() => {
+            const pi = profileMember.user.full_name
+              .split(' ')
+              .filter((n: string) => n.length > 0)
+              .map((n: string) => n[0])
+              .join('')
+              .toUpperCase() || 'U'
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Member Profile</DialogTitle>
+                  <DialogDescription>Public profile information</DialogDescription>
+                </DialogHeader>
+                <div className="flex flex-col items-center gap-4 py-4">
+                  <Avatar className="h-20 w-20">
+                    <AvatarFallback className="text-2xl">{pi}</AvatarFallback>
+                  </Avatar>
+                  <div className="text-center">
+                    <p className="text-lg font-semibold">{profileMember.user.full_name}</p>
+                    <Badge variant="outline" className={roleColors[profileMember.role]}>
+                      {roleLabels[profileMember.role]}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="space-y-3 text-sm">
+                  {profileMember.user.email && (
+                    <div className="flex items-center gap-3 rounded-lg border p-3">
+                      <Mail className="h-4 w-4 text-muted-foreground" />
+                      <span>{profileMember.user.email}</span>
+                    </div>
+                  )}
+                  {profileMember.user.phone && (
+                    <div className="flex items-center gap-3 rounded-lg border p-3">
+                      <Phone className="h-4 w-4 text-muted-foreground" />
+                      <span>{profileMember.user.phone}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3 rounded-lg border p-3">
+                    <Shield className="h-4 w-4 text-muted-foreground" />
+                    <span>Role: <strong>{roleLabels[profileMember.role]}</strong></span>
+                  </div>
+                </div>
+              </>
+            )
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -165,6 +165,7 @@ export interface LogListItem {
   status: LogStatus
   notes?: string | null
   weather?: string | null
+  rejection_reason?: string | null
 }
 
 export interface LogDetailResponse {
@@ -176,6 +177,7 @@ export interface LogDetailResponse {
   status: LogStatus
   notes?: string | null
   weather?: string | null
+  rejection_reason?: string | null
 }
 
 /* ── Members ── */

@@ -18,14 +18,17 @@ import {
   AlertTriangle,
   CheckCircle2,
   CircleAlert,
-  Filter,
   Search,
   Calendar,
   Loader2,
+  Plus,
+  XCircle,
 } from 'lucide-react'
 import type { LogListItem } from '@/lib/api-types'
 import type { LogStatus } from '@/lib/domain'
-import { listProjectLogs } from '@/lib/api'
+import { listProjectLogs, createDailyLog } from '@/lib/api'
+import { useProjectRole } from '@/lib/project-role-context'
+import { useAuth } from '@/lib/auth-context'
 
 interface LogsPageProps {
   params: Promise<{ projectId: string }>
@@ -34,39 +37,57 @@ interface LogsPageProps {
 const statusConfig: Record<LogStatus, { label: string; className: string }> = {
   draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700' },
   submitted: { label: 'Submitted', className: 'bg-amber-100 text-amber-700' },
-  reviewed: { label: 'Reviewed', className: 'bg-orange-100 text-orange-700' },
   consultant_approved: { label: 'Consultant Approved', className: 'bg-indigo-100 text-indigo-700' },
-  pm_approved: { label: 'PM Approved', className: 'bg-green-100 text-green-700' },
+  pm_approved: { label: 'Approved', className: 'bg-green-100 text-green-700' },
+  rejected: { label: 'Rejected', className: 'bg-red-100 text-red-700' },
 }
 
 export default function LogsPage({ params }: LogsPageProps) {
   const { projectId } = use(params)
+  const userRole = useProjectRole()
+  const { user } = useAuth()
   const [projectLogs, setProjectLogs] = useState<LogListItem[]>([])
   const [loading, setLoading] = useState(true)
 
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      try {
-        const { data } = await listProjectLogs(projectId, { limit: 500 })
-        if (!cancelled) setProjectLogs(data)
-      } catch {
-        if (!cancelled) setProjectLogs([])
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+  const loadLogs = async () => {
+    setLoading(true)
+    try {
+      const { data } = await listProjectLogs(projectId, {
+        limit: 500,
+        // Site engineer: own logs only
+        created_by: userRole === 'site_engineer' ? user?.id : undefined,
+      })
+      setProjectLogs(data)
+    } catch {
+      setProjectLogs([])
+    } finally {
+      setLoading(false)
     }
-  }, [projectId])
+  }
+
+  useEffect(() => {
+    loadLogs()
+  }, [projectId, userRole])
+
+  // Role-based log filtering
+  const visibleLogs = useMemo(() => {
+    let logs = projectLogs
+    if (userRole === 'consultant') {
+      // Consultant sees only submitted logs (for their review) + consultant_approved + pm_approved
+      logs = logs.filter((l) => ['submitted', 'consultant_approved', 'pm_approved'].includes(l.status))
+    } else if (userRole === 'project_manager') {
+      // PM sees consultant_approved (for final approval) + pm_approved + rejected
+      logs = logs.filter((l) => ['consultant_approved', 'pm_approved', 'rejected'].includes(l.status))
+    }
+    // Site engineer sees all their own logs (draft, submitted, rejected, approved)
+    return logs
+  }, [projectLogs, userRole])
 
   const filteredLogs = useMemo(() => {
-    return projectLogs.filter((log) => {
+    return visibleLogs.filter((log) => {
       if (statusFilter !== 'all' && log.status !== statusFilter) return false
       if (searchQuery) {
         const notes = log.notes || ''
@@ -74,14 +95,66 @@ export default function LogsPage({ params }: LogsPageProps) {
       }
       return true
     })
-  }, [projectLogs, searchQuery, statusFilter])
+  }, [visibleLogs, searchQuery, statusFilter])
 
-  const reviewedCount = projectLogs.filter((log) => log.status === 'reviewed').length
-  const submittedCount = projectLogs.filter((log) => log.status === 'submitted').length
-  const approvedCount = projectLogs.filter(
-    (log) => log.status === 'pm_approved' || log.status === 'consultant_approved',
-  ).length
-  const draftCount = projectLogs.filter((log) => log.status === 'draft').length
+  // Status filter buttons per role
+  const statusFilters = useMemo(() => {
+    const filters: { key: string; label: string }[] = [{ key: 'all', label: 'All' }]
+    if (userRole === 'site_engineer') {
+      filters.push(
+        { key: 'draft', label: 'Draft' },
+        { key: 'submitted', label: 'Submitted' },
+        { key: 'rejected', label: 'Rejected' },
+        { key: 'pm_approved', label: 'Approved' },
+      )
+    } else if (userRole === 'consultant') {
+      filters.push(
+        { key: 'submitted', label: 'Needs Review' },
+        { key: 'consultant_approved', label: 'Approved by Me' },
+        { key: 'pm_approved', label: 'PM Approved' },
+      )
+    } else if (userRole === 'project_manager') {
+      filters.push(
+        { key: 'consultant_approved', label: 'Needs Approval' },
+        { key: 'pm_approved', label: 'Approved' },
+        { key: 'rejected', label: 'Rejected' },
+      )
+    }
+    return filters
+  }, [userRole])
+
+  // Summary counts based on visible logs
+  const counts = useMemo(() => {
+    const c = { submitted: 0, consultant_approved: 0, pm_approved: 0, draft: 0, rejected: 0 }
+    for (const l of visibleLogs) {
+      if (l.status in c) c[l.status as keyof typeof c]++
+    }
+    return c
+  }, [visibleLogs])
+
+  const handleCreateLog = async () => {
+    try {
+      await createDailyLog(projectId, {
+        date: new Date().toISOString().split('T')[0],
+        notes: '',
+      })
+      await loadLogs()
+    } catch {
+      // handle error
+    }
+  }
+
+  const pageTitle = userRole === 'site_engineer'
+    ? 'My Daily Logs'
+    : userRole === 'consultant'
+      ? 'Logs for Review'
+      : 'Daily Log Approvals'
+
+  const pageDescription = userRole === 'site_engineer'
+    ? 'Create and track your daily log submissions.'
+    : userRole === 'consultant'
+      ? 'Review and approve submitted daily logs from site engineers.'
+      : 'Give final approval on consultant-reviewed daily logs.'
 
   if (loading) {
     return (
@@ -93,78 +166,153 @@ export default function LogsPage({ params }: LogsPageProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold">Daily Logs Overview</h1>
-        <p className="text-sm text-muted-foreground">Track submitted site logs and review status at a glance.</p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">{pageTitle}</h1>
+          <p className="text-sm text-muted-foreground">{pageDescription}</p>
+        </div>
+        {userRole === 'site_engineer' && (
+          <Button className="gap-2" onClick={() => void handleCreateLog()}>
+            <Plus className="h-4 w-4" />
+            New Daily Log
+          </Button>
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Reviewed</p>
-                <p className="mt-2 text-3xl font-semibold">{reviewedCount.toString().padStart(2, '0')}</p>
-                <p className="text-xs text-muted-foreground">Office Engineer reviewed</p>
-              </div>
-              <div className="rounded-full border border-blue-200 p-3 text-blue-700">
-                <CheckCircle2 className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {userRole === 'site_engineer' && (
+          <>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Drafts</p>
+                    <p className="mt-2 text-3xl font-semibold">{counts.draft.toString().padStart(2, '0')}</p>
+                    <p className="text-xs text-muted-foreground">Not yet submitted</p>
+                  </div>
+                  <div className="rounded-full border border-gray-200 p-3 text-gray-600">
+                    <AlertTriangle className="h-5 w-5" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Submitted</p>
+                    <p className="mt-2 text-3xl font-semibold">{counts.submitted.toString().padStart(2, '0')}</p>
+                    <p className="text-xs text-muted-foreground">Awaiting consultant review</p>
+                  </div>
+                  <div className="rounded-full border border-amber-200 p-3 text-amber-600">
+                    <CircleAlert className="h-5 w-5" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Rejected</p>
+                    <p className="mt-2 text-3xl font-semibold text-red-600">{counts.rejected.toString().padStart(2, '0')}</p>
+                    <p className="text-xs text-muted-foreground">Needs correction</p>
+                  </div>
+                  <div className="rounded-full border border-red-200 p-3 text-red-600">
+                    <XCircle className="h-5 w-5" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Approved</p>
+                    <p className="mt-2 text-3xl font-semibold text-emerald-600">{counts.pm_approved.toString().padStart(2, '0')}</p>
+                    <p className="text-xs text-muted-foreground">Fully approved</p>
+                  </div>
+                  <div className="rounded-full border border-emerald-200 p-3 text-emerald-600">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Submitted</p>
-                <p className="mt-2 text-3xl font-semibold">{submittedCount.toString().padStart(2, '0')}</p>
-                <p className="text-xs text-muted-foreground">Awaiting review</p>
-              </div>
-              <div className="rounded-full border border-orange-200 p-3 text-orange-600">
-                <CircleAlert className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {userRole === 'consultant' && (
+          <>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Needs Review</p>
+                    <p className="mt-2 text-3xl font-semibold text-amber-600">{counts.submitted.toString().padStart(2, '0')}</p>
+                    <p className="text-xs text-muted-foreground">Submitted by site engineers</p>
+                  </div>
+                  <div className="rounded-full border border-amber-200 p-3 text-amber-600">
+                    <CircleAlert className="h-5 w-5" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Approved by Me</p>
+                    <p className="mt-2 text-3xl font-semibold text-emerald-600">{counts.consultant_approved.toString().padStart(2, '0')}</p>
+                    <p className="text-xs text-muted-foreground">Sent to PM for final approval</p>
+                  </div>
+                  <div className="rounded-full border border-emerald-200 p-3 text-emerald-600">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Approved</p>
-                <p className="mt-2 text-3xl font-semibold">{approvedCount.toString().padStart(2, '0')}</p>
-                <p className="text-xs text-muted-foreground">Consultant or PM approved</p>
-              </div>
-              <div className="rounded-full border border-emerald-200 p-3 text-emerald-600">
-                <CheckCircle2 className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Drafts</p>
-                <p className="mt-2 text-3xl font-semibold">{draftCount.toString().padStart(2, '0')}</p>
-                <p className="text-xs text-muted-foreground">Not yet submitted</p>
-              </div>
-              <div className="rounded-full border border-gray-200 p-3 text-gray-600">
-                <AlertTriangle className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {userRole === 'project_manager' && (
+          <>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Needs Approval</p>
+                    <p className="mt-2 text-3xl font-semibold text-amber-600">{counts.consultant_approved.toString().padStart(2, '0')}</p>
+                    <p className="text-xs text-muted-foreground">Consultant approved, awaiting you</p>
+                  </div>
+                  <div className="rounded-full border border-amber-200 p-3 text-amber-600">
+                    <CircleAlert className="h-5 w-5" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Approved</p>
+                    <p className="mt-2 text-3xl font-semibold text-emerald-600">{counts.pm_approved.toString().padStart(2, '0')}</p>
+                    <p className="text-xs text-muted-foreground">Fully approved</p>
+                  </div>
+                  <div className="rounded-full border border-emerald-200 p-3 text-emerald-600">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-lg">Daily Logs</CardTitle>
-            <CardDescription>Recent submissions from the project team</CardDescription>
+            <CardDescription>{visibleLogs.length} logs visible</CardDescription>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -180,21 +328,16 @@ export default function LogsPage({ params }: LogsPageProps) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant={statusFilter === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter('all')}>
-                All
-              </Button>
-              <Button variant={statusFilter === 'submitted' ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter('submitted')}>
-                Submitted
-              </Button>
-              <Button variant={statusFilter === 'reviewed' ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter('reviewed')}>
-                Reviewed
-              </Button>
-              <Button variant={statusFilter === 'pm_approved' ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter('pm_approved')}>
-                Approved
-              </Button>
-              <Button variant={statusFilter === 'draft' ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter('draft')}>
-                Draft
-              </Button>
+              {statusFilters.map((f) => (
+                <Button
+                  key={f.key}
+                  variant={statusFilter === f.key ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setStatusFilter(f.key)}
+                >
+                  {f.label}
+                </Button>
+              ))}
             </div>
           </div>
 
@@ -230,7 +373,7 @@ export default function LogsPage({ params }: LogsPageProps) {
                     <TableCell className="text-right">
                       <Link href={`/dashboard/${projectId}/logs/${log.id}`}>
                         <Button variant="ghost" size="sm" className="text-primary">
-                          View Details
+                          {userRole === 'site_engineer' ? 'View' : 'Review'}
                         </Button>
                       </Link>
                     </TableCell>

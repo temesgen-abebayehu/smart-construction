@@ -25,9 +25,7 @@ import type { AuthUser, ProjectRole, ProjectStatus } from './domain'
 /* ── Constants ── */
 
 const PROJECT_ROLES: ProjectRole[] = [
-  'owner',
   'project_manager',
-  'office_engineer',
   'consultant',
   'site_engineer',
 ]
@@ -309,14 +307,14 @@ export async function listCompanies(params?: { search?: string; page?: number; l
 
 export async function listProjectTasks(
   projectId: string,
-  params?: { status?: string; page?: number; limit?: number; skip?: number },
+  params?: { status?: string; assigned_to?: string; page?: number; limit?: number; skip?: number },
 ) {
   const limit = params?.limit
   const skip =
     params?.skip ??
     (params?.page != null && limit != null ? Math.max(0, (params.page - 1) * limit) : undefined)
   const res = await apiRequest<unknown[]>(
-    `/projects/${projectId}/tasks${q({ status: params?.status, limit, skip })}`,
+    `/projects/${projectId}/tasks${q({ status: params?.status, assigned_to: params?.assigned_to, limit, skip })}`,
   )
   const data = (Array.isArray(res) ? res : []).map(normalizeTaskItem)
   return {
@@ -356,15 +354,37 @@ export async function deleteTask(taskId: string) {
   return apiRequest<void>(`/projects/tasks/${taskId}`, { method: 'DELETE' })
 }
 
+/* ── Task Dependencies ── */
+
+export async function listTaskDependencies(taskId: string) {
+  return apiRequest<{ id: string; task_id: string; depends_on_task_id: string }[]>(
+    `/projects/tasks/${taskId}/dependencies`,
+  )
+}
+
+export async function addTaskDependency(taskId: string, dependsOnTaskId: string) {
+  return apiRequest<{ id: string; task_id: string; depends_on_task_id: string }>(
+    `/projects/tasks/${taskId}/dependencies`,
+    { method: 'POST', body: JSON.stringify({ depends_on_task_id: dependsOnTaskId }) },
+  )
+}
+
+export async function removeTaskDependency(taskId: string, depId: string) {
+  return apiRequest<void>(`/projects/tasks/${taskId}/dependencies/${depId}`, { method: 'DELETE' })
+}
+
 /* ── Daily Logs ── */
 
 export async function listProjectLogs(
   projectId: string,
   params?: {
     status?: string
+    created_by?: string
     page?: number
     limit?: number
     skip?: number
+    start_date?: string
+    end_date?: string
   },
 ) {
   const limit = params?.limit
@@ -372,7 +392,7 @@ export async function listProjectLogs(
     params?.skip ??
     (params?.page != null && limit != null ? Math.max(0, (params.page - 1) * limit) : undefined)
   const res = await apiRequest<unknown[]>(
-    `/projects/${projectId}/daily-logs${q({ status: params?.status, limit, skip })}`,
+    `/projects/${projectId}/daily-logs${q({ status: params?.status, created_by: params?.created_by, limit, skip, start_date: params?.start_date, end_date: params?.end_date })}`,
   )
   const data = (Array.isArray(res) ? res : []).map(normalizeLogItem)
   return {
@@ -418,8 +438,11 @@ export async function pmApproveLog(logId: string) {
   return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/pm-approve`, { method: 'PATCH' })
 }
 
-export async function rejectLog(logId: string) {
-  return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/reject`, { method: 'PATCH' })
+export async function rejectLog(logId: string, rejectionReason: string) {
+  return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/reject`, {
+    method: 'PATCH',
+    body: JSON.stringify({ rejection_reason: rejectionReason }),
+  })
 }
 
 // Daily log sub-entities
@@ -623,7 +646,7 @@ function extractMemberRole(m: unknown): ProjectRole {
   if (!m || typeof m !== 'object') return 'site_engineer'
   const row = m as Record<string, unknown>
   const role = typeof row.role === 'string' ? row.role : ''
-  if (role === 'owner' || role === 'project_manager') return 'project_manager'
+  if (role === 'project_manager') return 'project_manager'
   if (PROJECT_ROLES.includes(role as ProjectRole)) return role as ProjectRole
   return 'site_engineer'
 }

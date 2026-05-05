@@ -6,10 +6,18 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
+import {
   getLog,
   getProject,
   submitLog,
-  reviewLog,
   consultantApproveLog,
   pmApproveLog,
   rejectLog,
@@ -20,7 +28,7 @@ import {
 import type { LogDetailResponse, ProjectDetail } from '@/lib/api-types'
 import type { LogStatus } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, FileText, MapPin, Users, Loader2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, FileText, MapPin, Users, Loader2, XCircle } from 'lucide-react'
 
 interface LogDetailPageProps {
   params: Promise<{ projectId: string; logId: string }>
@@ -29,9 +37,9 @@ interface LogDetailPageProps {
 const statusConfig: Record<LogStatus, { label: string; className: string }> = {
   draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700' },
   submitted: { label: 'Submitted', className: 'bg-amber-100 text-amber-700' },
-  reviewed: { label: 'Reviewed', className: 'bg-orange-100 text-orange-700' },
   consultant_approved: { label: 'Consultant Approved', className: 'bg-indigo-100 text-indigo-700' },
-  pm_approved: { label: 'PM Approved', className: 'bg-green-100 text-green-700' },
+  pm_approved: { label: 'Approved', className: 'bg-green-100 text-green-700' },
+  rejected: { label: 'Rejected', className: 'bg-red-100 text-red-700' },
 }
 
 function checkItem(label: string, complete: boolean) {
@@ -53,6 +61,8 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
   const [log, setLog] = useState<LogDetailResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectionReason, setRejectionReason] = useState('')
   const [labor, setLabor] = useState<{ worker_type: string; hours_worked: number; cost: number }[]>([])
   const [materials, setMaterials] = useState<{ name: string; quantity: number; unit: string; cost: number }[]>([])
   const [equipment, setEquipment] = useState<{ name: string; hours_used: number; cost: number }[]>([])
@@ -106,12 +116,15 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
 
   if (!project || !log) return null
 
-  // Determine which actions the current role can perform based on log status
-  const canSubmit = log.status === 'draft' && (userRole === 'site_engineer' || userRole === 'owner' || userRole === 'project_manager')
-  const canReview = log.status === 'submitted' && (userRole === 'office_engineer' || userRole === 'owner' || userRole === 'project_manager')
-  const canConsultantApprove = log.status === 'reviewed' && (userRole === 'consultant' || userRole === 'owner' || userRole === 'project_manager')
-  const canPmApprove = log.status === 'consultant_approved' && (userRole === 'project_manager' || userRole === 'owner')
-  const canReject = ['submitted', 'reviewed', 'consultant_approved'].includes(log.status) && userRole !== 'site_engineer'
+  // 3-step approval: Site Engineer submits → Consultant approves → PM final approval
+  const canSubmit = (log.status === 'draft' || log.status === 'rejected') && userRole === 'site_engineer'
+  const canReview = false // removed — no office_engineer role
+  const canConsultantApprove = log.status === 'submitted' && userRole === 'consultant'
+  const canPmApprove = log.status === 'consultant_approved' && userRole === 'project_manager'
+  const canReject = (
+    (log.status === 'submitted' && userRole === 'consultant') ||
+    (log.status === 'consultant_approved' && userRole === 'project_manager')
+  )
 
   const totalLaborCost = labor.reduce((s, l) => s + l.cost, 0)
   const totalMaterialCost = materials.reduce((s, m) => s + m.cost, 0)
@@ -254,14 +267,18 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
             </CardHeader>
             <CardContent className="space-y-3">
               {checkItem('Log created (draft)', true)}
-              {checkItem('Submitted by site engineer', log.status !== 'draft')}
-              {checkItem('Reviewed by office engineer', ['reviewed', 'consultant_approved', 'pm_approved'].includes(log.status))}
+              {checkItem('Submitted by site engineer', !['draft', 'rejected'].includes(log.status))}
               {checkItem('Consultant approved', ['consultant_approved', 'pm_approved'].includes(log.status))}
               {checkItem('PM final approval', log.status === 'pm_approved')}
-              {log.notes && (
-                <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-                  <p className="font-medium text-foreground">Notes</p>
-                  <p className="mt-1">{log.notes}</p>
+              {log.status === 'rejected' && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/20 p-3 text-sm">
+                  <div className="flex items-center gap-2 text-red-700 dark:text-red-400 font-medium">
+                    <XCircle className="h-4 w-4" />
+                    Rejected
+                  </div>
+                  {log.rejection_reason && (
+                    <p className="mt-1 text-red-600 dark:text-red-400">{log.rejection_reason}</p>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -274,30 +291,25 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
             <CardContent className="space-y-2">
               {canSubmit && (
                 <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => submitLog(logId))}>
-                  Submit Log
-                </Button>
-              )}
-              {canReview && (
-                <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => reviewLog(logId))}>
-                  Mark as Reviewed
+                  {log.status === 'rejected' ? 'Re-submit Log' : 'Submit Log'}
                 </Button>
               )}
               {canConsultantApprove && (
                 <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => consultantApproveLog(logId))}>
-                  Consultant Approve
+                  Approve (Consultant)
                 </Button>
               )}
               {canPmApprove && (
                 <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => pmApproveLog(logId))}>
-                  PM Final Approve
+                  Final Approve (PM)
                 </Button>
               )}
               {canReject && (
-                <Button variant="destructive" className="w-full" disabled={actionLoading} onClick={() => handleAction(() => rejectLog(logId))}>
-                  Reject Log
+                <Button variant="destructive" className="w-full" disabled={actionLoading} onClick={() => setRejectOpen(true)}>
+                  Reject
                 </Button>
               )}
-              {!canSubmit && !canReview && !canConsultantApprove && !canPmApprove && !canReject && (
+              {!canSubmit && !canConsultantApprove && !canPmApprove && !canReject && (
                 <p className="text-sm text-muted-foreground text-center py-2">No actions available for your role at this status.</p>
               )}
             </CardContent>
@@ -319,7 +331,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                 <Users className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="font-medium">Approval chain</p>
-                  <p className="text-muted-foreground">Site Eng → Office Eng → Consultant → PM</p>
+                  <p className="text-muted-foreground">Site Engineer → Consultant → PM</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -335,6 +347,41 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
           </Card>
         </div>
       </div>
+
+      {/* Rejection Dialog */}
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reject Daily Log</DialogTitle>
+            <DialogDescription>
+              Provide a reason for rejection. The site engineer will see this and can correct and re-submit.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Textarea
+              placeholder="Explain what needs to be corrected..."
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              rows={4}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={actionLoading || !rejectionReason.trim()}
+              onClick={() => {
+                setRejectOpen(false)
+                handleAction(() => rejectLog(logId, rejectionReason.trim()))
+                setRejectionReason('')
+              }}
+            >
+              {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Reject Log
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

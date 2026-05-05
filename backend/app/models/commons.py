@@ -13,10 +13,10 @@ class TaskStatus(str, enum.Enum):
 
 class LogStatus(str, enum.Enum):
     DRAFT = "draft"
-    SUBMITTED = "submitted"          
-    REVIEWED = "reviewed"            
-    CONSULTANT_APPROVED = "consultant_approved" 
-    PM_APPROVED = "pm_approved" 
+    SUBMITTED = "submitted"
+    CONSULTANT_APPROVED = "consultant_approved"
+    PM_APPROVED = "pm_approved"
+    REJECTED = "rejected"
 
 class ProjectRole(str, enum.Enum):
     OWNER = "owner"

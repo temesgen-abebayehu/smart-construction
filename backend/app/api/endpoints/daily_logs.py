@@ -1,5 +1,6 @@
 from typing import Any, List
 from uuid import UUID
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
@@ -7,7 +8,7 @@ from app.api.dependencies import DbSession, get_current_active_user
 from app.models.user import User
 from app.models.log import DailyLog, Shift, Labor, Material, Equipment, EquipmentIdle
 from app.schemas.log import (
-    DailyLogCreate, DailyLogResponse,
+    DailyLogCreate, DailyLogResponse, DailyLogReject,
     ShiftCreate, ShiftResponse,
     LaborCreate, LaborResponse,
     MaterialCreate, MaterialResponse,
@@ -57,10 +58,23 @@ async def create_daily_log(
 @project_logs_router.get("/{project_id}/daily-logs", response_model=List[DailyLogResponse])
 async def list_daily_logs(
     project_id: UUID, db: DbSession, status: str = None,
+    created_by: UUID = None,
+    start_date: datetime = None, end_date: datetime = None,
     skip: int = 0, limit: int = 100,
     _: User = Depends(get_current_active_user),
 ) -> Any:
-    return await log_repo.get_by_project(db, project_id, skip=skip, limit=limit, status=status)
+    query = select(DailyLog).where(DailyLog.project_id == project_id)
+    if status:
+        query = query.where(DailyLog.status == status)
+    if created_by:
+        query = query.where(DailyLog.created_by_id == created_by)
+    if start_date:
+        query = query.where(DailyLog.date >= start_date)
+    if end_date:
+        query = query.where(DailyLog.date <= end_date)
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
 # ── Task-scoped: /projects/{project_id}/tasks/{task_id}/daily-logs ──
@@ -134,8 +148,13 @@ async def pm_approve_log(log_id: UUID, db: DbSession, current_user: User = Depen
     return await _do_transition(db, log_id, "pm-approve", current_user)
 
 @logs_router.patch("/daily-logs/{log_id}/reject", response_model=DailyLogResponse)
-async def reject_log(log_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
-    return await DailyLogService.reject_log(db, log_id)
+async def reject_log(
+    log_id: UUID, db: DbSession,
+    body: DailyLogReject = None,
+    _: User = Depends(get_current_active_user),
+) -> Any:
+    reason = body.rejection_reason if body else "No reason provided"
+    return await DailyLogService.reject_log(db, log_id, rejection_reason=reason)
 
 
 # ── Sub-Entities: Shifts ──
