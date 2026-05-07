@@ -37,6 +37,7 @@ import { getTask, updateTask, listProjectMembersEnriched, listProjectTasks, list
 import type { TaskListItem, EnrichedMemberRow } from '@/lib/api-types'
 import type { TaskStatus } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
+import { toast } from 'sonner'
 
 interface TaskDetailPageProps {
   params: Promise<{ projectId: string; taskId: string }>
@@ -62,6 +63,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState(false)
   const [depAdding, setDepAdding] = useState(false)
+  const [depPending, setDepPending] = useState<Set<string>>(new Set())
 
   // Editable fields
   const [editName, setEditName] = useState('')
@@ -121,8 +123,9 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
       const t = await getTask(taskId)
       setTask(t)
       setEditing(false)
-    } catch {
-      // keep form state
+      toast.success('Task updated successfully')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update task')
     } finally {
       setSaving(false)
     }
@@ -402,11 +405,20 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
                         <button
                           key={t.id}
                           type="button"
-                          className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-muted"
+                          disabled={depPending.has(t.id)}
+                          className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
                           onClick={async () => {
-                            await addTaskDependency(taskId, t.id)
-                            const d = await listTaskDependencies(taskId).catch(() => [])
-                            setDeps(d)
+                            setDepPending(prev => new Set(prev).add(t.id))
+                            try {
+                              await addTaskDependency(taskId, t.id)
+                              const d = await listTaskDependencies(taskId).catch(() => [])
+                              setDeps(d)
+                              toast.success(`Dependency added: ${t.title}`)
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : 'Failed to add dependency')
+                            } finally {
+                              setDepPending(prev => { const s = new Set(prev); s.delete(t.id); return s })
+                            }
                           }}
                         >
                           <span>{t.title}</span>

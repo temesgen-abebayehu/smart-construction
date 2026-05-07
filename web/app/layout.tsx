@@ -4,6 +4,7 @@ import { Analytics } from '@vercel/analytics/next'
 import { AuthProvider } from '@/lib/auth-context'
 import { CurrencyProvider } from '@/lib/currency-context'
 import { ThemeProvider } from '@/components/theme-provider'
+import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -47,7 +48,7 @@ export default function RootLayout({
             </CurrencyProvider>
           </AuthProvider>
         </ThemeProvider>
-        <Analytics />
+        <Toaster richColors position="top-right" />
       </body>
     </html>
   )

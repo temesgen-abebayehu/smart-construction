@@ -13,6 +13,9 @@ from app.repositories.project import ProjectRepository, ProjectMemberRepository,
 import secrets
 from app.core.email import send_invitation_email
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 project_repo = ProjectRepository()
 member_repo = ProjectMemberRepository()
@@ -238,9 +241,10 @@ class ProjectInvitationService:
         await db.commit()
         await db.refresh(db_obj)
 
-        # Send appropriate email
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(None, send_invitation_email, invite_in.email, project.name, token, user_exists)
+        # Send email synchronously to get honest success/failure
+        email_sent = send_invitation_email(invite_in.email, project.name, token, user_exists)
+        if not email_sent:
+            logger.warning(f"Invitation created but email failed for {invite_in.email}")
 
         return db_obj
 

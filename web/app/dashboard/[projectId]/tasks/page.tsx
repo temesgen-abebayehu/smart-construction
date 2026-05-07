@@ -30,10 +30,10 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
+  ArrowUpRight,
   ChevronLeft,
   ChevronRight,
   Circle,
-  Eye,
   Pencil,
   Search,
   TriangleAlert,
@@ -45,6 +45,7 @@ import { useAuth } from '@/lib/auth-context'
 import type { TaskListItem, EnrichedMemberRow } from '@/lib/api-types'
 import type { TaskStatus } from '@/lib/domain'
 import { createTask, updateTask, listProjectTasks, listProjectMembersEnriched } from '@/lib/api'
+import { toast } from 'sonner'
 
 interface TasksPageProps {
   params: Promise<{ projectId: string }>
@@ -133,8 +134,11 @@ export default function TasksPage({ params }: TasksPageProps) {
       setNewTaskEnd(nextWeek)
       setNewTaskAssignee(null)
       await loadTasks()
+      toast.success('Task created')
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Failed to create task')
+      const msg = err instanceof Error ? err.message : 'Failed to create task'
+      setCreateError(msg)
+      toast.error(msg)
     } finally {
       setCreating(false)
     }
@@ -437,8 +441,14 @@ export default function TasksPage({ params }: TasksPageProps) {
                               type="button"
                               className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"
                               onClick={async () => {
-                                await updateTask(task.id, { assigned_to: undefined })
-                                await loadTasks()
+                                try {
+                                  const updated = await updateTask(task.id, {})
+                                  // Update in-place to avoid reorder
+                                  setProjectTasks(prev => prev.map(t => t.id === task.id ? { ...t, assigned_to: null, assignee: null } : t))
+                                  toast.success('Task unassigned')
+                                } catch (e) {
+                                  toast.error(e instanceof Error ? e.message : 'Failed to unassign')
+                                }
                               }}
                             >
                               <UserCircle2 className="h-6 w-6 text-muted-foreground" />
@@ -453,8 +463,14 @@ export default function TasksPage({ params }: TasksPageProps) {
                                     type="button"
                                     className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted ${task.assigned_to === m.user.id ? 'bg-muted' : ''}`}
                                     onClick={async () => {
-                                      await updateTask(task.id, { assigned_to: m.user.id })
-                                      await loadTasks()
+                                      try {
+                                        await updateTask(task.id, { assigned_to: m.user.id })
+                                        // Update in-place to avoid reorder
+                                        setProjectTasks(prev => prev.map(t => t.id === task.id ? { ...t, assigned_to: m.user.id, assignee: { id: m.user.id, full_name: m.user.full_name, email: m.user.email || '' } } : t))
+                                        toast.success(`Assigned to ${m.user.full_name}`)
+                                      } catch (e) {
+                                        toast.error(e instanceof Error ? e.message : 'Failed to assign')
+                                      }
                                     }}
                                   >
                                     <Avatar className="h-6 w-6">
@@ -497,9 +513,9 @@ export default function TasksPage({ params }: TasksPageProps) {
 
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                            <a href={`/dashboard/${projectId}/tasks/${task.id}`} aria-label="View task">
-                              <Eye className="h-4 w-4" />
+                          <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" asChild>
+                            <a href={`/dashboard/${projectId}/tasks/${task.id}`}>
+                              View <ArrowUpRight className="h-3.5 w-3.5" />
                             </a>
                           </Button>
                         </div>
