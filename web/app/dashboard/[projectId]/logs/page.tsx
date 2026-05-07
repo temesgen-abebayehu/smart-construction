@@ -6,6 +6,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -24,11 +41,13 @@ import {
   Plus,
   XCircle,
 } from 'lucide-react'
-import type { LogListItem } from '@/lib/api-types'
+import type { LogListItem, TaskListItem } from '@/lib/api-types'
 import type { LogStatus } from '@/lib/domain'
-import { listProjectLogs, createDailyLog } from '@/lib/api'
+import { listProjectLogs, listProjectTasks, createDailyLog, getWeather } from '@/lib/api'
 import { useProjectRole } from '@/lib/project-role-context'
 import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 
 interface LogsPageProps {
   params: Promise<{ projectId: string }>
@@ -44,6 +63,7 @@ const statusConfig: Record<LogStatus, { label: string; className: string }> = {
 
 export default function LogsPage({ params }: LogsPageProps) {
   const { projectId } = use(params)
+  const router = useRouter()
   const userRole = useProjectRole()
   const { user } = useAuth()
   const [projectLogs, setProjectLogs] = useState<LogListItem[]>([])
@@ -51,6 +71,15 @@ export default function LogsPage({ params }: LogsPageProps) {
 
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Create log dialog state
+  const [createOpen, setCreateOpen] = useState(false)
+  const [tasks, setTasks] = useState<TaskListItem[]>([])
+  const [selectedTaskId, setSelectedTaskId] = useState('')
+  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
+  const [logNotes, setLogNotes] = useState('')
+  const [logWeather, setLogWeather] = useState('')
+  const [creating, setCreating] = useState(false)
 
   const loadLogs = async () => {
     setLoading(true)
@@ -132,15 +161,57 @@ export default function LogsPage({ params }: LogsPageProps) {
     return c
   }, [visibleLogs])
 
-  const handleCreateLog = async () => {
+  const openCreateDialog = async () => {
+    setCreateOpen(true)
+    setSelectedTaskId('')
+    setLogDate(new Date().toISOString().split('T')[0])
+    setLogNotes('')
+    setLogWeather('')
     try {
-      await createDailyLog(projectId, {
-        date: new Date().toISOString().split('T')[0],
-        notes: '',
+      const res = await listProjectTasks(projectId, {
+        limit: 100,
+        assigned_to: user?.id,
       })
-      await loadLogs()
+      setTasks(res.data)
     } catch {
-      // handle error
+      setTasks([])
+    }
+  }
+
+  const handleCreateLog = async () => {
+    if (!selectedTaskId) {
+      toast.error('Please select a task for this daily log')
+      return
+    }
+    setCreating(true)
+    try {
+      // Auto-fetch weather for the project location
+      let weatherStr: string | undefined
+      try {
+        const w = await getWeather(projectId)
+        if (w?.temperature != null) {
+          weatherStr = `${w.temperature.toFixed(0)}°C, ${w.humidity?.toFixed(0) ?? ''}% humidity`
+          if (w.resolved_location) weatherStr += ` (${w.resolved_location})`
+        }
+      } catch { /* weather is optional */ }
+
+      const created = await createDailyLog(projectId, {
+        notes: logNotes.trim() || undefined,
+        weather: weatherStr,
+      }, selectedTaskId)
+      setCreateOpen(false)
+      toast.success('Daily log created — add labor, materials, and equipment')
+      // Navigate to the log detail to fill in sub-entities
+      const logId = (created as unknown as { id?: string }).id
+      if (logId) {
+        router.push(`/dashboard/${projectId}/logs/${logId}`)
+      } else {
+        await loadLogs()
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to create daily log')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -172,7 +243,7 @@ export default function LogsPage({ params }: LogsPageProps) {
           <p className="text-sm text-muted-foreground">{pageDescription}</p>
         </div>
         {userRole === 'site_engineer' && (
-          <Button className="gap-2" onClick={() => void handleCreateLog()}>
+          <Button className="gap-2" onClick={() => void openCreateDialog()}>
             <Plus className="h-4 w-4" />
             New Daily Log
           </Button>
@@ -384,6 +455,58 @@ export default function LogsPage({ params }: LogsPageProps) {
           )}
         </CardContent>
       </Card>
+
+      {/* Create Daily Log Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>New Daily Log</DialogTitle>
+            <DialogDescription>
+              Select a task to create today&apos;s log. You can add labor, materials, and equipment after creation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Task *</Label>
+              <Select value={selectedTaskId} onValueChange={setSelectedTaskId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a task" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tasks.length === 0 && (
+                    <SelectItem value="_none" disabled>No tasks assigned to you</SelectItem>
+                  )}
+                  {tasks.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.title} — {t.status.replace('_', ' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Notes (optional)</Label>
+              <Textarea
+                placeholder="What work was done today..."
+                value={logNotes}
+                onChange={(e) => setLogNotes(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => void handleCreateLog()}
+              disabled={creating || !selectedTaskId}
+            >
+              {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Create Log
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

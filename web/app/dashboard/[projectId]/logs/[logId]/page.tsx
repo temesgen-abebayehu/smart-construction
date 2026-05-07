@@ -5,6 +5,9 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
   DialogContent,
@@ -13,7 +16,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Textarea } from '@/components/ui/textarea'
 import {
   getLog,
   getProject,
@@ -24,11 +26,15 @@ import {
   listLogLabor,
   listLogMaterials,
   listLogEquipment,
+  addLogLabor,
+  addLogMaterial,
+  addLogEquipment,
 } from '@/lib/api'
 import type { LogDetailResponse, ProjectDetail } from '@/lib/api-types'
 import type { LogStatus } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, FileText, MapPin, Users, Loader2, XCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Clock3, FileText, Loader2, MapPin, Plus, Users, XCircle } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface LogDetailPageProps {
   params: Promise<{ projectId: string; logId: string }>
@@ -53,6 +59,10 @@ function checkItem(label: string, complete: boolean) {
   )
 }
 
+type LaborEntry = { worker_type: string; hours_worked: number; cost: number }
+type MaterialEntry = { name: string; quantity: number; unit: string; cost: number }
+type EquipmentEntry = { name: string; hours_used: number; cost: number }
+
 export default function LogDetailPage({ params }: LogDetailPageProps) {
   const { projectId, logId } = use(params)
   const userRole = useProjectRole()
@@ -63,9 +73,14 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
   const [actionLoading, setActionLoading] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
-  const [labor, setLabor] = useState<{ worker_type: string; hours_worked: number; cost: number }[]>([])
-  const [materials, setMaterials] = useState<{ name: string; quantity: number; unit: string; cost: number }[]>([])
-  const [equipment, setEquipment] = useState<{ name: string; hours_used: number; cost: number }[]>([])
+  const [labor, setLabor] = useState<LaborEntry[]>([])
+  const [materials, setMaterials] = useState<MaterialEntry[]>([])
+  const [equipment, setEquipment] = useState<EquipmentEntry[]>([])
+
+  // Add entry forms
+  const [addType, setAddType] = useState<'labor' | 'material' | 'equipment' | null>(null)
+  const [formData, setFormData] = useState<Record<string, string>>({})
+  const [addingEntry, setAddingEntry] = useState(false)
 
   const loadData = async () => {
     setLoading(true)
@@ -99,10 +114,46 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
     try {
       await action()
       await loadData()
+      toast.success('Action completed')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Action failed')
+      toast.error(err instanceof Error ? err.message : 'Action failed')
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  const handleAddEntry = async () => {
+    if (!addType) return
+    setAddingEntry(true)
+    try {
+      if (addType === 'labor') {
+        await addLogLabor(logId, {
+          worker_type: formData.worker_type || 'general',
+          hours_worked: Number(formData.hours_worked) || 0,
+          cost: Number(formData.cost) || 0,
+        })
+      } else if (addType === 'material') {
+        await addLogMaterial(logId, {
+          name: formData.name || '',
+          quantity: Number(formData.quantity) || 0,
+          unit: formData.unit || 'pcs',
+          cost: Number(formData.cost) || 0,
+        })
+      } else if (addType === 'equipment') {
+        await addLogEquipment(logId, {
+          name: formData.name || '',
+          hours_used: Number(formData.hours_used) || 0,
+          cost: Number(formData.cost) || 0,
+        })
+      }
+      setAddType(null)
+      setFormData({})
+      await loadData()
+      toast.success(`${addType} entry added`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to add entry')
+    } finally {
+      setAddingEntry(false)
     }
   }
 
@@ -116,19 +167,19 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
 
   if (!project || !log) return null
 
-  // 3-step approval: Site Engineer submits → Consultant approves → PM final approval
   const canSubmit = (log.status === 'draft' || log.status === 'rejected') && userRole === 'site_engineer'
-  const canReview = false // removed — no office_engineer role
   const canConsultantApprove = log.status === 'submitted' && userRole === 'consultant'
   const canPmApprove = log.status === 'consultant_approved' && userRole === 'project_manager'
   const canReject = (
     (log.status === 'submitted' && userRole === 'consultant') ||
     (log.status === 'consultant_approved' && userRole === 'project_manager')
   )
+  const canAddEntries = (log.status === 'draft' || log.status === 'rejected') && userRole === 'site_engineer'
 
   const totalLaborCost = labor.reduce((s, l) => s + l.cost, 0)
   const totalMaterialCost = materials.reduce((s, m) => s + m.cost, 0)
   const totalEquipmentCost = equipment.reduce((s, e) => s + e.cost, 0)
+  const totalCost = totalLaborCost + totalMaterialCost + totalEquipmentCost
 
   return (
     <div className="space-y-6">
@@ -154,27 +205,29 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
 
       <div className="grid gap-6 xl:grid-cols-[1.6fr_0.9fr]">
         <div className="space-y-6">
+          {/* Log Info */}
           <Card>
             <CardContent className="p-5">
               <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
-                <div>
+                <div className="space-y-3">
                   <p className="text-sm font-medium text-muted-foreground">Log Details</p>
-                  <div className="mt-3 space-y-2">
-                    {log.weather && (
-                      <p className="text-sm"><span className="font-medium">Weather:</span> {log.weather}</p>
-                    )}
-                    {log.notes && (
-                      <div>
-                        <p className="text-sm font-medium">Notes:</p>
-                        <p className="text-sm text-muted-foreground">{log.notes}</p>
-                      </div>
-                    )}
-                  </div>
+                  {log.weather && (
+                    <p className="text-sm"><span className="font-medium">Weather:</span> {log.weather}</p>
+                  )}
+                  {log.notes && (
+                    <div>
+                      <p className="text-sm font-medium">Notes:</p>
+                      <p className="text-sm text-muted-foreground">{log.notes}</p>
+                    </div>
+                  )}
+                  {!log.weather && !log.notes && (
+                    <p className="text-sm text-muted-foreground">No notes or weather recorded.</p>
+                  )}
                 </div>
 
                 <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Status</p>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Status</p>
                     <Badge className={`mt-2 ${statusConfig[log.status]?.className ?? ''}`}>
                       {statusConfig[log.status]?.label ?? log.status}
                     </Badge>
@@ -182,9 +235,10 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                   <div>
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Project</p>
                     <p className="mt-1 text-sm font-medium">{project.name}</p>
-                    <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                      <MapPin className="h-3.5 w-3.5" />{project.location}
-                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Cost</p>
+                    <p className="mt-1 text-sm font-semibold">ETB {totalCost.toLocaleString()}</p>
                   </div>
                 </div>
               </div>
@@ -193,8 +247,13 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
 
           {/* Labor */}
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Labor ({labor.length})</CardTitle>
+              {canAddEntries && (
+                <Button variant="outline" size="sm" className="gap-1" onClick={() => { setAddType('labor'); setFormData({}) }}>
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </Button>
+              )}
             </CardHeader>
             <CardContent>
               {labor.length === 0 ? (
@@ -203,8 +262,8 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                 <div className="space-y-2">
                   {labor.map((l, i) => (
                     <div key={i} className="flex items-center justify-between rounded border p-2 text-sm">
-                      <span className="font-medium">{l.worker_type}</span>
-                      <span>{l.hours_worked}h - ETB {l.cost.toLocaleString()}</span>
+                      <span className="font-medium capitalize">{l.worker_type}</span>
+                      <span>{l.hours_worked}h — ETB {l.cost.toLocaleString()}</span>
                     </div>
                   ))}
                   <p className="text-right text-sm font-medium">Total: ETB {totalLaborCost.toLocaleString()}</p>
@@ -215,8 +274,13 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
 
           {/* Materials */}
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Materials ({materials.length})</CardTitle>
+              {canAddEntries && (
+                <Button variant="outline" size="sm" className="gap-1" onClick={() => { setAddType('material'); setFormData({}) }}>
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </Button>
+              )}
             </CardHeader>
             <CardContent>
               {materials.length === 0 ? (
@@ -226,7 +290,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                   {materials.map((m, i) => (
                     <div key={i} className="flex items-center justify-between rounded border p-2 text-sm">
                       <span className="font-medium">{m.name}</span>
-                      <span>{m.quantity} {m.unit} - ETB {m.cost.toLocaleString()}</span>
+                      <span>{m.quantity} {m.unit} — ETB {m.cost.toLocaleString()}</span>
                     </div>
                   ))}
                   <p className="text-right text-sm font-medium">Total: ETB {totalMaterialCost.toLocaleString()}</p>
@@ -237,8 +301,13 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
 
           {/* Equipment */}
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Equipment ({equipment.length})</CardTitle>
+              {canAddEntries && (
+                <Button variant="outline" size="sm" className="gap-1" onClick={() => { setAddType('equipment'); setFormData({}) }}>
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </Button>
+              )}
             </CardHeader>
             <CardContent>
               {equipment.length === 0 ? (
@@ -248,7 +317,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                   {equipment.map((e, i) => (
                     <div key={i} className="flex items-center justify-between rounded border p-2 text-sm">
                       <span className="font-medium">{e.name}</span>
-                      <span>{e.hours_used}h - ETB {e.cost.toLocaleString()}</span>
+                      <span>{e.hours_used}h — ETB {e.cost.toLocaleString()}</span>
                     </div>
                   ))}
                   <p className="text-right text-sm font-medium">Total: ETB {totalEquipmentCost.toLocaleString()}</p>
@@ -258,12 +327,12 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
           </Card>
         </div>
 
+        {/* Right sidebar */}
         <div className="space-y-6">
+          {/* Approval Progress */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Approval Progress</CardTitle>
-              </div>
+              <CardTitle className="text-base">Approval Progress</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {checkItem('Log created (draft)', true)}
@@ -284,6 +353,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
             </CardContent>
           </Card>
 
+          {/* Actions */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Actions</CardTitle>
@@ -291,7 +361,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
             <CardContent className="space-y-2">
               {canSubmit && (
                 <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => submitLog(logId))}>
-                  {log.status === 'rejected' ? 'Re-submit Log' : 'Submit Log'}
+                  {log.status === 'rejected' ? 'Re-submit Log' : 'Submit for Review'}
                 </Button>
               )}
               {canConsultantApprove && (
@@ -310,21 +380,22 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                 </Button>
               )}
               {!canSubmit && !canConsultantApprove && !canPmApprove && !canReject && (
-                <p className="text-sm text-muted-foreground text-center py-2">No actions available for your role at this status.</p>
+                <p className="text-sm text-muted-foreground text-center py-2">No actions available.</p>
               )}
             </CardContent>
           </Card>
 
+          {/* Workflow info */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Approval Workflow</CardTitle>
+              <CardTitle className="text-base">Info</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4 text-sm">
+            <CardContent className="space-y-3 text-sm">
               <div className="flex items-start gap-3">
                 <Clock3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
-                  <p className="font-medium">Log created</p>
-                  <p className="text-muted-foreground">Date: {new Date(log.date).toLocaleDateString()}</p>
+                  <p className="font-medium">Date</p>
+                  <p className="text-muted-foreground">{new Date(log.date).toLocaleDateString()}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -348,13 +419,94 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
         </div>
       </div>
 
+      {/* Add Entry Dialog */}
+      <Dialog open={!!addType} onOpenChange={(open) => { if (!open) setAddType(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="capitalize">Add {addType} Entry</DialogTitle>
+            <DialogDescription>
+              {addType === 'labor' && 'Record labor hours and cost for this log.'}
+              {addType === 'material' && 'Record materials used for this log.'}
+              {addType === 'equipment' && 'Record equipment usage for this log.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {addType === 'labor' && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Worker Type *</Label>
+                  <Input placeholder="e.g. Mason, Carpenter, Electrician" value={formData.worker_type ?? ''} onChange={(e) => setFormData(p => ({ ...p, worker_type: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Hours Worked *</Label>
+                    <Input type="number" min={0} step={0.5} placeholder="8" value={formData.hours_worked ?? ''} onChange={(e) => setFormData(p => ({ ...p, hours_worked: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cost (ETB) *</Label>
+                    <Input type="number" min={0} placeholder="2400" value={formData.cost ?? ''} onChange={(e) => setFormData(p => ({ ...p, cost: e.target.value }))} />
+                  </div>
+                </div>
+              </>
+            )}
+            {addType === 'material' && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Material Name *</Label>
+                  <Input placeholder="e.g. Cement, Rebar, Sand" value={formData.name ?? ''} onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Quantity *</Label>
+                    <Input type="number" min={0} placeholder="120" value={formData.quantity ?? ''} onChange={(e) => setFormData(p => ({ ...p, quantity: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Unit *</Label>
+                    <Input placeholder="bags, kg, m3" value={formData.unit ?? ''} onChange={(e) => setFormData(p => ({ ...p, unit: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cost (ETB) *</Label>
+                    <Input type="number" min={0} placeholder="54000" value={formData.cost ?? ''} onChange={(e) => setFormData(p => ({ ...p, cost: e.target.value }))} />
+                  </div>
+                </div>
+              </>
+            )}
+            {addType === 'equipment' && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Equipment Name *</Label>
+                  <Input placeholder="e.g. Excavator, Compactor, Crane" value={formData.name ?? ''} onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Hours Used *</Label>
+                    <Input type="number" min={0} step={0.5} placeholder="5" value={formData.hours_used ?? ''} onChange={(e) => setFormData(p => ({ ...p, hours_used: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cost (ETB) *</Label>
+                    <Input type="number" min={0} placeholder="7500" value={formData.cost ?? ''} onChange={(e) => setFormData(p => ({ ...p, cost: e.target.value }))} />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddType(null)}>Cancel</Button>
+            <Button onClick={() => void handleAddEntry()} disabled={addingEntry}>
+              {addingEntry ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Add Entry
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Rejection Dialog */}
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Reject Daily Log</DialogTitle>
             <DialogDescription>
-              Provide a reason for rejection. The site engineer will see this and can correct and re-submit.
+              Provide a reason. The site engineer will correct and re-submit.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
@@ -376,7 +528,6 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                 setRejectionReason('')
               }}
             >
-              {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Reject Log
             </Button>
           </DialogFooter>
