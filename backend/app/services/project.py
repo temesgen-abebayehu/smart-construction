@@ -294,12 +294,24 @@ class ProjectInvitationService:
         return invitation
 
     @staticmethod
-    async def get_invitations(db: AsyncSession, project_id: UUID):
-        result = await db.execute(select(ProjectInvitation).where(
-            ProjectInvitation.project_id == project_id,
-            ProjectInvitation.status == "pending"
-        ))
+    async def get_invitations(db: AsyncSession, project_id: UUID, status: str | None = None):
+        stmt = select(ProjectInvitation).where(ProjectInvitation.project_id == project_id)
+        if status:
+            stmt = stmt.where(ProjectInvitation.status == status)
+        result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    @staticmethod
+    async def delete_invitation(db: AsyncSession, project_id: UUID, invitation_id: UUID) -> None:
+        result = await db.execute(select(ProjectInvitation).where(
+            ProjectInvitation.id == invitation_id,
+            ProjectInvitation.project_id == project_id,
+        ))
+        invitation = result.scalars().first()
+        if not invitation:
+            raise HTTPException(status_code=404, detail="Invitation not found")
+        await db.delete(invitation)
+        await db.commit()
 
     @staticmethod
     async def accept_invitation(db: AsyncSession, token: str, user_id: UUID) -> ProjectMember:

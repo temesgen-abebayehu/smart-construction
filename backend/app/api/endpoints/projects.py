@@ -114,8 +114,14 @@ async def create_invitation(
             dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def list_invitations(
     project_id: UUID, db: DbSession,
+    status: str | None = None,
 ) -> Any:
-    return await ProjectInvitationService.get_invitations(db, project_id)
+    """
+    List invitations for a project.
+    By default returns ALL invitations regardless of status.
+    Pass ?status=pending|accepted|expired to filter.
+    """
+    return await ProjectInvitationService.get_invitations(db, project_id, status=status)
 
 @router.post("/{project_id}/invitations/{invitation_id}/resend", response_model=ProjectInvitationResponse,
              dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
@@ -123,6 +129,16 @@ async def resend_invitation(
     *, db: DbSession, project_id: UUID, invitation_id: UUID,
 ) -> Any:
     return await ProjectInvitationService.resend_invitation(db, project_id, invitation_id)
+
+@router.delete("/{project_id}/invitations/{invitation_id}", status_code=204,
+               dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
+async def delete_invitation(project_id: UUID, invitation_id: UUID, db: DbSession) -> None:
+    """
+    Delete an invitation by id. Works for any status (pending/accepted/expired).
+    Note: deleting an accepted invitation does NOT remove the project member —
+    it only removes the historical record. Use DELETE /members/{user_id} for that.
+    """
+    await ProjectInvitationService.delete_invitation(db, project_id, invitation_id)
 
 @router.post("/invitations/accept", response_model=ProjectMemberResponse)
 async def accept_invitation(
