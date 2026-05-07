@@ -126,6 +126,7 @@ export default function ReportsPage({ params }: ReportsPageProps) {
                 <Input
                   type="date"
                   value={startDate}
+                  max={new Date().toISOString().split('T')[0]}
                   onChange={(e) => setStartDate(e.target.value)}
                   className="h-8 w-36 text-sm"
                 />
@@ -136,6 +137,7 @@ export default function ReportsPage({ params }: ReportsPageProps) {
                   <Input
                     type="date"
                     value={endDate}
+                    max={new Date().toISOString().split('T')[0]}
                     onChange={(e) => setEndDate(e.target.value)}
                     className="h-8 w-36 text-sm"
                   />
