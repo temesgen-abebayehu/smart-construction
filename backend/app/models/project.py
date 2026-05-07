@@ -71,6 +71,9 @@ class ProjectInvitation(Base):
     role = Column(String(50), nullable=False)
     token = Column(String(255), unique=True, nullable=False, index=True)
     status = Column(String(50), default="pending") # pending, accepted, expired
+    # Set when an invitation email has been successfully delivered to SMTP.
+    # Always non-null for rows persisted via the atomic create flow.
+    email_sent_at = Column(DateTime(timezone=True), nullable=True)
 
     project = relationship("Project", back_populates="invitations")
 

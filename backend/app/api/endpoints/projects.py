@@ -117,6 +117,13 @@ async def list_invitations(
 ) -> Any:
     return await ProjectInvitationService.get_invitations(db, project_id)
 
+@router.post("/{project_id}/invitations/{invitation_id}/resend", response_model=ProjectInvitationResponse,
+             dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
+async def resend_invitation(
+    *, db: DbSession, project_id: UUID, invitation_id: UUID,
+) -> Any:
+    return await ProjectInvitationService.resend_invitation(db, project_id, invitation_id)
+
 @router.post("/invitations/accept", response_model=ProjectMemberResponse)
 async def accept_invitation(
     *, db: DbSession, accept_in: ProjectInvitationAccept,

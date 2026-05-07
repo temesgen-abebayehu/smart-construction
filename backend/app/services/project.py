@@ -11,6 +11,7 @@ from app.models.commons import ProjectRole
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectMemberCreate, ProjectMemberUpdate, ProjectDashboard, ProjectInvitationCreate
 from app.repositories.project import ProjectRepository, ProjectMemberRepository, ClientRepository
 import secrets
+from datetime import datetime, timezone
 from app.core.email import send_invitation_email
 import asyncio
 import logging
@@ -211,42 +212,86 @@ class ProjectInvitationService:
         token = secrets.token_urlsafe(32)
         user_exists = existing_user is not None
 
-        # If user already registered, add them directly as a member
+        # ATOMIC: try to send email FIRST. Only persist DB rows if it succeeded.
+        # send_invitation_email is synchronous (smtplib); run in a thread so we
+        # don't block the event loop.
+        email_sent = await asyncio.to_thread(
+            send_invitation_email, invite_in.email, project.name, token, user_exists
+        )
+        if not email_sent:
+            logger.warning(f"Invitation aborted — email send failed for {invite_in.email}")
+            raise HTTPException(
+                status_code=502,
+                detail="Could not send invitation email. The invitation was not created. Please try again later or contact an administrator.",
+            )
+
+        sent_at = datetime.now(timezone.utc)
+
         if existing_user:
-            member = ProjectMember(
+            # User already registered → add them directly as a member.
+            db.add(ProjectMember(
                 project_id=project_id,
                 user_id=existing_user.id,
                 role=invite_in.role.value,
-            )
-            db.add(member)
-
-            # Create invitation record as "accepted" for audit
+            ))
             db_obj = ProjectInvitation(
                 project_id=project_id,
                 email=invite_in.email,
                 role=invite_in.role.value,
                 token=token,
                 status="accepted",
+                email_sent_at=sent_at,
             )
         else:
-            # User not registered — create pending invitation
             db_obj = ProjectInvitation(
                 project_id=project_id,
                 email=invite_in.email,
                 role=invite_in.role.value,
                 token=token,
+                email_sent_at=sent_at,
             )
 
         db.add(db_obj)
         await db.commit()
         await db.refresh(db_obj)
-
-        # Send email synchronously to get honest success/failure
-        email_sent = send_invitation_email(invite_in.email, project.name, token, user_exists)
-        if not email_sent:
-            logger.warning(f"Invitation created but email failed for {invite_in.email}")
-
         return db_obj
+
+    @staticmethod
+    async def resend_invitation(db: AsyncSession, project_id: UUID, invitation_id: UUID) -> ProjectInvitation:
+        result = await db.execute(select(ProjectInvitation).where(
+            ProjectInvitation.id == invitation_id,
+            ProjectInvitation.project_id == project_id,
+        ))
+        invitation = result.scalars().first()
+        if not invitation:
+            raise HTTPException(status_code=404, detail="Invitation not found")
+
+        project = await project_repo.get_by_id(db, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Re-send same email template that was originally used. We only need
+        # to know whether the user existed at the time we sent — for resend,
+        # the safest re-derivation is "is there a user with this email now?"
+        from app.repositories.user import UserRepository
+        existing_user = await UserRepository.get_by_email(db, email=invitation.email)
+        user_exists = existing_user is not None
+
+        email_sent = await asyncio.to_thread(
+            send_invitation_email, invitation.email, project.name, invitation.token, user_exists
+        )
+        if not email_sent:
+            logger.warning(f"Resend failed for invitation {invitation_id} ({invitation.email})")
+            raise HTTPException(
+                status_code=502,
+                detail="Could not send invitation email. Please try again later.",
+            )
+
+        invitation.email_sent_at = datetime.now(timezone.utc)
+        db.add(invitation)
+        await db.commit()
+        await db.refresh(invitation)
+        return invitation
 
     @staticmethod
     async def get_invitations(db: AsyncSession, project_id: UUID):
