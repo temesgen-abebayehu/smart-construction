@@ -549,6 +549,30 @@ export async function getWeather(projectId: string) {
   return apiRequest<WeatherResponse>(`/projects/${projectId}/weather`)
 }
 
+/* ── Reports ── */
+
+export async function getReportPreview(
+  projectId: string,
+  params: { period: string; start?: string; end?: string; sections?: string[] },
+) {
+  const queryParts: string[] = [`period=${params.period}`]
+  if (params.start) queryParts.push(`start=${params.start}`)
+  if (params.end) queryParts.push(`end=${params.end}`)
+  if (params.sections) params.sections.forEach(s => queryParts.push(`sections=${s}`))
+  return apiRequest<Record<string, unknown>>(`/projects/${projectId}/reports/preview?${queryParts.join('&')}`)
+}
+
+export function getReportDownloadUrl(
+  projectId: string,
+  params: { period: string; start?: string; end?: string },
+) {
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1'
+  const queryParts: string[] = [`period=${params.period}`]
+  if (params.start) queryParts.push(`start=${params.start}`)
+  if (params.end) queryParts.push(`end=${params.end}`)
+  return `${base}/projects/${projectId}/reports/download?${queryParts.join('&')}`
+}
+
 /* ── Budget ── */
 
 export async function getProjectBudget(projectId: string) {

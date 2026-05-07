@@ -1,384 +1,453 @@
 'use client'
 
-import type { ComponentType } from 'react'
-import { use, useEffect, useState } from 'react'
+import { use, useCallback, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
-import { getPrediction, getProject, listProjectLogs, listProjectTasks } from '@/lib/api'
-import type { LogListItem, PredictionResponse, ProjectDetail, TaskListItem } from '@/lib/api-types'
-import { AlertTriangle, Bot, CalendarDays, DollarSign, LayoutDashboard, ListTodo, PieChart, TrendingUp, Loader2 } from 'lucide-react'
+import { getReportPreview, getReportDownloadUrl } from '@/lib/api'
+import { getAccessToken } from '@/lib/auth-storage'
+import { AlertTriangle, Bot, CalendarDays, Download, DollarSign, FileText, ListTodo, Loader2, Printer, TrendingUp } from 'lucide-react'
 import { useCurrency } from '@/lib/currency-context'
 import { CurrencyPicker } from '@/components/currency-picker'
+import { toast } from 'sonner'
 
 interface ReportsPageProps {
   params: Promise<{ projectId: string }>
 }
 
-
-function MetricCard({
-  title,
-  value,
-  hint,
-  icon: Icon,
-  tone,
-}: {
-  title: string
-  value: string
-  hint: string
-  icon: ComponentType<{ className?: string }>
-  tone: string
-}) {
-  return (
-    <Card className="shadow-sm">
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
-            <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
-            <p className="text-xs text-muted-foreground">{hint}</p>
-          </div>
-          <div className={`rounded-full border p-3 ${tone}`}>
-            <Icon className="h-5 w-5" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
+type Period = 'daily' | 'weekly' | 'monthly' | 'annual' | 'custom'
 
 export default function ReportsPage({ params }: ReportsPageProps) {
   const { projectId } = use(params)
   const { formatBudget } = useCurrency()
 
-  const [project, setProject] = useState<ProjectDetail | null>(null)
-  const [projectTasks, setProjectTasks] = useState<TaskListItem[]>([])
-  const [projectLogs, setProjectLogs] = useState<LogListItem[]>([])
-  const [prediction, setPrediction] = useState<PredictionResponse | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [period, setPeriod] = useState<Period>('monthly')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [report, setReport] = useState<Record<string, unknown> | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      try {
-        const [proj, tasksRes, logsRes, pred] = await Promise.all([
-          getProject(projectId),
-          listProjectTasks(projectId, { limit: 200 }),
-          listProjectLogs(projectId, { limit: 500 }),
-          getPrediction(projectId).catch(() => null),
-        ])
-        if (cancelled) return
-        setProject(proj)
-        setProjectTasks(tasksRes.data)
-        setProjectLogs(logsRes.data)
-        setPrediction(pred)
-      } catch {
-        if (!cancelled) {
-          setProject(null)
-          setProjectTasks([])
-          setProjectLogs([])
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+  const handleGenerate = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await getReportPreview(projectId, {
+        period,
+        start: startDate || undefined,
+        end: period === 'custom' ? endDate || undefined : undefined,
+      })
+      setReport(data)
+      toast.success('Report generated')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to generate report')
+      setReport(null)
+    } finally {
+      setLoading(false)
     }
-  }, [projectId])
+  }, [projectId, period, startDate, endDate])
 
-  if (loading || !project) {
-    return (
-      <div className="flex justify-center py-24 text-muted-foreground">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    )
+  const handleDownloadPdf = async () => {
+    setDownloading(true)
+    try {
+      const url = getReportDownloadUrl(projectId, {
+        period,
+        start: startDate || undefined,
+        end: period === 'custom' ? endDate || undefined : undefined,
+      })
+      const token = getAccessToken()
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Download failed' }))
+        throw new Error(err.detail || 'Download failed')
+      }
+      const blob = await res.blob()
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      const disposition = res.headers.get('content-disposition') || ''
+      const match = disposition.match(/filename="?(.+?)"?$/)
+      a.download = match?.[1] || `report_${period}.pdf`
+      a.click()
+      URL.revokeObjectURL(a.href)
+      toast.success('PDF downloaded')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to download PDF')
+    } finally {
+      setDownloading(false)
+    }
   }
 
-  const completedTasks = projectTasks.filter((task) => task.status === 'completed').length
-  const inProgressTasks = projectTasks.filter((task) => task.status === 'in_progress').length
-  const pendingTasks = projectTasks.filter((task) => task.status === 'pending').length
+  // Extract data from report preview
+  const summary = report?.summary as Record<string, unknown> | undefined
+  const periodInfo = report?.period as Record<string, unknown> | undefined
+  const financial = report?.financial as Record<string, unknown> | undefined
+  const tasks = report?.tasks as Record<string, unknown> | undefined
+  const risk = report?.risk as Record<string, unknown> | undefined
+  const progress = report?.progress as Record<string, unknown> | undefined
+  const performance = report?.performance as Record<string, unknown> | undefined
+  const labor = report?.labor as Record<string, unknown> | undefined
+  const dailyLogs = report?.daily_logs as Record<string, unknown> | undefined
+  const projectHeader = report?.project as Record<string, unknown> | undefined
 
-  const totalBudget = project.total_budget
-  const totalSpent = project.budget_spent
-  const budgetRemaining = Math.max(totalBudget - totalSpent, 0)
-
-  const approvedLogs = projectLogs.filter((log) => log.status === 'pm_approved').length
-  const pendingLogs = projectLogs.filter((log) =>
-    ['submitted', 'reviewed', 'consultant_approved'].includes(log.status),
-  ).length
-  const draftLogs = projectLogs.filter((log) => log.status === 'draft').length
-  const dailyLogSummary = {
-    submitted: projectLogs.length,
-    approved: approvedLogs,
-    pending: pendingLogs,
-    draft: draftLogs,
-  }
-
-  const riskScore = prediction
-    ? prediction.budget_overrun_estimate != null
-      ? Math.min(95, prediction.budget_overrun_estimate / 1000 + (prediction.delay_estimate_days || 0) * 2)
-      : prediction.risk_level === 'high'
-        ? 78
-        : prediction.risk_level === 'medium'
-          ? 55
-          : 32
-    : Math.min(95, 35 + pendingTasks * 14 + pendingLogs * 7)
-
-  const reportDateTime = new Date().toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-
-  const costShare = {
-    labor: 48,
-    materials: 36,
-    equipment: 16,
+  const fmtNum = (v: unknown, decimals = 1) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? n.toFixed(decimals) : '—'
   }
 
   return (
     <div className="space-y-6">
-      <Card className="border-border/70 shadow-sm">
+      {/* Filter Bar */}
+      <Card className="shadow-sm print:hidden">
         <CardContent className="p-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-              <div className="min-w-44 rounded-md border border-border bg-card px-3 py-2 text-sm">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Project</p>
-                <p className="mt-1 font-medium">{project.name}</p>
-              </div>
-              <div className="min-w-44 rounded-md border border-border bg-card px-3 py-2 text-sm">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Time Filter</p>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  <Button variant="secondary" size="sm" className="h-7 px-3">Daily</Button>
-                  <Button variant="secondary" size="sm" className="h-7 px-3">Weekly</Button>
-                  <Button variant="default" size="sm" className="h-7 px-3">Monthly</Button>
-                  <Button variant="secondary" size="sm" className="h-7 px-3">Custom</Button>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <div>
+                <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Period</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {(['daily', 'weekly', 'monthly', 'annual', 'custom'] as const).map((p) => (
+                    <Button
+                      key={p}
+                      variant={period === p ? 'default' : 'secondary'}
+                      size="sm"
+                      className="h-8 px-3 capitalize"
+                      onClick={() => setPeriod(p)}
+                    >
+                      {p}
+                    </Button>
+                  ))}
                 </div>
               </div>
-              <div className="min-w-52 rounded-md border border-border bg-card px-3 py-2 text-sm">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Date Range</p>
-                <div className="mt-1 flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                  <span>Oct 1 - Oct 31, 2024</span>
-                </div>
+              <div>
+                <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Start</Label>
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="h-8 w-36 text-sm"
+                />
               </div>
+              {period === 'custom' && (
+                <div>
+                  <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">End</Label>
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="h-8 w-36 text-sm"
+                  />
+                </div>
+              )}
+              <CurrencyPicker />
             </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-2">
-                <LayoutDashboard className="h-4 w-4" />
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={() => void handleGenerate()} disabled={loading}>
+                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                Generate Report
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => void handleDownloadPdf()}
+                disabled={downloading || !report}
+              >
+                {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 PDF
               </Button>
-              <Button variant="outline" size="sm" className="gap-2">
-                <PieChart className="h-4 w-4" />
-                Excel
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => window.print()} disabled={!report}>
+                <Printer className="h-4 w-4" />
+                Print
               </Button>
-              <Button size="sm">Generate Report</Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <div className="flex flex-col gap-1">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold">{project.name}</h1>
-          <Badge className={project.overall_progress_pct >= 60 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}>
-            {project.overall_progress_pct >= 60 ? 'ON TRACK' : 'AT RISK'}
-          </Badge>
+      {/* No report yet */}
+      {!report && !loading && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <FileText className="h-16 w-16 text-muted-foreground/30 mb-4" />
+            <h2 className="text-lg font-semibold">No report generated</h2>
+            <p className="text-sm text-muted-foreground mt-1">Select a period and click &quot;Generate Report&quot; to see project analytics.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {loading && (
+        <div className="flex justify-center py-24 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin" />
         </div>
-        <p className="text-sm text-muted-foreground">Report Date & Time: {reportDateTime}</p>
-      </div>
+      )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          title="Overall Progress"
-          value={`${project.overall_progress_pct.toFixed(1)}%`}
-          hint="Progress vs baseline plan"
-          icon={TrendingUp}
-          tone="border-emerald-200 bg-emerald-50 text-emerald-600"
-        />
-        <MetricCard
-          title="Tasks Completed"
-          value={`${completedTasks.toString().padStart(2, '0')}/${pendingTasks.toString().padStart(3, '0')}`}
-          hint="Completed vs pending"
-          icon={ListTodo}
-          tone="border-blue-200 bg-blue-50 text-blue-600"
-        />
-        <MetricCard
-          title="Budget Used"
-          value={formatBudget(totalSpent)}
-          hint={`${formatBudget(budgetRemaining)} remaining`}
-          icon={DollarSign}
-          tone="border-amber-200 bg-amber-50 text-amber-600"
-        />
-        <MetricCard
-          title="Delay Risk"
-          value={`${riskScore.toFixed(1)}%`}
-          hint="AI-driven risk estimate"
-          icon={AlertTriangle}
-          tone="border-orange-200 bg-orange-50 text-orange-600"
-        />
-      </div>
+      {/* Report Content */}
+      {report && !loading && (
+        <>
+          {/* Header */}
+          <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-semibold">{String(projectHeader?.name ?? '')}</h1>
+              {summary && (
+                <Badge className={Number(summary.cumulative_progress_pct) >= 60 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}>
+                  {Number(summary.cumulative_progress_pct) >= 60 ? 'ON TRACK' : 'AT RISK'}
+                </Badge>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {String(periodInfo?.label ?? '')} | Generated: {report.generated_at ? new Date(String(report.generated_at)).toLocaleString() : '—'}
+            </p>
+          </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.5fr_0.9fr]">
-        <Card className="shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Project Progress Overview</CardTitle>
-            <CardDescription>Planned vs actual schedule alignment</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="h-56 rounded-xl border border-border bg-linear-to-b from-slate-50 to-white p-4">
-              <div className="flex h-full flex-col justify-between">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>PLANNED</span>
-                  <span>ACTUAL</span>
-                </div>
-                <div className="relative h-32 overflow-hidden rounded-xl border border-dashed border-blue-200 bg-card">
-                  <div className="absolute left-4 right-4 top-1/2 h-px bg-slate-200" />
-                  <div className="absolute left-6 right-8 top-12 h-1 rounded-full bg-blue-600/70" />
-                  <div className="absolute left-6 top-16 h-12 w-[72%] rounded-tl-full border-l-2 border-b-2 border-blue-500/80" />
-                  <div className="absolute left-[65%] top-8 h-4 w-14 rounded bg-blue-700" />
-                </div>
-                <div>
-                  <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>MILESTONE PROGRESS</span>
-                    <span>4 of 6 Milestones Met</span>
+          {/* KPI Cards */}
+          {summary && (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <Card className="shadow-sm">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Progress</p>
+                      <p className="mt-2 text-3xl font-semibold">{fmtNum(summary.cumulative_progress_pct)}%</p>
+                      <p className="text-xs text-muted-foreground">Period: +{fmtNum(summary.period_progress_pct)}%</p>
+                    </div>
+                    <div className="rounded-full border border-emerald-200 p-3 text-emerald-600"><TrendingUp className="h-5 w-5" /></div>
                   </div>
-                  <Progress value={68} className="h-2" />
-                </div>
-              </div>
+                </CardContent>
+              </Card>
+              <Card className="shadow-sm">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tasks</p>
+                      <p className="mt-2 text-3xl font-semibold">{String(summary.tasks_completed ?? 0)}/{String(summary.tasks_total ?? 0)}</p>
+                      <p className="text-xs text-muted-foreground">{String(summary.tasks_in_progress ?? 0)} in progress</p>
+                    </div>
+                    <div className="rounded-full border border-blue-200 p-3 text-blue-600"><ListTodo className="h-5 w-5" /></div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="shadow-sm">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Budget</p>
+                      <p className="mt-2 text-3xl font-semibold">{formatBudget(Number((summary.budget as Record<string, unknown>)?.spent ?? 0))}</p>
+                      <p className="text-xs text-muted-foreground">{formatBudget(Number((summary.budget as Record<string, unknown>)?.remaining ?? 0))} remaining</p>
+                    </div>
+                    <div className="rounded-full border border-amber-200 p-3 text-amber-600"><DollarSign className="h-5 w-5" /></div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="shadow-sm">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Risk</p>
+                      <p className="mt-2 text-3xl font-semibold capitalize">{String(summary.risk_level ?? 'N/A')}</p>
+                      <p className="text-xs text-muted-foreground">SPI: {fmtNum(summary.spi, 2)} | CPI: {fmtNum(summary.cpi, 2)}</p>
+                    </div>
+                    <div className="rounded-full border border-orange-200 p-3 text-orange-600"><AlertTriangle className="h-5 w-5" /></div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          </CardContent>
-        </Card>
+          )}
 
-        <Card className="shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Cost Overview</CardTitle>
-            <CardDescription>Budget by delivery category</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="mx-auto grid h-40 w-40 place-items-center rounded-full border-14 border-slate-100 border-t-blue-700 border-r-indigo-500 border-b-slate-300 border-l-slate-200">
-              <div className="text-center">
-                <p className="text-2xl font-semibold">{formatBudget(totalBudget)}</p>
-                <p className="text-xs text-muted-foreground">Total budget</p>
-              </div>
-            </div>
-            <div className="space-y-3 text-sm">
-              <div className="flex items-center justify-between"><span>Labor Cost</span><span>{costShare.labor}%</span></div>
-              <Progress value={costShare.labor} className="h-2" />
-              <div className="flex items-center justify-between"><span>Materials Cost</span><span>{costShare.materials}%</span></div>
-              <Progress value={costShare.materials} className="h-2" />
-              <div className="flex items-center justify-between"><span>Equipment Cost</span><span>{costShare.equipment}%</span></div>
-              <Progress value={costShare.equipment} className="h-2" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          {/* Progress & Performance */}
+          <div className="grid gap-6 xl:grid-cols-2">
+            {progress && (
+              <Card className="shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Progress</CardTitle>
+                  <CardDescription>Schedule alignment</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <span>Cumulative</span>
+                      <span className="font-medium">{fmtNum(progress.cumulative_pct)}%</span>
+                    </div>
+                    <Progress value={Number(progress.cumulative_pct) || 0} className="h-2.5" />
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <span>This Period</span>
+                      <span className="font-medium">+{fmtNum(progress.period_pct)}%</span>
+                    </div>
+                    <Progress value={Number(progress.period_pct) || 0} className="h-2.5 [&>div]:bg-blue-500" />
+                  </div>
+                  {progress.schedule_variance_days != null && (
+                    <p className="text-sm text-muted-foreground">
+                      Schedule variance: <span className={Number(progress.schedule_variance_days) < 0 ? 'text-red-600 font-medium' : 'text-emerald-600 font-medium'}>
+                        {Number(progress.schedule_variance_days) > 0 ? '+' : ''}{fmtNum(progress.schedule_variance_days, 0)} days
+                      </span>
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
-      <div className="grid gap-6 xl:grid-cols-[0.95fr_1fr_1fr]">
-        <Card className="border-blue-600 bg-linear-to-br from-blue-700 to-indigo-700 text-white shadow-sm">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Risk & Insights</CardTitle>
-              <Bot className="h-4 w-4 text-blue-100" />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-4xl font-semibold">{riskScore.toFixed(1)}%</p>
-            <p className="text-sm text-blue-100">AI-based risk prediction</p>
-            <div className="space-y-2 rounded-lg border border-white/20 bg-card/10 p-3 text-sm leading-6 text-blue-50">
-              {prediction?.reason ? (
-                <p><strong className="text-white">Insight:</strong> {prediction.reason}</p>
-              ) : (
-                <>
-                  <p><strong className="text-white">Insight:</strong> High risk due to delayed inspections.</p>
-                  <p><strong className="text-white">Insight:</strong> Material shortage impacting timeline.</p>
-                </>
-              )}
-              {prediction?.recommendation && (
-                <p><strong className="text-white">Recommendation:</strong> {prediction.recommendation}</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+            {performance && (
+              <Card className="shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Earned Value</CardTitle>
+                  <CardDescription>Performance indices</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-lg border p-3 text-center">
+                      <p className="text-2xl font-semibold">{fmtNum(performance.spi, 2)}</p>
+                      <p className="text-xs text-muted-foreground">SPI</p>
+                      <Badge variant="outline" className={`text-[10px] mt-1 ${String(performance.schedule_status) === 'ahead' ? 'text-emerald-600' : String(performance.schedule_status) === 'behind' ? 'text-red-600' : 'text-amber-600'}`}>
+                        {String(performance.schedule_status ?? '')}
+                      </Badge>
+                    </div>
+                    <div className="rounded-lg border p-3 text-center">
+                      <p className="text-2xl font-semibold">{fmtNum(performance.cpi, 2)}</p>
+                      <p className="text-xs text-muted-foreground">CPI</p>
+                      <Badge variant="outline" className={`text-[10px] mt-1 ${String(performance.cost_status) === 'under' ? 'text-emerald-600' : String(performance.cost_status) === 'over' ? 'text-red-600' : 'text-amber-600'}`}>
+                        {String(performance.cost_status ?? '')}
+                      </Badge>
+                    </div>
+                    <div className="rounded-lg border p-3 text-center">
+                      <p className="text-2xl font-semibold">{formatBudget(Number(performance.ev ?? 0))}</p>
+                      <p className="text-xs text-muted-foreground">Earned Value</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Planned Value</span><span>{formatBudget(Number(performance.pv ?? 0))}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Actual Cost</span><span>{formatBudget(Number(performance.ac ?? 0))}</span></div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
 
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Task Summary</CardTitle>
-            <CardDescription>High-level task execution overview</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <div className="mb-1 flex items-center justify-between text-sm"><span>Total Tasks</span><span>{projectTasks.length}</span></div>
-              <Progress value={100} className="h-2" />
-            </div>
-            <div>
-              <div className="mb-1 flex items-center justify-between text-sm"><span>Completed Tasks</span><span>{completedTasks}</span></div>
-              <Progress value={projectTasks.length ? (completedTasks / projectTasks.length) * 100 : 0} className="h-2 [&>div]:bg-emerald-500" />
-            </div>
-            <div>
-              <div className="mb-1 flex items-center justify-between text-sm"><span>In Progress Tasks</span><span>{inProgressTasks}</span></div>
-              <Progress value={projectTasks.length ? (inProgressTasks / projectTasks.length) * 100 : 0} className="h-2 [&>div]:bg-blue-500" />
-            </div>
-            <div>
-              <div className="mb-1 flex items-center justify-between text-sm"><span>Pending Tasks</span><span className="text-amber-600">{pendingTasks}</span></div>
-              <Progress value={projectTasks.length ? (pendingTasks / projectTasks.length) * 100 : 0} className="h-2 [&>div]:bg-red-500" />
-            </div>
-          </CardContent>
-        </Card>
+          {/* Financial & Tasks */}
+          <div className="grid gap-6 xl:grid-cols-2">
+            {financial && (
+              <Card className="shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Financial Summary</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-lg border p-3 text-center">
+                      <p className="text-xl font-semibold">{formatBudget(Number(financial.total_budget ?? 0))}</p>
+                      <p className="text-xs text-muted-foreground">Total Budget</p>
+                    </div>
+                    <div className="rounded-lg border p-3 text-center">
+                      <p className="text-xl font-semibold">{formatBudget(Number(financial.cumulative_cost ?? 0))}</p>
+                      <p className="text-xs text-muted-foreground">Total Spent</p>
+                    </div>
+                    <div className="rounded-lg border p-3 text-center">
+                      <p className="text-xl font-semibold">{formatBudget(Number(financial.period_cost ?? 0))}</p>
+                      <p className="text-xs text-muted-foreground">This Period</p>
+                    </div>
+                  </div>
+                  {financial.by_category && (
+                    <div className="space-y-2 text-sm">
+                      {Object.entries(financial.by_category as Record<string, number>).map(([cat, val]) => (
+                        <div key={cat} className="flex items-center justify-between">
+                          <span className="capitalize">{cat}</span>
+                          <span>{formatBudget(val)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Daily Log Summary</CardTitle>
-            <CardDescription>Compact approval overview</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-border p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Submitted</p>
-              <p className="mt-2 text-3xl font-semibold">{dailyLogSummary.submitted.toString().padStart(2, '0')}</p>
-            </div>
-            <div className="rounded-xl border border-border p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Approved</p>
-              <p className="mt-2 text-3xl font-semibold text-emerald-600">{dailyLogSummary.approved.toString().padStart(2, '0')}</p>
-            </div>
-            <div className="rounded-xl border border-border p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Pending</p>
-              <p className="mt-2 text-3xl font-semibold text-amber-600">{dailyLogSummary.pending.toString().padStart(2, '0')}</p>
-            </div>
-            <div className="rounded-xl border border-border p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Drafts</p>
-              <p className="mt-2 text-3xl font-semibold text-red-600">{dailyLogSummary.draft.toString().padStart(2, '0')}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            {tasks && (
+              <Card className="shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Tasks</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(tasks.completed_in_period as unknown[])?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-muted-foreground mb-2">Completed this period</p>
+                      {(tasks.completed_in_period as Record<string, unknown>[]).map((t) => (
+                        <div key={String(t.id)} className="flex items-center justify-between rounded border p-2 mb-1 text-sm">
+                          <span>{String(t.name)}</span>
+                          <Badge className="bg-emerald-100 text-emerald-700 text-[10px]">Done</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(tasks.overdue as unknown[])?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-red-600 mb-2">Overdue</p>
+                      {(tasks.overdue as Record<string, unknown>[]).map((t) => (
+                        <div key={String(t.id)} className="flex items-center justify-between rounded border border-red-200 p-2 mb-1 text-sm">
+                          <span>{String(t.name)}</span>
+                          <Badge className="bg-red-100 text-red-700 text-[10px]">{fmtNum(t.progress_pct, 0)}%</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!(tasks.completed_in_period as unknown[])?.length && !(tasks.overdue as unknown[])?.length && (
+                    <p className="text-sm text-muted-foreground text-center py-4">No task changes in this period.</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="border-red-200 bg-red-50 shadow-sm">
-          <CardContent className="flex items-start gap-3 p-4 text-red-800">
-            <AlertTriangle className="mt-1 h-5 w-5" />
-            <div>
-              <p className="font-semibold">Project Status Alert</p>
-              <p className="text-sm text-red-700">Critical discrepancy detected in the latest report cycle. Review site evidence before approval.</p>
-            </div>
-          </CardContent>
-        </Card>
+          {/* Daily Logs & Risk */}
+          <div className="grid gap-6 xl:grid-cols-2">
+            {dailyLogs && (
+              <Card className="shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Daily Logs</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Total</p>
+                    <p className="mt-2 text-3xl font-semibold">{String(dailyLogs.total_logs ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl border p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Approved</p>
+                    <p className="mt-2 text-3xl font-semibold text-emerald-600">{String(dailyLogs.approved ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl border p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Pending</p>
+                    <p className="mt-2 text-3xl font-semibold text-amber-600">{String(dailyLogs.pending ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl border p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Hours</p>
+                    <p className="mt-2 text-3xl font-semibold">{fmtNum(dailyLogs.total_hours_period, 0)}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-        <Card className="border-amber-200 bg-amber-50 shadow-sm">
-          <CardContent className="flex items-start gap-3 p-4 text-amber-800">
-            <AlertTriangle className="mt-1 h-5 w-5" />
-            <div>
-              <p className="font-semibold">Task Delay Warning</p>
-              <p className="text-sm text-amber-700">Task completion is slipping by 4 days. Review workforce allocation and logistics immediately.</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            {risk && (
+              <Card className="border-blue-600 bg-gradient-to-br from-blue-700 to-indigo-700 text-white shadow-sm">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">Risk Assessment</CardTitle>
+                    <Bot className="h-4 w-4 text-blue-100" />
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-3xl font-semibold capitalize">{String(risk.risk_level ?? 'N/A')}</p>
+                  {risk.reason && (
+                    <p className="text-sm text-blue-100">{String(risk.reason)}</p>
+                  )}
+                  {risk.recommendation && (
+                    <p className="text-xs text-blue-200">{String(risk.recommendation)}</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
