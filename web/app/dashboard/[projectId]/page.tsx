@@ -306,7 +306,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Project</TableHead>
+                  <TableHead>Log</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Issue Flagged</TableHead>
@@ -316,17 +316,24 @@ export default function DashboardPage({ params }: DashboardPageProps) {
               <TableBody>
                 {recentLogs.map((log) => {
                   const issue = getIssueTag(log)
+                  const taskName = log.task_id ? tasks.find(t => t.id === log.task_id)?.title : null
 
                   return (
                     <TableRow key={log.id}>
                       <TableCell>
-                        <p className="font-medium">{project.name}</p>
-                        <p className="text-xs text-muted-foreground">{project.location}</p>
+                        <p className="font-medium">{taskName || `#${log.id.slice(0, 8).toUpperCase()}`}</p>
+                        {log.notes && <p className="text-xs text-muted-foreground truncate max-w-[200px]">{log.notes}</p>}
                       </TableCell>
                       <TableCell>{new Date(log.date).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="capitalize">
-                          {log.status.replace(/_/g, ' ')}
+                        <Badge className={
+                          log.status === 'pm_approved' ? 'bg-emerald-100 text-emerald-700' :
+                          log.status === 'consultant_approved' ? 'bg-indigo-100 text-indigo-700' :
+                          log.status === 'submitted' ? 'bg-amber-100 text-amber-700' :
+                          log.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                          'bg-gray-100 text-gray-700'
+                        }>
+                          {log.status === 'pm_approved' ? 'Approved' : log.status.replace(/_/g, ' ')}
                         </Badge>
                       </TableCell>
                       <TableCell>

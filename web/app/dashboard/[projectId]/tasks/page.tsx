@@ -145,11 +145,13 @@ export default function TasksPage({ params }: TasksPageProps) {
   }
 
   const filteredTasks = useMemo(() => {
-    return projectTasks.filter((task) => {
-      if (statusFilter !== 'all' && task.status !== statusFilter) return false
-      if (searchQuery && !task.title.toLowerCase().includes(searchQuery.toLowerCase())) return false
-      return true
-    })
+    return [...projectTasks]
+      .reverse() // newest first (backend returns in insertion order)
+      .filter((task) => {
+        if (statusFilter !== 'all' && task.status !== statusFilter) return false
+        if (searchQuery && !task.title.toLowerCase().includes(searchQuery.toLowerCase())) return false
+        return true
+      })
   }, [projectTasks, searchQuery, statusFilter])
 
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / PAGE_SIZE))

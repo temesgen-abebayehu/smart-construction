@@ -75,6 +75,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false)
 
   const canEdit = userRole === 'project_manager'
+  const canEditProgress = userRole === 'project_manager' || userRole === 'site_engineer'
 
   useEffect(() => {
     let cancelled = false
@@ -111,14 +112,20 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await updateTask(taskId, {
-        name: editName.trim() || undefined,
-        status: editStatus,
-        progress_percentage: Number.parseFloat(editProgress) || 0,
-        start_date: editStartDate ? `${editStartDate}T00:00:00` : undefined,
-        end_date: editEndDate ? `${editEndDate}T00:00:00` : undefined,
-        assigned_to: editAssignee || undefined,
-      })
+      // Site engineer can only update progress; PM can update everything
+      const body = canEdit
+        ? {
+            name: editName.trim() || undefined,
+            status: editStatus,
+            progress_percentage: Number.parseFloat(editProgress) || 0,
+            start_date: editStartDate ? `${editStartDate}T00:00:00` : undefined,
+            end_date: editEndDate ? `${editEndDate}T00:00:00` : undefined,
+            assigned_to: editAssignee || undefined,
+          }
+        : {
+            progress_percentage: Number.parseFloat(editProgress) || 0,
+          }
+      await updateTask(taskId, body)
       // Reload
       const t = await getTask(taskId)
       setTask(t)
@@ -165,11 +172,10 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
         <Badge className={statusConfig[task.status]?.className}>
           {statusConfig[task.status]?.label}
         </Badge>
-        {canEdit && (
+        {(canEdit || canEditProgress) && (
           editing ? (
             <Button variant="outline" size="sm" className="gap-2" onClick={() => {
               setEditing(false)
-              // Reset to original values
               setEditName(task.title)
               setEditStatus(task.status)
               setEditProgress(String(task.progress_percentage))
@@ -183,7 +189,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
           ) : (
             <Button variant="outline" size="sm" className="gap-2" onClick={() => setEditing(true)}>
               <PencilLine className="h-4 w-4" />
-              Edit
+              {canEdit ? 'Edit' : 'Update Progress'}
             </Button>
           )
         )}

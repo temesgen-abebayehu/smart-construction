@@ -101,18 +101,23 @@ export default function LogsPage({ params }: LogsPageProps) {
     loadLogs()
   }, [projectId, userRole])
 
-  // Role-based log filtering
+  // Role-based log visibility:
+  // draft → site engineer only
+  // submitted → site engineer + consultant
+  // consultant_approved → all
+  // pm_approved → all
+  // rejected → site engineer + consultant
   const visibleLogs = useMemo(() => {
-    let logs = projectLogs
-    if (userRole === 'consultant') {
-      // Consultant sees only submitted logs (for their review) + consultant_approved + pm_approved
-      logs = logs.filter((l) => ['submitted', 'consultant_approved', 'pm_approved'].includes(l.status))
-    } else if (userRole === 'project_manager') {
-      // PM sees consultant_approved (for final approval) + pm_approved + rejected
-      logs = logs.filter((l) => ['consultant_approved', 'pm_approved', 'rejected'].includes(l.status))
+    if (userRole === 'site_engineer') {
+      // Site engineer sees all their own logs
+      return projectLogs
     }
-    // Site engineer sees all their own logs (draft, submitted, rejected, approved)
-    return logs
+    if (userRole === 'consultant') {
+      // Consultant sees submitted (for review) + consultant_approved + pm_approved + rejected
+      return projectLogs.filter((l) => ['submitted', 'consultant_approved', 'pm_approved', 'rejected'].includes(l.status))
+    }
+    // PM sees consultant_approved (for final approval) + pm_approved
+    return projectLogs.filter((l) => ['consultant_approved', 'pm_approved'].includes(l.status))
   }, [projectLogs, userRole])
 
   const filteredLogs = useMemo(() => {
@@ -172,7 +177,7 @@ export default function LogsPage({ params }: LogsPageProps) {
         limit: 100,
         assigned_to: user?.id,
       })
-      setTasks(res.data)
+      setTasks(res.data.filter(t => t.status !== 'completed'))
     } catch {
       setTasks([])
     }
