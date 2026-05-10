@@ -21,7 +21,7 @@ class ReportSection(str, Enum):
     BUDGET = "budget"
     TASKS = "tasks"
     LOOK_AHEAD = "look_ahead"
-    LABOR = "labor"
+    MANPOWER = "manpower"
     EQUIPMENT = "equipment"
     MATERIALS = "materials"
     WEATHER = "weather"
@@ -107,7 +107,7 @@ class ManpowerEntry(BaseModel):
     total: float
 
 
-class LaborSection(BaseModel):
+class ManpowerSection(BaseModel):
     histogram: list[ManpowerEntry]
     total_hours: PeriodCumulative
     total_cost: PeriodCumulative
@@ -144,7 +144,7 @@ class WeatherSection(BaseModel):
 
 class FinancialSection(BaseModel):
     budget: BudgetSnapshot
-    labor_cost: PeriodCumulative
+    manpower_cost: PeriodCumulative
     material_cost: PeriodCumulative
     equipment_cost: PeriodCumulative
     incoming_budget: PeriodCumulative
@@ -186,7 +186,7 @@ class LookAheadSection(BaseModel):
 class DailyLogsSummary(BaseModel):
     log_count: int
     by_status: dict[str, int]
-    total_labor_hours: float
+    total_manpower_hours: float
     total_equipment_hours: float
     equipment_idle_hours: float
 
@@ -207,7 +207,7 @@ class ReportData(BaseModel):
     financial: Optional[FinancialSection] = None
     tasks: Optional[TasksReport] = None
     look_ahead: Optional[LookAheadSection] = None
-    labor: Optional[LaborSection] = None
+    manpower: Optional[ManpowerSection] = None
     equipment: Optional[EquipmentSection] = None
     materials: Optional[MaterialsSection] = None
     weather: Optional[WeatherSection] = None

@@ -1,7 +1,9 @@
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from sqlalchemy.exc import IntegrityError
@@ -28,9 +30,9 @@ import app.models.system
 async def lifespan(app: FastAPI):
     # Drop and recreate all tables to sync with new schema
     # Remove drop_all once you switch to Alembic migrations!
-    async with engine.begin() as conn:
-        # await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+    # async with engine.begin() as conn:
+    #     # await conn.run_sync(Base.metadata.drop_all)
+    #     await conn.run_sync(Base.metadata.create_all)
     load_ml_artifacts()
     yield
 
@@ -76,6 +78,12 @@ if settings.BACKEND_CORS_ORIGINS:
     )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Local file storage for daily-log photos. Lives at backend/uploads/.
+# Files are written by the photo upload endpoint and served back via this mount.
+UPLOAD_DIR = Path(__file__).resolve().parents[1] / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 @app.get("/")
 def root():

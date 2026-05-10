@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
 from app.models.task import Task, TaskDependency
-from app.models.log import DailyLog, Shift, Labor, Material, Equipment, EquipmentIdle
+from app.models.log import DailyLog, Shift, Manpower, Material, Equipment, EquipmentIdle, DailyLogPhoto
 from app.repositories.base import BaseRepository
 
 class TaskRepository(BaseRepository[Task]):
@@ -41,9 +41,9 @@ class ShiftRepository(BaseRepository[Shift]):
     def __init__(self):
         super().__init__(Shift)
 
-class LaborRepository(BaseRepository[Labor]):
+class ManpowerRepository(BaseRepository[Manpower]):
     def __init__(self):
-        super().__init__(Labor)
+        super().__init__(Manpower)
 
 class MaterialRepository(BaseRepository[Material]):
     def __init__(self):
@@ -56,3 +56,7 @@ class EquipmentRepository(BaseRepository[Equipment]):
 class EquipmentIdleRepository(BaseRepository[EquipmentIdle]):
     def __init__(self):
         super().__init__(EquipmentIdle)
+
+class DailyLogPhotoRepository(BaseRepository[DailyLogPhoto]):
+    def __init__(self):
+        super().__init__(DailyLogPhoto)

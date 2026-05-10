@@ -56,8 +56,8 @@ def render_report_pdf(data: ReportData) -> bytes:
         _performance(story, data)
     if data.financial:
         _financial(story, data)
-    if data.labor:
-        _labor(story, data)
+    if data.manpower:
+        _manpower(story, data)
     if data.equipment:
         _equipment(story, data)
     if data.materials:
@@ -250,7 +250,7 @@ def _financial(story: list, data: ReportData) -> None:
     story.append(Paragraph("Financial", H2))
     rows = [
         ["", "This period", "Cumulative"],
-        ["Labor cost", _money(f.labor_cost.period), _money(f.labor_cost.cumulative)],
+        ["Manpower cost", _money(f.manpower_cost.period), _money(f.manpower_cost.cumulative)],
         ["Material cost", _money(f.material_cost.period), _money(f.material_cost.cumulative)],
         ["Equipment cost", _money(f.equipment_cost.period), _money(f.equipment_cost.cumulative)],
         ["Incoming budget", _money(f.incoming_budget.period), _money(f.incoming_budget.cumulative)],
@@ -269,9 +269,9 @@ def _financial(story: list, data: ReportData) -> None:
     story.append(Spacer(1, 0.4 * cm))
 
 
-def _labor(story: list, data: ReportData) -> None:
-    l = data.labor
-    story.append(Paragraph("Labor / Manpower", H2))
+def _manpower(story: list, data: ReportData) -> None:
+    l = data.manpower
+    story.append(Paragraph("Manpower", H2))
     rows = [
         ["", "This period", "Cumulative"],
         ["Total hours", f"{l.total_hours.period:,.1f}", f"{l.total_hours.cumulative:,.1f}"],
@@ -407,7 +407,7 @@ def _daily_logs(story: list, data: ReportData) -> None:
     story.append(Paragraph("Daily Logs", H2))
     rows = [
         ["Total logs", str(d.log_count)],
-        ["Total labor hours", f"{d.total_labor_hours:,.1f}"],
+        ["Total manpower hours", f"{d.total_manpower_hours:,.1f}"],
         ["Total equipment hours", f"{d.total_equipment_hours:,.1f}"],
         ["Equipment idle hours", f"{d.equipment_idle_hours:,.1f}"],
     ]

@@ -1,22 +1,36 @@
+import logging
+import os
+import uuid as uuid_lib
+from pathlib import Path
 from typing import Any, List
 from uuid import UUID
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import select
 
+import cloudinary
+import cloudinary.uploader
+
 from app.api.dependencies import DbSession, get_current_active_user
+from app.core.config import settings
 from app.models.user import User
-from app.models.log import DailyLog, Shift, Labor, Material, Equipment, EquipmentIdle
+from app.models.log import (
+    DailyLog, Shift, Manpower, Material, Equipment, EquipmentIdle, DailyLogPhoto,
+)
+from app.models.task import TaskDependency, Task
 from app.schemas.log import (
     DailyLogCreate, DailyLogResponse, DailyLogReject,
     ShiftCreate, ShiftResponse,
-    LaborCreate, LaborResponse,
+    ManpowerCreate, ManpowerResponse,
     MaterialCreate, MaterialResponse,
     EquipmentCreate, EquipmentResponse,
     EquipmentIdleCreate, EquipmentIdleResponse,
+    DailyLogPhotoResponse,
 )
 from app.services.log import DailyLogService
 from app.repositories.log import DailyLogRepository
+
+logger = logging.getLogger(__name__)
 
 # ── Router A: project-scoped routes  (prefix will be /projects) ──
 project_logs_router = APIRouter()
@@ -25,6 +39,56 @@ project_logs_router = APIRouter()
 logs_router = APIRouter()
 
 log_repo = DailyLogRepository()
+
+
+# ── Photo storage config ──
+# Two backends:
+#   • Cloudinary, when CLOUDINARY_CLOUD_NAME / API_KEY / API_SECRET are all set.
+#     File rows store: file_path = Cloudinary public_id, url_path = secure https URL.
+#   • Local filesystem (default fallback), under backend/uploads/daily-logs/{log_id}/{photo_id}.{ext},
+#     served via FastAPI StaticFiles mount at /uploads/... (configured in main.py).
+#     File rows store: file_path = relative disk path, url_path = "/uploads/<file_path>".
+#
+# url_path is the discriminator at delete time: "https://" → Cloudinary, "/uploads/" → local.
+UPLOAD_ROOT = Path(__file__).resolve().parents[3] / "uploads"
+DAILY_LOG_PHOTO_DIR = UPLOAD_ROOT / "daily-logs"
+ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+MAX_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB
+CLOUDINARY_FOLDER = "smart-construction/daily-logs"
+
+
+def _cloudinary_configured() -> bool:
+    return bool(
+        settings.CLOUDINARY_CLOUD_NAME
+        and settings.CLOUDINARY_API_KEY
+        and settings.CLOUDINARY_API_SECRET
+    )
+
+
+def _configure_cloudinary() -> None:
+    cloudinary.config(
+        cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+        api_key=settings.CLOUDINARY_API_KEY,
+        api_secret=settings.CLOUDINARY_API_SECRET,
+        secure=True,
+    )
+
+
+async def _ensure_no_blocking_dependency(db, task_id: UUID) -> None:
+    """Block daily-log creation against a task whose predecessors are not yet complete."""
+    deps_res = await db.execute(
+        select(TaskDependency).where(TaskDependency.task_id == task_id)
+    )
+    for dep in deps_res.scalars().all():
+        blocker = await db.get(Task, dep.depends_on_task_id)
+        if blocker and blocker.status != "completed":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Cannot log against this task — dependency "
+                    f"'{blocker.name}' is not completed yet."
+                ),
+            )
 
 
 # ══════════════════════════════════════════════════════════════
@@ -52,6 +116,8 @@ async def create_daily_log(
         notes=log_in.notes,
         weather=log_in.weather,
         task_id=None,                    # no task at this level
+        quantity_completed=log_in.quantity_completed,
+        unit=log_in.unit,
     )
 
 
@@ -86,14 +152,16 @@ async def create_task_daily_log(
 ) -> Any:
     """
     Create a daily log scoped to a specific task.
-    BOTH project_id AND task_id come from the URL — body only contains notes/weather.
+    BOTH project_id AND task_id come from the URL — body only contains notes/weather/quantity.
+    Blocked when the task has any incomplete dependency.
     """
-    from app.models.task import Task
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     if task.project_id != project_id:
         raise HTTPException(status_code=400, detail="Task does not belong to this project")
+
+    await _ensure_no_blocking_dependency(db, task_id)
 
     return await DailyLogService.create_log(
         db=db,
@@ -102,6 +170,8 @@ async def create_task_daily_log(
         user_id=current_user.id,
         notes=log_in.notes,
         weather=log_in.weather,
+        quantity_completed=log_in.quantity_completed,
+        unit=log_in.unit,
     )
 
 
@@ -171,17 +241,17 @@ async def list_shifts(log_id: UUID, db: DbSession, _: User = Depends(get_current
     return list(result.scalars().all())
 
 
-# ── Sub-Entities: Labor ──
+# ── Sub-Entities: Manpower (renamed from Labor) ──
 
-@logs_router.post("/daily-logs/{log_id}/labor", response_model=LaborResponse, status_code=201)
-async def add_labor(*, db: DbSession, log_id: UUID, labor_in: LaborCreate, _: User = Depends(get_current_active_user)) -> Any:
-    obj = Labor(log_id=log_id, worker_type=labor_in.worker_type, hours_worked=labor_in.hours_worked, cost=labor_in.cost)
+@logs_router.post("/daily-logs/{log_id}/manpower", response_model=ManpowerResponse, status_code=201)
+async def add_manpower(*, db: DbSession, log_id: UUID, manpower_in: ManpowerCreate, _: User = Depends(get_current_active_user)) -> Any:
+    obj = Manpower(log_id=log_id, worker_type=manpower_in.worker_type, hours_worked=manpower_in.hours_worked, cost=manpower_in.cost)
     db.add(obj); await db.commit(); await db.refresh(obj)
     return obj
 
-@logs_router.get("/daily-logs/{log_id}/labor", response_model=List[LaborResponse])
-async def list_labor(log_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
-    result = await db.execute(select(Labor).where(Labor.log_id == log_id))
+@logs_router.get("/daily-logs/{log_id}/manpower", response_model=List[ManpowerResponse])
+async def list_manpower(log_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
+    result = await db.execute(select(Manpower).where(Manpower.log_id == log_id))
     return list(result.scalars().all())
 
 
@@ -225,3 +295,124 @@ async def add_equipment_idle(*, db: DbSession, equipment_id: UUID, idle_in: Equi
 async def list_equipment_idle(equipment_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
     result = await db.execute(select(EquipmentIdle).where(EquipmentIdle.equipment_id == equipment_id))
     return list(result.scalars().all())
+
+
+# ── Sub-Entities: Photos ──
+
+def _photo_extension(filename: str | None, content_type: str | None) -> str:
+    if filename and "." in filename:
+        ext = filename.rsplit(".", 1)[-1].lower()
+        if 1 <= len(ext) <= 5 and ext.isalnum():
+            return ext
+    if content_type:
+        m = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+        if content_type in m:
+            return m[content_type]
+    return "bin"
+
+
+@logs_router.post("/daily-logs/{log_id}/photos", response_model=DailyLogPhotoResponse, status_code=201)
+async def upload_daily_log_photo(
+    log_id: UUID, db: DbSession,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Attach a picture to a daily log. Stored on Cloudinary when configured,
+    otherwise on local disk under backend/uploads/daily-logs/{log_id}/."""
+    log = await log_repo.get_by_id(db, log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Daily log not found")
+
+    if file.content_type not in ALLOWED_PHOTO_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported content_type {file.content_type!r}. Allowed: {sorted(ALLOWED_PHOTO_TYPES)}",
+        )
+
+    contents = await file.read()
+    if len(contents) > MAX_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_PHOTO_BYTES // (1024 * 1024)} MB)")
+
+    photo_id = uuid_lib.uuid4()
+
+    if _cloudinary_configured():
+        _configure_cloudinary()
+        public_id = f"{CLOUDINARY_FOLDER}/{log_id}/{photo_id}"
+        try:
+            result = cloudinary.uploader.upload(
+                contents,
+                public_id=public_id,
+                resource_type="image",
+                overwrite=False,
+            )
+        except Exception as e:
+            logger.exception("Cloudinary upload failed for log_id=%s: %s", log_id, e)
+            raise HTTPException(status_code=502, detail=f"Cloudinary upload failed: {e}")
+        file_path = result["public_id"]
+        url_path = result["secure_url"]
+        logger.info("Uploaded daily-log photo to Cloudinary: log_id=%s public_id=%s", log_id, file_path)
+    else:
+        ext = _photo_extension(file.filename, file.content_type)
+        target_dir = DAILY_LOG_PHOTO_DIR / str(log_id)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        rel_path = f"daily-logs/{log_id}/{photo_id}.{ext}"
+        abs_path = UPLOAD_ROOT / rel_path
+        abs_path.write_bytes(contents)
+        file_path = str(rel_path)
+        url_path = f"/uploads/{rel_path}"
+        logger.info("Uploaded daily-log photo locally: log_id=%s photo_id=%s size=%dB", log_id, photo_id, len(contents))
+
+    photo = DailyLogPhoto(
+        id=photo_id,
+        log_id=log_id,
+        file_path=file_path,
+        url_path=url_path,
+        original_filename=file.filename,
+        content_type=file.content_type,
+        size_bytes=len(contents),
+        uploaded_by_id=current_user.id,
+    )
+    db.add(photo)
+    await db.commit()
+    await db.refresh(photo)
+    return photo
+
+
+@logs_router.get("/daily-logs/{log_id}/photos", response_model=List[DailyLogPhotoResponse])
+async def list_daily_log_photos(
+    log_id: UUID, db: DbSession,
+    _: User = Depends(get_current_active_user),
+) -> Any:
+    result = await db.execute(select(DailyLogPhoto).where(DailyLogPhoto.log_id == log_id))
+    return list(result.scalars().all())
+
+
+@logs_router.delete("/daily-logs/{log_id}/photos/{photo_id}", status_code=204)
+async def delete_daily_log_photo(
+    log_id: UUID, photo_id: UUID, db: DbSession,
+    _: User = Depends(get_current_active_user),
+) -> None:
+    result = await db.execute(
+        select(DailyLogPhoto).where(DailyLogPhoto.id == photo_id, DailyLogPhoto.log_id == log_id)
+    )
+    photo = result.scalars().first()
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    # Delete from whichever backend the photo lives on. url_path tells us which.
+    if photo.url_path and photo.url_path.startswith("https://") and _cloudinary_configured():
+        _configure_cloudinary()
+        try:
+            cloudinary.uploader.destroy(photo.file_path, resource_type="image")
+        except Exception as e:
+            logger.warning("Cloudinary destroy failed for public_id=%s: %s", photo.file_path, e)
+    else:
+        abs_path = UPLOAD_ROOT / photo.file_path
+        try:
+            if abs_path.exists():
+                os.remove(abs_path)
+        except OSError as e:
+            logger.warning("Failed to remove local photo file %s: %s", abs_path, e)
+
+    await db.delete(photo)
+    await db.commit()

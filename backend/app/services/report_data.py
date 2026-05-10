@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.commons import TaskStatus
-from app.models.log import DailyLog, Equipment, EquipmentIdle, Labor, Material
+from app.models.log import DailyLog, Equipment, EquipmentIdle, Manpower, Material
 from app.models.project import Project, ProjectProgressSnapshot
 from app.models.system import AuditLog, BudgetItem
 from app.models.task import Task
@@ -25,8 +25,8 @@ from app.schemas.report import (
     EquipmentUsage,
     ExecutiveSummary,
     FinancialSection,
-    LaborSection,
     LookAheadSection,
+    ManpowerSection,
     LookAheadTask,
     ManpowerEntry,
     MaterialsSection,
@@ -318,7 +318,7 @@ async def _all_logs(db: AsyncSession, project_id: UUID) -> list[DailyLog]:
     return list(res.scalars().all())
 
 
-async def _labor_section(db: AsyncSession, project_id: UUID, period_info: ReportPeriodInfo) -> LaborSection:
+async def _manpower_section(db: AsyncSession, project_id: UUID, period_info: ReportPeriodInfo) -> ManpowerSection:
     start_utc, end_utc = _to_utc(period_info.start), _to_utc(period_info.end)
     period_logs = await _logs_in_window(db, project_id, start_utc, end_utc)
     all_logs = await _all_logs(db, project_id)
@@ -326,15 +326,15 @@ async def _labor_section(db: AsyncSession, project_id: UUID, period_info: Report
     period_log_ids = [l.id for l in period_logs]
     cum_log_ids = [l.id for l in all_logs]
 
-    period_labor = await _fetch_labor(db, period_log_ids)
-    cum_labor = await _fetch_labor(db, cum_log_ids)
+    period_manpower = await _fetch_manpower(db, period_log_ids)
+    cum_manpower = await _fetch_manpower(db, cum_log_ids)
 
     histogram_map: dict[date, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     log_id_to_date = {l.id: _ensure_aware(l.date).date() for l in period_logs}
-    for lab in period_labor:
-        d = log_id_to_date.get(lab.log_id)
+    for mp in period_manpower:
+        d = log_id_to_date.get(mp.log_id)
         if d:
-            histogram_map[d][lab.worker_type or "unspecified"] += float(lab.hours_worked or 0.0)
+            histogram_map[d][mp.worker_type or "unspecified"] += float(mp.hours_worked or 0.0)
 
     histogram = [
         ManpowerEntry(date=d, by_trade=dict(trades), total=sum(trades.values()))
@@ -344,34 +344,34 @@ async def _labor_section(db: AsyncSession, project_id: UUID, period_info: Report
     by_trade: dict[str, PeriodCumulative] = {}
     period_by_trade: dict[str, float] = defaultdict(float)
     cum_by_trade: dict[str, float] = defaultdict(float)
-    for lab in period_labor:
-        period_by_trade[lab.worker_type or "unspecified"] += float(lab.hours_worked or 0.0)
-    for lab in cum_labor:
-        cum_by_trade[lab.worker_type or "unspecified"] += float(lab.hours_worked or 0.0)
+    for mp in period_manpower:
+        period_by_trade[mp.worker_type or "unspecified"] += float(mp.hours_worked or 0.0)
+    for mp in cum_manpower:
+        cum_by_trade[mp.worker_type or "unspecified"] += float(mp.hours_worked or 0.0)
     for trade in set(period_by_trade) | set(cum_by_trade):
         by_trade[trade] = PeriodCumulative(
             period=round(period_by_trade.get(trade, 0.0), 2),
             cumulative=round(cum_by_trade.get(trade, 0.0), 2),
         )
 
-    return LaborSection(
+    return ManpowerSection(
         histogram=histogram,
         total_hours=PeriodCumulative(
-            period=round(sum(float(l.hours_worked or 0.0) for l in period_labor), 2),
-            cumulative=round(sum(float(l.hours_worked or 0.0) for l in cum_labor), 2),
+            period=round(sum(float(l.hours_worked or 0.0) for l in period_manpower), 2),
+            cumulative=round(sum(float(l.hours_worked or 0.0) for l in cum_manpower), 2),
         ),
         total_cost=PeriodCumulative(
-            period=round(sum(float(l.cost or 0.0) for l in period_labor), 2),
-            cumulative=round(sum(float(l.cost or 0.0) for l in cum_labor), 2),
+            period=round(sum(float(l.cost or 0.0) for l in period_manpower), 2),
+            cumulative=round(sum(float(l.cost or 0.0) for l in cum_manpower), 2),
         ),
         by_trade=by_trade,
     )
 
 
-async def _fetch_labor(db: AsyncSession, log_ids: list[UUID]) -> list[Labor]:
+async def _fetch_manpower(db: AsyncSession, log_ids: list[UUID]) -> list[Manpower]:
     if not log_ids:
         return []
-    res = await db.execute(select(Labor).where(Labor.log_id.in_(log_ids)))
+    res = await db.execute(select(Manpower).where(Manpower.log_id.in_(log_ids)))
     return list(res.scalars().all())
 
 
@@ -513,8 +513,8 @@ async def _financial_section(db: AsyncSession, project: Project, period_info: Re
     period_logs = await _logs_in_window(db, project.id, start_utc, end_utc)
     all_logs = await _all_logs(db, project.id)
 
-    period_labor = await _fetch_labor(db, [l.id for l in period_logs])
-    cum_labor = await _fetch_labor(db, [l.id for l in all_logs])
+    period_manpower = await _fetch_manpower(db, [l.id for l in period_logs])
+    cum_manpower = await _fetch_manpower(db, [l.id for l in all_logs])
     period_mats = await _fetch_materials(db, [l.id for l in period_logs])
     cum_mats = await _fetch_materials(db, [l.id for l in all_logs])
     period_equip = await _fetch_equipment(db, [l.id for l in period_logs])
@@ -533,16 +533,16 @@ async def _financial_section(db: AsyncSession, project: Project, period_info: Re
 
     days = max(1, (period_info.end.date() - period_info.start.date()).days + 1)
     period_total_cost = (
-        sum(float(l.cost or 0.0) for l in period_labor)
+        sum(float(l.cost or 0.0) for l in period_manpower)
         + sum(float(m.cost or 0.0) for m in period_mats)
         + sum(float(e.cost or 0.0) for e in period_equip)
     )
 
     return FinancialSection(
         budget=await _budget_snapshot(db, project),
-        labor_cost=PeriodCumulative(
-            period=round(sum(float(l.cost or 0.0) for l in period_labor), 2),
-            cumulative=round(sum(float(l.cost or 0.0) for l in cum_labor), 2),
+        manpower_cost=PeriodCumulative(
+            period=round(sum(float(l.cost or 0.0) for l in period_manpower), 2),
+            cumulative=round(sum(float(l.cost or 0.0) for l in cum_manpower), 2),
         ),
         material_cost=PeriodCumulative(
             period=round(sum(float(m.cost or 0.0) for m in period_mats), 2),
@@ -612,14 +612,14 @@ async def _daily_logs_summary(db: AsyncSession, project_id: UUID, period_info: R
         by_status[l.status or "unknown"] += 1
 
     log_ids = [l.id for l in logs]
-    labor = await _fetch_labor(db, log_ids)
+    manpower = await _fetch_manpower(db, log_ids)
     equip = await _fetch_equipment(db, log_ids)
     idle = await _fetch_idle(db, [e.id for e in equip])
 
     return DailyLogsSummary(
         log_count=len(logs),
         by_status=dict(by_status),
-        total_labor_hours=round(sum(float(l.hours_worked or 0.0) for l in labor), 2),
+        total_manpower_hours=round(sum(float(l.hours_worked or 0.0) for l in manpower), 2),
         total_equipment_hours=round(sum(float(e.hours_used or 0.0) for e in equip), 2),
         equipment_idle_hours=round(sum(float(i.hours_idle or 0.0) for i in idle), 2),
     )
@@ -699,7 +699,7 @@ async def build_report_data(
         await _look_ahead_section(db, project.id, period_info.period, _to_utc(period_info.cut_off))
         if ReportSection.LOOK_AHEAD in sections else None
     )
-    labor = await _labor_section(db, project.id, period_info) if ReportSection.LABOR in sections else None
+    manpower = await _manpower_section(db, project.id, period_info) if ReportSection.MANPOWER in sections else None
     equipment = await _equipment_section(db, project.id, period_info) if ReportSection.EQUIPMENT in sections else None
     materials = await _materials_section(db, project.id, period_info) if ReportSection.MATERIALS in sections else None
     weather = await _weather_section(db, project.id, period_info) if ReportSection.WEATHER in sections else None
@@ -718,7 +718,7 @@ async def build_report_data(
         financial=financial,
         tasks=tasks,
         look_ahead=look_ahead,
-        labor=labor,
+        manpower=manpower,
         equipment=equipment,
         materials=materials,
         weather=weather,

@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from fastapi import HTTPException
 
-from app.models.log import DailyLog, Labor, Material, Equipment
+from app.models.log import DailyLog, Manpower, Material, Equipment
 from app.models.task import Task
 from app.models.project import Project
 from app.models.commons import LogStatus, ProjectRole
@@ -41,6 +41,8 @@ class DailyLogService:
         notes: str = None,
         weather: str = None,
         task_id: UUID = None,
+        quantity_completed: float = None,
+        unit: str = None,
     ) -> DailyLog:
         log = DailyLog(
             project_id=project_id,
@@ -48,6 +50,8 @@ class DailyLogService:
             created_by_id=user_id,
             notes=notes,
             weather=weather,
+            quantity_completed=quantity_completed,
+            unit=unit,
         )
         db.add(log)
         await db.commit()
@@ -110,8 +114,8 @@ class DailyLogService:
     async def _on_final_approval(db: AsyncSession, log: DailyLog):
         """Update task progress and project budget after PM approval."""
         # Calculate total cost from this log's sub-entities
-        labor_cost = await db.execute(
-            select(func.coalesce(func.sum(Labor.cost), 0)).where(Labor.log_id == log.id)
+        manpower_cost = await db.execute(
+            select(func.coalesce(func.sum(Manpower.cost), 0)).where(Manpower.log_id == log.id)
         )
         mat_cost = await db.execute(
             select(func.coalesce(func.sum(Material.cost), 0)).where(Material.log_id == log.id)
@@ -119,7 +123,7 @@ class DailyLogService:
         equip_cost = await db.execute(
             select(func.coalesce(func.sum(Equipment.cost), 0)).where(Equipment.log_id == log.id)
         )
-        total_cost = labor_cost.scalar() + mat_cost.scalar() + equip_cost.scalar()
+        total_cost = manpower_cost.scalar() + mat_cost.scalar() + equip_cost.scalar()
 
         # Update project budget_spent
         project = await db.get(Project, log.project_id)

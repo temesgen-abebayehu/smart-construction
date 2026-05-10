@@ -17,7 +17,11 @@ class Settings(BaseSettings):
     # Frontend URL for email links
     FRONTEND_URL: str = "https://smart-construction-three.vercel.app"
 
-    # Email settings
+    # Email — Resend (HTTP API, used on Render where SMTP is blocked)
+    RESEND_API_KEY: str | None = None
+    RESEND_FROM_EMAIL: str = "Smart Construction <onboarding@resend.dev>"
+
+    # Email — SMTP fallback (used locally; do NOT rely on this on Render)
     SMTP_EMAIL: str | None = None
     SMTP_PASSWORD: str | None = None
     SMTP_HOST: str | None = None
@@ -25,6 +29,13 @@ class Settings(BaseSettings):
 
     # Google Sign-In (optional). When unset, /auth/google returns 503.
     GOOGLE_CLIENT_ID: str | None = None
+
+    # Cloudinary (optional). When all three are set, daily-log photos are uploaded
+    # to Cloudinary instead of the local backend/uploads/ folder. Leave any of
+    # these unset to fall back to local storage.
+    CLOUDINARY_CLOUD_NAME: str | None = None
+    CLOUDINARY_API_KEY: str | None = None
+    CLOUDINARY_API_SECRET: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

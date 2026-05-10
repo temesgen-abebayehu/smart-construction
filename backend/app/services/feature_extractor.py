@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import Project
 from app.models.task import Task
-from app.models.log import DailyLog, Labor, Material, Equipment, EquipmentIdle
+from app.models.log import DailyLog, Manpower, Material, Equipment, EquipmentIdle
 from app.services.weather import get_weather
 
 logger = logging.getLogger(__name__)
@@ -15,19 +15,19 @@ logger = logging.getLogger(__name__)
 
 async def _load_log_aggregates(
     db: AsyncSession, project_id: UUID
-) -> tuple[list[Labor], list[Material], list[Equipment], list[EquipmentIdle]]:
-    """Pull all daily-log sub-entities (labor, materials, equipment, idle) for a project."""
+) -> tuple[list[Manpower], list[Material], list[Equipment], list[EquipmentIdle]]:
+    """Pull all daily-log sub-entities (manpower, materials, equipment, idle) for a project."""
     logs_res = await db.execute(select(DailyLog).where(DailyLog.project_id == project_id))
     log_ids = [l.id for l in logs_res.scalars().all()]
     logger.info("feature_extractor: found %d daily logs", len(log_ids))
 
-    labor: list[Labor] = []
+    manpower: list[Manpower] = []
     materials: list[Material] = []
     equipment: list[Equipment] = []
     idle: list[EquipmentIdle] = []
 
     if log_ids:
-        labor = list((await db.execute(select(Labor).where(Labor.log_id.in_(log_ids)))).scalars().all())
+        manpower = list((await db.execute(select(Manpower).where(Manpower.log_id.in_(log_ids)))).scalars().all())
         materials = list((await db.execute(select(Material).where(Material.log_id.in_(log_ids)))).scalars().all())
         equipment = list((await db.execute(select(Equipment).where(Equipment.log_id.in_(log_ids)))).scalars().all())
 
@@ -36,10 +36,10 @@ async def _load_log_aggregates(
         idle = list((await db.execute(select(EquipmentIdle).where(EquipmentIdle.equipment_id.in_(equip_ids)))).scalars().all())
 
     logger.info(
-        "feature_extractor: aggregated labor=%d materials=%d equipment=%d idle=%d",
-        len(labor), len(materials), len(equipment), len(idle),
+        "feature_extractor: aggregated manpower=%d materials=%d equipment=%d idle=%d",
+        len(manpower), len(materials), len(equipment), len(idle),
     )
-    return labor, materials, equipment, idle
+    return manpower, materials, equipment, idle
 
 
 def _compute_time_deviation(project: Project, task_progress: float) -> float | None:
@@ -79,7 +79,7 @@ async def build_features(db: AsyncSession, project: Project) -> dict:
     """
     logger.info("feature_extractor.build_features: project_id=%s location=%r", project.id, project.location)
 
-    labor, materials, equipment, idle = await _load_log_aggregates(db, project.id)
+    manpower, materials, equipment, idle = await _load_log_aggregates(db, project.id)
 
     weather = await get_weather(project.location)
     temperature = weather["temperature"] if weather else None
@@ -90,7 +90,7 @@ async def build_features(db: AsyncSession, project: Project) -> dict:
     )
 
     material_usage = sum((m.quantity or 0.0) for m in materials)
-    worker_count = len(labor)
+    worker_count = len(manpower)
 
     hours_used = sum((e.hours_used or 0.0) for e in equipment)
     hours_idle = sum((i.hours_idle or 0.0) for i in idle)

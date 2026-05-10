@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Float, ForeignKey, DateTime, Text
+from sqlalchemy import Column, String, Float, ForeignKey, DateTime, Text, Integer
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID as SQL_UUID
 
@@ -12,18 +12,24 @@ class DailyLog(Base):
     project_id = Column(SQL_UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     task_id = Column(SQL_UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=True)  # optional—set when created via /tasks/{task_id}/daily-logs
     created_by_id = Column(SQL_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    
+
     date = Column(DateTime(timezone=True), default=utcnow)
     status = Column(String(50), default=LogStatus.DRAFT.value)
     notes = Column(Text)
     weather = Column(String(100))
     rejection_reason = Column(Text, nullable=True)
-    
+
+    # "How many" — quantity of work completed on this date, with its unit (m³, m, units, etc.).
+    # Used to compute productivity (quantity per labor-hour) and verify task progress.
+    quantity_completed = Column(Float, nullable=True)
+    unit = Column(String(50), nullable=True)
+
     # Relationships to isolated sub-entities
     shifts = relationship("Shift", back_populates="log", cascade="all, delete-orphan")
-    labor = relationship("Labor", back_populates="log", cascade="all, delete-orphan")
+    manpower = relationship("Manpower", back_populates="log", cascade="all, delete-orphan")
     materials = relationship("Material", back_populates="log", cascade="all, delete-orphan")
     equipment = relationship("Equipment", back_populates="log", cascade="all, delete-orphan")
+    photos = relationship("DailyLogPhoto", back_populates="log", cascade="all, delete-orphan")
 
 class Shift(Base):
     __tablename__ = "shifts"
@@ -32,14 +38,15 @@ class Shift(Base):
     shift_type = Column(String(50)) # e.g. Day, Night
     log = relationship("DailyLog", back_populates="shifts")
 
-class Labor(Base):
-    __tablename__ = "labor"
+class Manpower(Base):
+    """Renamed from Labor. Tracks workers/hours/cost recorded against a daily log."""
+    __tablename__ = "manpower"
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     log_id = Column(SQL_UUID(as_uuid=True), ForeignKey("daily_logs.id"), nullable=False)
     worker_type = Column(String(100))
     hours_worked = Column(Float, default=0.0)
     cost = Column(Float, default=0.0)
-    log = relationship("DailyLog", back_populates="labor")
+    log = relationship("DailyLog", back_populates="manpower")
 
 class Material(Base):
     __tablename__ = "materials"
@@ -66,3 +73,22 @@ class EquipmentIdle(Base):
     equipment_id = Column(SQL_UUID(as_uuid=True), ForeignKey("equipment.id"), nullable=False)
     reason = Column(Text)
     hours_idle = Column(Float, default=0.0)
+
+
+class DailyLogPhoto(Base):
+    """Picture attached to a daily log. Files live on local disk under
+    backend/uploads/daily-logs/{log_id}/{photo_id}.{ext} and are served via
+    FastAPI StaticFiles at /uploads/...
+    """
+    __tablename__ = "daily_log_photos"
+    id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    log_id = Column(SQL_UUID(as_uuid=True), ForeignKey("daily_logs.id"), nullable=False)
+    file_path = Column(String(500), nullable=False)         # disk path relative to UPLOAD_DIR
+    url_path = Column(String(500), nullable=False)          # path the client hits, e.g. /uploads/daily-logs/.../foo.jpg
+    original_filename = Column(String(255))
+    content_type = Column(String(100))
+    size_bytes = Column(Integer)
+    uploaded_by_id = Column(SQL_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    uploaded_at = Column(DateTime(timezone=True), default=utcnow)
+
+    log = relationship("DailyLog", back_populates="photos")

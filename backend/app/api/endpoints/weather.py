@@ -13,6 +13,15 @@ router = APIRouter()
 project_repo = ProjectRepository()
 
 
+class DailyForecastResponse(BaseModel):
+    date: str
+    temperature_max: float | None = None
+    temperature_min: float | None = None
+    precipitation_sum: float | None = None
+    wind_speed_max: float | None = None
+    weather_code: int | None = None
+
+
 class WeatherResponse(BaseModel):
     project_id: UUID
     location: str | None
@@ -22,6 +31,7 @@ class WeatherResponse(BaseModel):
     latitude: float | None
     longitude: float | None
     fetched_at: datetime | None
+    forecast: list[DailyForecastResponse] = []
 
 
 @router.get("/{project_id}/weather", response_model=WeatherResponse)
@@ -49,4 +59,5 @@ async def get_project_weather(
         latitude=data["latitude"],
         longitude=data["longitude"],
         fetched_at=datetime.fromtimestamp(data["fetched_at"], tz=timezone.utc),
+        forecast=[DailyForecastResponse(**d) for d in data.get("forecast", [])],
     )
