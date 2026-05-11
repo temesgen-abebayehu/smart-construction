@@ -3,18 +3,7 @@ from uuid import UUID
 from datetime import datetime
 from app.models.commons import LogStatus
 
-# Daily Log Sub-Entities
-class ShiftBase(BaseModel):
-    shift_type: str
-
-class ShiftCreate(ShiftBase):
-    pass
-
-class ShiftResponse(ShiftBase):
-    id: UUID
-    log_id: UUID
-    model_config = ConfigDict(from_attributes=True)
-
+# Daily Log Sub-Entities — Manpower
 class ManpowerBase(BaseModel):
     worker_type: str
     hours_worked: float
@@ -28,6 +17,7 @@ class ManpowerResponse(ManpowerBase):
     log_id: UUID
     model_config = ConfigDict(from_attributes=True)
 
+# Materials
 class MaterialBase(BaseModel):
     name: str
     quantity: float
@@ -42,6 +32,7 @@ class MaterialResponse(MaterialBase):
     log_id: UUID
     model_config = ConfigDict(from_attributes=True)
 
+# Equipment
 class EquipmentBase(BaseModel):
     name: str
     hours_used: float
@@ -55,6 +46,7 @@ class EquipmentResponse(EquipmentBase):
     log_id: UUID
     model_config = ConfigDict(from_attributes=True)
 
+# Equipment Idle
 class EquipmentIdleBase(BaseModel):
     reason: str
     hours_idle: float
@@ -84,9 +76,6 @@ class DailyLogBase(BaseModel):
     date: datetime | None = None
     notes: str | None = None
     weather: str | None = None  # e.g. 'sunny', 'rainy'
-    # "How many" — quantity of work completed today, with its unit (m³, m, units, etc.)
-    quantity_completed: float | None = None
-    unit: str | None = None
 
 class DailyLogCreate(DailyLogBase):
     pass  # project_id and task_id come from the URL path, not the body
@@ -95,8 +84,6 @@ class DailyLogUpdate(BaseModel):
     notes: str | None = None
     weather: str | None = None
     status: LogStatus | None = None
-    quantity_completed: float | None = None
-    unit: str | None = None
 
 class DailyLogResponse(DailyLogBase):
     id: UUID

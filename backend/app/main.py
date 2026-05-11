@@ -28,11 +28,10 @@ import app.models.system
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Drop and recreate all tables to sync with new schema
-    # Remove drop_all once you switch to Alembic migrations!
-    # async with engine.begin() as conn:
-    #     # await conn.run_sync(Base.metadata.drop_all)
-    #     await conn.run_sync(Base.metadata.create_all)
+    # Create any missing tables to sync with new models.
+    # For production, use Alembic migrations instead.
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     load_ml_artifacts()
     yield
 

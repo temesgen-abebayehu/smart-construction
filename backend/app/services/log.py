@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from fastapi import HTTPException
 
 from app.models.log import DailyLog, Manpower, Material, Equipment
-from app.models.task import Task
+from app.models.task import Task, TaskActivity
 from app.models.project import Project
 from app.models.commons import LogStatus, ProjectRole
 from app.repositories.log import DailyLogRepository
@@ -41,8 +41,6 @@ class DailyLogService:
         notes: str = None,
         weather: str = None,
         task_id: UUID = None,
-        quantity_completed: float = None,
-        unit: str = None,
     ) -> DailyLog:
         log = DailyLog(
             project_id=project_id,
@@ -50,8 +48,6 @@ class DailyLogService:
             created_by_id=user_id,
             notes=notes,
             weather=weather,
-            quantity_completed=quantity_completed,
-            unit=unit,
         )
         db.add(log)
         await db.commit()
@@ -90,7 +86,7 @@ class DailyLogService:
         await db.commit()
         await db.refresh(log)
 
-        # On final PM approval, update task progress and budget
+        # On final PM approval, update budget and recalculate task progress from activities
         if action == "pm-approve":
             await DailyLogService._on_final_approval(db, log)
 
@@ -112,7 +108,8 @@ class DailyLogService:
 
     @staticmethod
     async def _on_final_approval(db: AsyncSession, log: DailyLog):
-        """Update task progress and project budget after PM approval."""
+        """Update project budget after PM approval.
+        Task progress is driven by TaskActivity completion, not by log counts."""
         # Calculate total cost from this log's sub-entities
         manpower_cost = await db.execute(
             select(func.coalesce(func.sum(Manpower.cost), 0)).where(Manpower.log_id == log.id)
@@ -131,21 +128,19 @@ class DailyLogService:
             project.budget_spent = (project.budget_spent or 0) + total_cost
             db.add(project)
 
-        # Count approved logs vs total logs to derive task progress
+        # Recalculate task progress from activities (not from log counts)
         task = await db.get(Task, log.task_id)
         if task:
-            total_logs = await db.execute(
-                select(func.count()).select_from(DailyLog).where(DailyLog.task_id == task.id)
-            )
-            approved_logs = await db.execute(
-                select(func.count()).select_from(DailyLog).where(
-                    DailyLog.task_id == task.id,
-                    DailyLog.status == LogStatus.PM_APPROVED.value
+            activities = (await db.execute(
+                select(TaskActivity).where(TaskActivity.task_id == task.id)
+            )).scalars().all()
+
+            if activities:
+                task.progress_percentage = sum(
+                    a.percentage for a in activities if a.is_completed
                 )
-            )
-            total = total_logs.scalar()
-            approved = approved_logs.scalar()
-            task.progress_percentage = (approved / total * 100) if total > 0 else 0
+            # else: no activities defined, keep current progress
+
             if task.progress_percentage >= 100:
                 task.status = "completed"
             elif task.progress_percentage > 0:

@@ -15,12 +15,11 @@ from app.api.dependencies import DbSession, get_current_active_user
 from app.core.config import settings
 from app.models.user import User
 from app.models.log import (
-    DailyLog, Shift, Manpower, Material, Equipment, EquipmentIdle, DailyLogPhoto,
+    DailyLog, Manpower, Material, Equipment, EquipmentIdle, DailyLogPhoto,
 )
 from app.models.task import TaskDependency, Task
 from app.schemas.log import (
     DailyLogCreate, DailyLogResponse, DailyLogReject,
-    ShiftCreate, ShiftResponse,
     ManpowerCreate, ManpowerResponse,
     MaterialCreate, MaterialResponse,
     EquipmentCreate, EquipmentResponse,
@@ -42,14 +41,6 @@ log_repo = DailyLogRepository()
 
 
 # ── Photo storage config ──
-# Two backends:
-#   • Cloudinary, when CLOUDINARY_CLOUD_NAME / API_KEY / API_SECRET are all set.
-#     File rows store: file_path = Cloudinary public_id, url_path = secure https URL.
-#   • Local filesystem (default fallback), under backend/uploads/daily-logs/{log_id}/{photo_id}.{ext},
-#     served via FastAPI StaticFiles mount at /uploads/... (configured in main.py).
-#     File rows store: file_path = relative disk path, url_path = "/uploads/<file_path>".
-#
-# url_path is the discriminator at delete time: "https://" → Cloudinary, "/uploads/" → local.
 UPLOAD_ROOT = Path(__file__).resolve().parents[3] / "uploads"
 DAILY_LOG_PHOTO_DIR = UPLOAD_ROOT / "daily-logs"
 ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
@@ -95,33 +86,7 @@ async def _ensure_no_blocking_dependency(db, task_id: UUID) -> None:
 # A) PROJECT-SCOPED: /projects/{project_id}/daily-logs
 # ══════════════════════════════════════════════════════════════
 
-@project_logs_router.post("/{project_id}/daily-logs", response_model=DailyLogResponse, status_code=201)
-async def create_daily_log(
-    *, db: DbSession, project_id: UUID, log_in: DailyLogCreate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Create a project-level daily log.
-    project_id comes from the URL — no need to send it in the body.
-    """
-    from app.repositories.project import ProjectRepository
-    project = await ProjectRepository().get_by_id(db, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    return await DailyLogService.create_log(
-        db=db,
-        project_id=project_id,           # ← from URL
-        user_id=current_user.id,
-        notes=log_in.notes,
-        weather=log_in.weather,
-        task_id=None,                    # no task at this level
-        quantity_completed=log_in.quantity_completed,
-        unit=log_in.unit,
-    )
-
-
-@project_logs_router.get("/{project_id}/daily-logs", response_model=List[DailyLogResponse])
+@project_logs_router.get("/{project_id}/daily-logs", response_model=List[DailyLogResponse], summary="List daily logs")
 async def list_daily_logs(
     project_id: UUID, db: DbSession, status: str = None,
     created_by: UUID = None,
@@ -145,16 +110,13 @@ async def list_daily_logs(
 
 # ── Task-scoped: /projects/{project_id}/tasks/{task_id}/daily-logs ──
 
-@project_logs_router.post("/{project_id}/tasks/{task_id}/daily-logs", response_model=DailyLogResponse, status_code=201)
+@project_logs_router.post("/{project_id}/tasks/{task_id}/daily-logs", response_model=DailyLogResponse, status_code=201, summary="Create daily log for a task")
 async def create_task_daily_log(
     *, db: DbSession, project_id: UUID, task_id: UUID, log_in: DailyLogCreate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Create a daily log scoped to a specific task.
-    BOTH project_id AND task_id come from the URL — body only contains notes/weather/quantity.
-    Blocked when the task has any incomplete dependency.
-    """
+    """Create a daily log scoped to a specific task.
+    Blocked when the task has any incomplete dependency."""
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -165,13 +127,11 @@ async def create_task_daily_log(
 
     return await DailyLogService.create_log(
         db=db,
-        project_id=project_id,   # ← from URL
-        task_id=task_id,         # ← from URL
+        project_id=project_id,
+        task_id=task_id,
         user_id=current_user.id,
         notes=log_in.notes,
         weather=log_in.weather,
-        quantity_completed=log_in.quantity_completed,
-        unit=log_in.unit,
     )
 
 
@@ -180,7 +140,7 @@ async def create_task_daily_log(
 # B) LOG-LEVEL ROUTES: /daily-logs/{log_id}/...
 # ══════════════════════════════════════════════════════════════
 
-@logs_router.get("/daily-logs/{log_id}", response_model=DailyLogResponse)
+@logs_router.get("/daily-logs/{log_id}", response_model=DailyLogResponse, summary="Get daily log details")
 async def get_daily_log(log_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
     log = await log_repo.get_by_id(db, log_id)
     if not log:
@@ -188,7 +148,7 @@ async def get_daily_log(log_id: UUID, db: DbSession, _: User = Depends(get_curre
     return log
 
 
-# ── Workflow transitions ──
+# ── 3-step Approval Workflow: submit → consultant-approve → pm-approve ──
 
 async def _do_transition(db, log_id: UUID, action: str, current_user: User):
     log = await log_repo.get_by_id(db, log_id)
@@ -201,23 +161,19 @@ async def _do_transition(db, log_id: UUID, action: str, current_user: User):
     return await DailyLogService.transition_log(db, log_id, action, member.role)
 
 
-@logs_router.patch("/daily-logs/{log_id}/submit", response_model=DailyLogResponse)
+@logs_router.patch("/daily-logs/{log_id}/submit", response_model=DailyLogResponse, summary="Submit log (Site Engineer)")
 async def submit_log(log_id: UUID, db: DbSession, current_user: User = Depends(get_current_active_user)) -> Any:
     return await _do_transition(db, log_id, "submit", current_user)
 
-@logs_router.patch("/daily-logs/{log_id}/review", response_model=DailyLogResponse)
-async def review_log(log_id: UUID, db: DbSession, current_user: User = Depends(get_current_active_user)) -> Any:
-    return await _do_transition(db, log_id, "review", current_user)
-
-@logs_router.patch("/daily-logs/{log_id}/consultant-approve", response_model=DailyLogResponse)
+@logs_router.patch("/daily-logs/{log_id}/consultant-approve", response_model=DailyLogResponse, summary="Consultant approve")
 async def consultant_approve_log(log_id: UUID, db: DbSession, current_user: User = Depends(get_current_active_user)) -> Any:
     return await _do_transition(db, log_id, "consultant-approve", current_user)
 
-@logs_router.patch("/daily-logs/{log_id}/pm-approve", response_model=DailyLogResponse)
+@logs_router.patch("/daily-logs/{log_id}/pm-approve", response_model=DailyLogResponse, summary="PM final approval")
 async def pm_approve_log(log_id: UUID, db: DbSession, current_user: User = Depends(get_current_active_user)) -> Any:
     return await _do_transition(db, log_id, "pm-approve", current_user)
 
-@logs_router.patch("/daily-logs/{log_id}/reject", response_model=DailyLogResponse)
+@logs_router.patch("/daily-logs/{log_id}/reject", response_model=DailyLogResponse, summary="Reject log (with note)")
 async def reject_log(
     log_id: UUID, db: DbSession,
     body: DailyLogReject = None,
@@ -227,29 +183,15 @@ async def reject_log(
     return await DailyLogService.reject_log(db, log_id, rejection_reason=reason)
 
 
-# ── Sub-Entities: Shifts ──
+# ── Sub-Entities: Manpower ──
 
-@logs_router.post("/daily-logs/{log_id}/shifts", response_model=ShiftResponse, status_code=201)
-async def add_shift(*, db: DbSession, log_id: UUID, shift_in: ShiftCreate, _: User = Depends(get_current_active_user)) -> Any:
-    obj = Shift(log_id=log_id, shift_type=shift_in.shift_type)
-    db.add(obj); await db.commit(); await db.refresh(obj)
-    return obj
-
-@logs_router.get("/daily-logs/{log_id}/shifts", response_model=List[ShiftResponse])
-async def list_shifts(log_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
-    result = await db.execute(select(Shift).where(Shift.log_id == log_id))
-    return list(result.scalars().all())
-
-
-# ── Sub-Entities: Manpower (renamed from Labor) ──
-
-@logs_router.post("/daily-logs/{log_id}/manpower", response_model=ManpowerResponse, status_code=201)
+@logs_router.post("/daily-logs/{log_id}/manpower", response_model=ManpowerResponse, status_code=201, summary="Add manpower entry")
 async def add_manpower(*, db: DbSession, log_id: UUID, manpower_in: ManpowerCreate, _: User = Depends(get_current_active_user)) -> Any:
     obj = Manpower(log_id=log_id, worker_type=manpower_in.worker_type, hours_worked=manpower_in.hours_worked, cost=manpower_in.cost)
     db.add(obj); await db.commit(); await db.refresh(obj)
     return obj
 
-@logs_router.get("/daily-logs/{log_id}/manpower", response_model=List[ManpowerResponse])
+@logs_router.get("/daily-logs/{log_id}/manpower", response_model=List[ManpowerResponse], summary="List manpower entries")
 async def list_manpower(log_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
     result = await db.execute(select(Manpower).where(Manpower.log_id == log_id))
     return list(result.scalars().all())
@@ -257,13 +199,13 @@ async def list_manpower(log_id: UUID, db: DbSession, _: User = Depends(get_curre
 
 # ── Sub-Entities: Materials ──
 
-@logs_router.post("/daily-logs/{log_id}/materials", response_model=MaterialResponse, status_code=201)
+@logs_router.post("/daily-logs/{log_id}/materials", response_model=MaterialResponse, status_code=201, summary="Add material entry")
 async def add_material(*, db: DbSession, log_id: UUID, mat_in: MaterialCreate, _: User = Depends(get_current_active_user)) -> Any:
     obj = Material(log_id=log_id, name=mat_in.name, quantity=mat_in.quantity, unit=mat_in.unit, cost=mat_in.cost)
     db.add(obj); await db.commit(); await db.refresh(obj)
     return obj
 
-@logs_router.get("/daily-logs/{log_id}/materials", response_model=List[MaterialResponse])
+@logs_router.get("/daily-logs/{log_id}/materials", response_model=List[MaterialResponse], summary="List material entries")
 async def list_materials(log_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
     result = await db.execute(select(Material).where(Material.log_id == log_id))
     return list(result.scalars().all())
@@ -271,13 +213,13 @@ async def list_materials(log_id: UUID, db: DbSession, _: User = Depends(get_curr
 
 # ── Sub-Entities: Equipment ──
 
-@logs_router.post("/daily-logs/{log_id}/equipment", response_model=EquipmentResponse, status_code=201)
+@logs_router.post("/daily-logs/{log_id}/equipment", response_model=EquipmentResponse, status_code=201, summary="Add equipment entry")
 async def add_equipment(*, db: DbSession, log_id: UUID, equip_in: EquipmentCreate, _: User = Depends(get_current_active_user)) -> Any:
     obj = Equipment(log_id=log_id, name=equip_in.name, hours_used=equip_in.hours_used, cost=equip_in.cost)
     db.add(obj); await db.commit(); await db.refresh(obj)
     return obj
 
-@logs_router.get("/daily-logs/{log_id}/equipment", response_model=List[EquipmentResponse])
+@logs_router.get("/daily-logs/{log_id}/equipment", response_model=List[EquipmentResponse], summary="List equipment entries")
 async def list_equipment(log_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
     result = await db.execute(select(Equipment).where(Equipment.log_id == log_id))
     return list(result.scalars().all())
@@ -285,13 +227,13 @@ async def list_equipment(log_id: UUID, db: DbSession, _: User = Depends(get_curr
 
 # ── Sub-Entities: Equipment Idle ──
 
-@logs_router.post("/equipment/{equipment_id}/idle", response_model=EquipmentIdleResponse, status_code=201)
+@logs_router.post("/equipment/{equipment_id}/idle", response_model=EquipmentIdleResponse, status_code=201, summary="Record equipment idle time")
 async def add_equipment_idle(*, db: DbSession, equipment_id: UUID, idle_in: EquipmentIdleCreate, _: User = Depends(get_current_active_user)) -> Any:
     obj = EquipmentIdle(equipment_id=equipment_id, reason=idle_in.reason, hours_idle=idle_in.hours_idle)
     db.add(obj); await db.commit(); await db.refresh(obj)
     return obj
 
-@logs_router.get("/equipment/{equipment_id}/idle", response_model=List[EquipmentIdleResponse])
+@logs_router.get("/equipment/{equipment_id}/idle", response_model=List[EquipmentIdleResponse], summary="List equipment idle records")
 async def list_equipment_idle(equipment_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
     result = await db.execute(select(EquipmentIdle).where(EquipmentIdle.equipment_id == equipment_id))
     return list(result.scalars().all())
@@ -311,7 +253,7 @@ def _photo_extension(filename: str | None, content_type: str | None) -> str:
     return "bin"
 
 
-@logs_router.post("/daily-logs/{log_id}/photos", response_model=DailyLogPhotoResponse, status_code=201)
+@logs_router.post("/daily-logs/{log_id}/photos", response_model=DailyLogPhotoResponse, status_code=201, summary="Upload photo to daily log")
 async def upload_daily_log_photo(
     log_id: UUID, db: DbSession,
     file: UploadFile = File(...),
@@ -378,7 +320,7 @@ async def upload_daily_log_photo(
     return photo
 
 
-@logs_router.get("/daily-logs/{log_id}/photos", response_model=List[DailyLogPhotoResponse])
+@logs_router.get("/daily-logs/{log_id}/photos", response_model=List[DailyLogPhotoResponse], summary="List daily log photos")
 async def list_daily_log_photos(
     log_id: UUID, db: DbSession,
     _: User = Depends(get_current_active_user),
@@ -387,7 +329,7 @@ async def list_daily_log_photos(
     return list(result.scalars().all())
 
 
-@logs_router.delete("/daily-logs/{log_id}/photos/{photo_id}", status_code=204)
+@logs_router.delete("/daily-logs/{log_id}/photos/{photo_id}", status_code=204, summary="Delete daily log photo")
 async def delete_daily_log_photo(
     log_id: UUID, photo_id: UUID, db: DbSession,
     _: User = Depends(get_current_active_user),
@@ -399,7 +341,6 @@ async def delete_daily_log_photo(
     if not photo:
         raise HTTPException(status_code=404, detail="Photo not found")
 
-    # Delete from whichever backend the photo lives on. url_path tells us which.
     if photo.url_path and photo.url_path.startswith("https://") and _cloudinary_configured():
         _configure_cloudinary()
         try:

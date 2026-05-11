@@ -26,7 +26,7 @@ class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
 
-@router.post("/register", response_model=UserResponse, status_code=201)
+@router.post("/register", response_model=UserResponse, status_code=201, summary="Register a new user")
 async def register_user(
     *,
     db: DbSession,
@@ -34,7 +34,7 @@ async def register_user(
 ) -> Any:
     return await UserService.create_user(db=db, user_in=user_in)
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=Token, summary="Login and get access token")
 async def login_access_token(
     *,
     db: DbSession,
@@ -44,7 +44,7 @@ async def login_access_token(
         db=db, email=login_in.email, password=login_in.password
     )
 
-@router.post("/refresh", response_model=Token)
+@router.post("/refresh", response_model=Token, summary="Refresh access token")
 async def refresh_token_endpoint(
     *,
     db: DbSession,
@@ -107,7 +107,7 @@ async def refresh_token_endpoint(
         )
 
 
-@router.post("/forgot-password")
+@router.post("/forgot-password", summary="Request password reset email")
 async def forgot_password(*, db: DbSession, body: ForgotPasswordRequest) -> Any:
     """Send a password reset link to the user's email."""
     user = await UserRepository.get_by_email(db, email=body.email)
@@ -129,7 +129,7 @@ async def forgot_password(*, db: DbSession, body: ForgotPasswordRequest) -> Any:
     return {"message": "If an account with that email exists, a reset link has been sent."}
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", summary="Reset password with token")
 async def reset_password(*, db: DbSession, body: ResetPasswordRequest) -> Any:
     """Reset password using a token from the email link."""
     try:

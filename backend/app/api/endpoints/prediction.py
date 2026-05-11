@@ -187,7 +187,7 @@ def _generate_insights(m: dict, risk_level: str) -> tuple[str, str]:
     return "; ".join(reasons), "; ".join(recommendations)
 
 
-@router.get("/{project_id}/prediction", response_model=RiskPredictionResponse)
+@router.get("/{project_id}/prediction", response_model=RiskPredictionResponse, summary="Get risk prediction (ML/rule-based)")
 async def get_risk_prediction(
     project_id: UUID, db: DbSession,
     _: User = Depends(get_current_active_user),

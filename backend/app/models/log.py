@@ -19,27 +19,14 @@ class DailyLog(Base):
     weather = Column(String(100))
     rejection_reason = Column(Text, nullable=True)
 
-    # "How many" — quantity of work completed on this date, with its unit (m³, m, units, etc.).
-    # Used to compute productivity (quantity per labor-hour) and verify task progress.
-    quantity_completed = Column(Float, nullable=True)
-    unit = Column(String(50), nullable=True)
-
     # Relationships to isolated sub-entities
-    shifts = relationship("Shift", back_populates="log", cascade="all, delete-orphan")
     manpower = relationship("Manpower", back_populates="log", cascade="all, delete-orphan")
     materials = relationship("Material", back_populates="log", cascade="all, delete-orphan")
     equipment = relationship("Equipment", back_populates="log", cascade="all, delete-orphan")
     photos = relationship("DailyLogPhoto", back_populates="log", cascade="all, delete-orphan")
 
-class Shift(Base):
-    __tablename__ = "shifts"
-    id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    log_id = Column(SQL_UUID(as_uuid=True), ForeignKey("daily_logs.id"), nullable=False)
-    shift_type = Column(String(50)) # e.g. Day, Night
-    log = relationship("DailyLog", back_populates="shifts")
-
 class Manpower(Base):
-    """Renamed from Labor. Tracks workers/hours/cost recorded against a daily log."""
+    """Tracks workers/hours/cost recorded against a daily log."""
     __tablename__ = "manpower"
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     log_id = Column(SQL_UUID(as_uuid=True), ForeignKey("daily_logs.id"), nullable=False)

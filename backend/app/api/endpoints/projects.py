@@ -23,21 +23,21 @@ member_repo = ProjectMemberRepository()
 
 # ── Project CRUD ──
 
-@router.post("", response_model=ProjectResponse, status_code=201)
+@router.post("", response_model=ProjectResponse, status_code=201, summary="Create a new project")
 async def create_project(
     *, db: DbSession, project_in: ProjectCreate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     return await ProjectService.create_project(db, project_in, current_user.id)
 
-@router.get("", response_model=List[ProjectResponse])
+@router.get("", response_model=List[ProjectResponse], summary="List all projects")
 async def list_projects(
     db: DbSession, skip: int = 0, limit: int = 100,
     _: User = Depends(get_current_active_user),
 ) -> Any:
     return await project_repo.get_all(db, skip=skip, limit=limit)
 
-@router.get("/{project_id}", response_model=ProjectResponse)
+@router.get("/{project_id}", response_model=ProjectResponse, summary="Get project details")
 async def get_project(
     project_id: UUID, db: DbSession,
     _: User = Depends(get_current_active_user),
@@ -47,21 +47,21 @@ async def get_project(
         raise HTTPException(status_code=404, detail="Project not found")
     return project
 
-@router.put("/{project_id}", response_model=ProjectResponse,
+@router.put("/{project_id}", response_model=ProjectResponse, summary="Update project",
             dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def update_project(
     *, db: DbSession, project_id: UUID, project_in: ProjectUpdate,
 ) -> Any:
     return await ProjectService.update_project(db, project_id, project_in)
 
-@router.delete("/{project_id}", status_code=204,
+@router.delete("/{project_id}", status_code=204, summary="Delete project",
                dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def delete_project(project_id: UUID, db: DbSession) -> None:
     await ProjectService.delete_project(db, project_id)
 
 # ── Project Dashboard ──
 
-@router.get("/{project_id}/dashboard", response_model=ProjectDashboard)
+@router.get("/{project_id}/dashboard", response_model=ProjectDashboard, summary="Get project dashboard")
 async def get_project_dashboard(
     project_id: UUID, db: DbSession,
     _: User = Depends(get_current_active_user),
@@ -70,14 +70,14 @@ async def get_project_dashboard(
 
 # ── Project Members ──
 
-@router.post("/{project_id}/members", response_model=ProjectMemberResponse, status_code=201,
+@router.post("/{project_id}/members", response_model=ProjectMemberResponse, status_code=201, summary="Add project member",
              dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def add_member(
     *, db: DbSession, project_id: UUID, member_in: ProjectMemberCreate,
 ) -> Any:
     return await ProjectMemberService.add_member(db, project_id, member_in)
 
-@router.get("/{project_id}/members", response_model=List[ProjectMemberWithUserResponse])
+@router.get("/{project_id}/members", response_model=List[ProjectMemberWithUserResponse], summary="List project members")
 async def list_members(
     project_id: UUID, db: DbSession,
     _: User = Depends(get_current_active_user),
@@ -89,28 +89,28 @@ async def list_members(
     )
     return list(result.scalars().all())
 
-@router.patch("/{project_id}/members/{user_id}", response_model=ProjectMemberResponse,
+@router.patch("/{project_id}/members/{user_id}", response_model=ProjectMemberResponse, summary="Update member role",
               dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def update_member_role(
     *, db: DbSession, project_id: UUID, user_id: UUID, update_in: ProjectMemberUpdate,
 ) -> Any:
     return await ProjectMemberService.update_member_role(db, project_id, user_id, update_in)
 
-@router.delete("/{project_id}/members/{user_id}", status_code=204,
+@router.delete("/{project_id}/members/{user_id}", status_code=204, summary="Remove project member",
                dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def remove_member(project_id: UUID, user_id: UUID, db: DbSession) -> None:
     await ProjectMemberService.remove_member(db, project_id, user_id)
 
 # ── Project Invitations ──
 
-@router.post("/{project_id}/invitations", response_model=ProjectInvitationResponse, status_code=201,
+@router.post("/{project_id}/invitations", response_model=ProjectInvitationResponse, status_code=201, summary="Create invitation (any role)",
              dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def create_invitation(
     *, db: DbSession, project_id: UUID, invite_in: ProjectInvitationCreate,
 ) -> Any:
     return await ProjectInvitationService.create_invitation(db, project_id, invite_in)
 
-@router.get("/{project_id}/invitations", response_model=List[ProjectInvitationResponse],
+@router.get("/{project_id}/invitations", response_model=List[ProjectInvitationResponse], summary="List invitations",
             dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def list_invitations(
     project_id: UUID, db: DbSession,
@@ -123,14 +123,14 @@ async def list_invitations(
     """
     return await ProjectInvitationService.get_invitations(db, project_id, status=status)
 
-@router.post("/{project_id}/invitations/{invitation_id}/resend", response_model=ProjectInvitationResponse,
+@router.post("/{project_id}/invitations/{invitation_id}/resend", response_model=ProjectInvitationResponse, summary="Resend invitation email",
              dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def resend_invitation(
     *, db: DbSession, project_id: UUID, invitation_id: UUID,
 ) -> Any:
     return await ProjectInvitationService.resend_invitation(db, project_id, invitation_id)
 
-@router.delete("/{project_id}/invitations/{invitation_id}", status_code=204,
+@router.delete("/{project_id}/invitations/{invitation_id}", status_code=204, summary="Delete invitation",
                dependencies=[Depends(require_project_role([ProjectRole.OWNER, ProjectRole.PROJECT_MANAGER]))])
 async def delete_invitation(project_id: UUID, invitation_id: UUID, db: DbSession) -> None:
     """
@@ -140,7 +140,7 @@ async def delete_invitation(project_id: UUID, invitation_id: UUID, db: DbSession
     """
     await ProjectInvitationService.delete_invitation(db, project_id, invitation_id)
 
-@router.post("/invitations/accept", response_model=ProjectMemberResponse)
+@router.post("/invitations/accept", response_model=ProjectMemberResponse, summary="Accept an invitation")
 async def accept_invitation(
     *, db: DbSession, accept_in: ProjectInvitationAccept,
     current_user: User = Depends(get_current_active_user),
