@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
-CACHE_TTL_SECONDS = 1800  # 30 minutes
+CACHE_TTL_SECONDS = 86400  # 24 hours
 HTTP_TIMEOUT = 5.0
 FORECAST_DAYS = 7
 

@@ -1,8 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
-from app.models.task import Task, TaskDependency
-from app.models.log import DailyLog, Shift, Manpower, Material, Equipment, EquipmentIdle, DailyLogPhoto
+from app.models.task import Task, TaskDependency, TaskActivity
+from app.models.log import DailyLog, Manpower, Material, Equipment, EquipmentIdle, DailyLogPhoto
 from app.repositories.base import BaseRepository
 
 class TaskRepository(BaseRepository[Task]):
@@ -25,6 +25,14 @@ class TaskDependencyRepository(BaseRepository[TaskDependency]):
         result = await db.execute(select(TaskDependency).where(TaskDependency.task_id == task_id))
         return list(result.scalars().all())
 
+class TaskActivityRepository(BaseRepository[TaskActivity]):
+    def __init__(self):
+        super().__init__(TaskActivity)
+
+    async def get_by_task(self, db: AsyncSession, task_id: UUID):
+        result = await db.execute(select(TaskActivity).where(TaskActivity.task_id == task_id))
+        return list(result.scalars().all())
+
 class DailyLogRepository(BaseRepository[DailyLog]):
     def __init__(self):
         super().__init__(DailyLog)
@@ -36,10 +44,6 @@ class DailyLogRepository(BaseRepository[DailyLog]):
         query = query.offset(skip).limit(limit)
         result = await db.execute(query)
         return list(result.scalars().all())
-
-class ShiftRepository(BaseRepository[Shift]):
-    def __init__(self):
-        super().__init__(Shift)
 
 class ManpowerRepository(BaseRepository[Manpower]):
     def __init__(self):

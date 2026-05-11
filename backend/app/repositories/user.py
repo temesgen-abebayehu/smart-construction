@@ -98,3 +98,22 @@ class UserRepository:
             await db.commit()
             await db.refresh(db_obj)
         return db_obj
+
+    @staticmethod
+    async def activate(db: AsyncSession, id: UUID | str) -> User | None:
+        db_obj = await UserRepository.get_by_id(db, id=id)
+        if db_obj:
+            db_obj.is_active = True
+            db.add(db_obj)
+            await db.commit()
+            await db.refresh(db_obj)
+        return db_obj
+
+    @staticmethod
+    async def delete(db: AsyncSession, id: UUID | str) -> bool:
+        db_obj = await UserRepository.get_by_id(db, id=id)
+        if not db_obj:
+            return False
+        await db.delete(db_obj)
+        await db.commit()
+        return True

@@ -14,14 +14,14 @@ from app.schemas.system import (
 # ══════════════════════ Messages ══════════════════════
 messages_router = APIRouter()
 
-@messages_router.get("", response_model=List[MessageResponse])
+@messages_router.get("", response_model=List[MessageResponse], summary="List my messages")
 async def list_messages(
     db: DbSession, current_user: User = Depends(get_current_active_user),
 ) -> Any:
     result = await db.execute(select(Message).where(Message.user_id == current_user.id).order_by(Message.created_at.desc()))
     return list(result.scalars().all())
 
-@messages_router.patch("/{message_id}/read", response_model=MessageResponse)
+@messages_router.patch("/{message_id}/read", response_model=MessageResponse, summary="Mark message as read")
 async def mark_message_read(
     message_id: UUID, db: DbSession,
     _: User = Depends(get_current_active_user),
@@ -39,7 +39,7 @@ async def mark_message_read(
 # ══════════════════════ Audit Logs ══════════════════════
 audit_router = APIRouter()
 
-@audit_router.get("", response_model=List[AuditLogResponse])
+@audit_router.get("", response_model=List[AuditLogResponse], summary="List audit logs (Admin)")
 async def list_audit_logs(
     db: DbSession, skip: int = 0, limit: int = 100,
     _: User = Depends(get_current_admin_user),
@@ -47,7 +47,7 @@ async def list_audit_logs(
     result = await db.execute(select(AuditLog).order_by(AuditLog.created_at.desc()).offset(skip).limit(limit))
     return list(result.scalars().all())
 
-@audit_router.get("/projects/{project_id}", response_model=List[AuditLogResponse])
+@audit_router.get("/projects/{project_id}", response_model=List[AuditLogResponse], summary="List project audit logs")
 async def list_project_audit_logs(
     project_id: UUID, db: DbSession, skip: int = 0, limit: int = 100,
     _: User = Depends(get_current_active_user),
@@ -61,14 +61,14 @@ async def list_project_audit_logs(
 # ══════════════════════ System Settings ══════════════════════
 settings_router = APIRouter()
 
-@settings_router.get("", response_model=List[SystemSettingResponse])
+@settings_router.get("", response_model=List[SystemSettingResponse], summary="List settings (Admin)")
 async def list_settings(
     db: DbSession, _: User = Depends(get_current_admin_user),
 ) -> Any:
     result = await db.execute(select(SystemSetting))
     return list(result.scalars().all())
 
-@settings_router.put("", response_model=SystemSettingResponse)
+@settings_router.put("", response_model=SystemSettingResponse, summary="Create/update setting (Admin)")
 async def upsert_setting(
     *, db: DbSession, setting_in: SystemSettingCreate,
     _: User = Depends(get_current_admin_user),

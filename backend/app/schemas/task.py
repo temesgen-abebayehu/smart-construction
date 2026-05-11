@@ -14,7 +14,9 @@ class TaskBase(BaseModel):
     assigned_to: UUID | None = None
 
 class TaskCreate(TaskBase):
-    pass
+    # Optional: set a dependency at creation time. The backend will auto-adjust
+    # start_date to the business day after the predecessor's end_date.
+    depends_on_task_id: UUID | None = None
 
 class TaskUpdate(BaseModel):
     name: str | None = None
@@ -48,6 +50,26 @@ class TaskDependencyCreate(TaskDependencyBase):
 class TaskDependencyResponse(TaskDependencyBase):
     id: UUID
     task_id: UUID
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Task Activities ──
+
+class TaskActivityCreate(BaseModel):
+    name: str
+    percentage: float  # contribution weight to task progress (0-100)
+
+class TaskActivityUpdate(BaseModel):
+    name: str | None = None
+    percentage: float | None = None
+    is_completed: bool | None = None
+
+class TaskActivityResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    name: str
+    percentage: float
+    is_completed: bool
     model_config = ConfigDict(from_attributes=True)
 
 

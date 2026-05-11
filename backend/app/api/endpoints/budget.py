@@ -14,7 +14,7 @@ from app.repositories.project import ProjectRepository
 router = APIRouter()
 project_repo = ProjectRepository()
 
-@router.get("/{project_id}/budget", response_model=BudgetSummary)
+@router.get("/{project_id}/budget", response_model=BudgetSummary, summary="Get budget summary")
 async def get_budget(
     project_id: UUID, db: DbSession,
     _: User = Depends(get_current_active_user),
@@ -35,7 +35,7 @@ async def get_budget(
         remaining=project.total_budget - project.budget_spent,
     )
 
-@router.post("/{project_id}/budget-items", response_model=BudgetItemResponse, status_code=201,
+@router.post("/{project_id}/budget-items", response_model=BudgetItemResponse, status_code=201, summary="Create budget item",
              dependencies=[Depends(require_project_role([ProjectRole.PROJECT_MANAGER, ProjectRole.OFFICE_ENGINEER]))])
 async def create_budget_item(
     *, db: DbSession, project_id: UUID, item_in: BudgetItemCreate,
@@ -50,7 +50,7 @@ async def create_budget_item(
     await db.refresh(item)
     return item
 
-@router.get("/{project_id}/budget-items", response_model=List[BudgetItemResponse])
+@router.get("/{project_id}/budget-items", response_model=List[BudgetItemResponse], summary="List budget items")
 async def list_budget_items(
     project_id: UUID, db: DbSession,
     _: User = Depends(get_current_active_user),
