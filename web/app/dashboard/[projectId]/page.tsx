@@ -7,6 +7,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Table,
   TableBody,
   TableCell,
@@ -24,12 +31,18 @@ import {
   Droplets,
   Loader2,
   Thermometer,
+  Settings,
+  ChevronDown,
+  DollarSign,
+  FileText,
+  LayoutDashboard,
 } from 'lucide-react'
 import { useProjectRole } from '@/lib/project-role-context'
 import { useCurrency } from '@/lib/currency-context'
 import { CurrencyPicker } from '@/components/currency-picker'
 import { getPrediction, getProject, getProjectDashboard, getWeather, listProjectLogs, listProjectTasks } from '@/lib/api'
 import type { LogListItem, PredictionResponse, ProjectDetail, TaskListItem, WeatherResponse } from '@/lib/api-types'
+import { WeatherForecastCard } from '@/components/weather-forecast-card'
 
 interface DashboardPageProps {
   params: Promise<{ projectId: string }>
@@ -43,7 +56,7 @@ function getIssueTag(log: LogListItem) {
     return { label: 'Weather Hold', className: 'bg-blue-100 text-blue-700' }
   }
 
-  if (log.status === 'submitted' || log.status === 'reviewed') {
+  if (log.status === 'submitted') {
     return { label: 'Pending Review', className: 'bg-amber-100 text-amber-700' }
   }
 
@@ -65,38 +78,38 @@ export default function DashboardPage({ params }: DashboardPageProps) {
     delay_risk_status: string
   } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [predictionOpen, setPredictionOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      try {
-        const [proj, taskRes, logRes, pred, dashboard, wthr] = await Promise.all([
-          getProject(projectId),
-          listProjectTasks(projectId, { limit: 100 }),
-          listProjectLogs(projectId, { limit: 100 }),
-          getPrediction(projectId).catch(() => null),
-          getProjectDashboard(projectId).catch(() => null),
-          getWeather(projectId).catch(() => null),
-        ])
-        if (cancelled) return
-        setProject(proj)
-        setTasks(taskRes.data ?? [])
-        setLogs(logRes.data ?? [])
-        setPrediction(pred)
-        setDashboardSummary(dashboard)
-        setWeather(wthr)
-        console.log({wthr})
-      } catch {
-        if (!cancelled) {
-          setProject(null)
-          setTasks([])
-          setLogs([])
+      ; (async () => {
+        setLoading(true)
+        try {
+          const [proj, taskRes, logRes, pred, dashboard, wthr] = await Promise.all([
+            getProject(projectId),
+            listProjectTasks(projectId, { limit: 100 }),
+            listProjectLogs(projectId, { limit: 100 }),
+            getPrediction(projectId).catch(() => null),
+            getProjectDashboard(projectId).catch(() => null),
+            getWeather(projectId).catch(() => null),
+          ])
+          if (cancelled) return
+          setProject(proj)
+          setTasks(taskRes.data ?? [])
+          setLogs(logRes.data ?? [])
+          setPrediction(pred)
+          setDashboardSummary(dashboard)
+          setWeather(wthr)
+        } catch {
+          if (!cancelled) {
+            setProject(null)
+            setTasks([])
+            setLogs([])
+          }
+        } finally {
+          if (!cancelled) setLoading(false)
         }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
+      })()
     return () => {
       cancelled = true
     }
@@ -123,7 +136,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
   const spentPct = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0
 
   const pendingApprovals = logs.filter((log) =>
-    ['submitted', 'reviewed', 'consultant_approved'].includes(log.status),
+    ['submitted', 'consultant_approved'].includes(log.status),
   ).length
 
   const riskLevel = prediction?.risk_level ?? dashboardSummary?.delay_risk_status ?? 'low'
@@ -132,8 +145,8 @@ export default function DashboardPage({ params }: DashboardPageProps) {
   const aiMessage = prediction?.reason
     ? prediction.reason
     : prediction
-    ? `Delay estimate: ${prediction.delay_estimate_days} days | Budget overrun: ETB ${prediction.budget_overrun_estimate.toLocaleString()}`
-    : 'Current schedule stability is healthy'
+      ? `Delay estimate: ${prediction.delay_estimate_days} days | Budget overrun: ETB ${prediction.budget_overrun_estimate.toLocaleString()}`
+      : 'Current schedule stability is healthy'
 
   const recentLogs = [...logs]
     .sort((a, b) => +new Date(b.date) - +new Date(a.date))
@@ -141,6 +154,22 @@ export default function DashboardPage({ params }: DashboardPageProps) {
 
   return (
     <div className="space-y-6">
+      {/* Header with Edit Button */}
+      {isProjectManager && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">{project.name}</h2>
+            <p className="text-sm text-muted-foreground">{project.location}</p>
+          </div>
+          <Link href={`/dashboard/${projectId}/edit`}>
+            <Button variant="outline" className="gap-2">
+              <Settings className="h-4 w-4" />
+              Edit Project
+            </Button>
+          </Link>
+        </div>
+      )}
+
       <div className={`grid gap-4 ${isProjectManager ? 'xl:grid-cols-3' : 'xl:grid-cols-1'}`}>
         <Card className="shadow-sm">
           <CardHeader className="pb-3">
@@ -212,79 +241,197 @@ export default function DashboardPage({ params }: DashboardPageProps) {
           </CardContent>
         </Card>}
 
-        {isProjectManager && <Card className="border-blue-600 bg-gradient-to-br from-blue-700 to-indigo-700 text-white shadow-sm">
-          <CardHeader className="pb-2">
+        {isProjectManager && <Card className="shadow-sm border-2 border-primary/20">
+          <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base">AI Predictor</CardTitle>
-              <Bot className="h-4 w-4 text-blue-100" />
-            </div>
-            <CardDescription className="text-blue-100">
-              System Live: ML Prediction Engine Active
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-blue-100">Risk signal</p>
-              <p className="text-3xl font-semibold capitalize">
-                {prediction?.risk_level ?? `Score: ${riskLevelScore}`}
-              </p>
-            </div>
-
-            {prediction && (
-              <div className="grid grid-cols-2 gap-2 text-xs text-blue-100">
-                <div>
-                  <p className="font-medium text-white">{prediction.delay_estimate_days}d</p>
-                  <p>Est. Delay</p>
+              <div className="flex items-center gap-2">
+                <div className="rounded-lg bg-primary/10 p-2">
+                  <Bot className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <p className="font-medium text-white">{(prediction.confidence_score * 100).toFixed(0)}%</p>
-                  <p>Confidence</p>
+                  <CardTitle className="text-base">AI Risk Prediction</CardTitle>
+                  <CardDescription>Machine learning analysis</CardDescription>
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Risk Level Badge */}
+            <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground mb-1">Risk Level</p>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    className={`text-base px-3 py-1 ${prediction?.risk_level === 'high' || prediction?.risk_level === 'critical'
+                      ? 'bg-red-100 text-red-700 border-red-300'
+                      : prediction?.risk_level === 'medium'
+                        ? 'bg-amber-100 text-amber-700 border-amber-300'
+                        : 'bg-green-100 text-green-700 border-green-300'
+                      }`}
+                    variant="outline"
+                  >
+                    {prediction?.risk_level ? prediction.risk_level.toUpperCase() : `Score: ${riskLevelScore}`}
+                  </Badge>
+                </div>
+              </div>
+              {prediction && (
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">Confidence</p>
+                  <p className="text-2xl font-bold text-primary">{(prediction.confidence_score * 100).toFixed(0)}%</p>
+                </div>
+              )}
+            </div>
+
+            {/* Key Metrics */}
+            {prediction && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Clock3 className="h-4 w-4 text-amber-600" />
+                    <p className="text-sm font-medium text-muted-foreground">Estimated Delay</p>
+                  </div>
+                  <p className="text-2xl font-bold">{prediction.delay_estimate_days} days</p>
+                </div>
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <DollarSign className="h-4 w-4 text-red-600" />
+                    <p className="text-sm font-medium text-muted-foreground">Budget Overrun</p>
+                  </div>
+                  <p className="text-2xl font-bold">{formatBudget(prediction.budget_overrun_estimate)}</p>
                 </div>
               </div>
             )}
 
-            <div className="rounded-md border border-white/20 bg-card/10 p-3 text-sm space-y-1.5">
-              <div className="flex items-start gap-2 text-blue-50">
-                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                <span>{aiMessage}</span>
+            {/* Summary */}
+            {prediction && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 p-3">
+                <div className="flex items-start gap-2 text-sm">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+                  <p className="text-amber-900 dark:text-amber-200">{aiMessage}</p>
+                </div>
               </div>
-              {prediction?.recommendation && (
-                <p className="text-xs text-blue-200 pl-6">{prediction.recommendation}</p>
-              )}
-            </div>
+            )}
+
+            {/* View Details Button */}
+            <Button
+              variant="outline"
+              className="w-full gap-2"
+              onClick={() => setPredictionOpen(true)}
+            >
+              View Detailed Analysis
+              <ArrowRight className="h-4 w-4" />
+            </Button>
           </CardContent>
         </Card>}
+
+        {/* AI Prediction Details Modal */}
+        <Dialog open={predictionOpen} onOpenChange={setPredictionOpen}>
+          <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Bot className="h-5 w-5 text-primary" />
+                AI Risk Prediction - Detailed Analysis
+              </DialogTitle>
+              <DialogDescription>
+                Machine learning analysis of project risks and recommendations
+              </DialogDescription>
+            </DialogHeader>
+
+            {prediction && (
+              <div className="space-y-4 py-4">
+                {/* Risk Level Summary */}
+                <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Risk Level</p>
+                    <Badge
+                      className={`text-lg px-4 py-1 ${prediction.risk_level === 'high' || prediction.risk_level === 'critical'
+                        ? 'bg-red-100 text-red-700 border-red-300'
+                        : prediction.risk_level === 'medium'
+                          ? 'bg-amber-100 text-amber-700 border-amber-300'
+                          : 'bg-green-100 text-green-700 border-green-300'
+                        }`}
+                      variant="outline"
+                    >
+                      {prediction.risk_level.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-muted-foreground">Confidence</p>
+                    <p className="text-3xl font-bold text-primary">{(prediction.confidence_score * 100).toFixed(0)}%</p>
+                  </div>
+                </div>
+
+                {/* Key Metrics */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="rounded-lg border bg-card p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Clock3 className="h-5 w-5 text-amber-600" />
+                      <p className="text-sm font-medium text-muted-foreground">Estimated Delay</p>
+                    </div>
+                    <p className="text-3xl font-bold">{prediction.delay_estimate_days} days</p>
+                  </div>
+                  <div className="rounded-lg border bg-card p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <DollarSign className="h-5 w-5 text-red-600" />
+                      <p className="text-sm font-medium text-muted-foreground">Budget Overrun</p>
+                    </div>
+                    <p className="text-3xl font-bold">{formatBudget(prediction.budget_overrun_estimate)}</p>
+                  </div>
+                </div>
+
+                {/* Analysis Source */}
+                <div className="rounded-lg border bg-muted/30 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <p className="text-sm font-semibold">Analysis Source</p>
+                  </div>
+                  <p className="text-sm capitalize">{prediction.source}</p>
+                </div>
+
+                {/* Reason */}
+                <div className="rounded-lg border bg-muted/30 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <p className="text-sm font-semibold">Risk Analysis</p>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{prediction.reason}</p>
+                </div>
+
+                {/* Recommendation */}
+                <div className="rounded-lg border bg-primary/5 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Recommended Actions</p>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{prediction.recommendation}</p>
+                </div>
+
+                {/* Key Factors */}
+                {prediction.factors && Object.keys(prediction.factors).length > 0 && (
+                  <div className="rounded-lg border bg-muted/30 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
+                      <p className="text-sm font-semibold">Contributing Factors</p>
+                    </div>
+                    <div className="space-y-2">
+                      {Object.entries(prediction.factors).map(([key, val]) => (
+                        <div key={key} className="flex items-center justify-between text-sm p-2 rounded bg-background">
+                          <span className="capitalize font-medium">{key.replace(/_/g, ' ')}</span>
+                          <span className="text-muted-foreground">{String(val)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Weather Card */}
-      {weather && (weather.temperature != null || weather.humidity != null) && (
-        <Card className="shadow-sm">
-          <CardContent className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-sky-100 p-2 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400">
-                <CloudSun className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">Site Weather</p>
-                <p className="text-xs text-muted-foreground">{weather.resolved_location || weather.location || project.location}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-6">
-              {weather.temperature != null && (
-                <div className="flex items-center gap-1.5 text-sm">
-                  <Thermometer className="h-4 w-4 text-orange-500" />
-                  <span className="font-medium">{weather.temperature.toFixed(1)}&deg;C</span>
-                </div>
-              )}
-              {weather.humidity != null && (
-                <div className="flex items-center gap-1.5 text-sm">
-                  <Droplets className="h-4 w-4 text-blue-500" />
-                  <span className="font-medium">{weather.humidity.toFixed(0)}%</span>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+      {weather && (weather.temperature != null || weather.humidity != null || (weather.forecast && weather.forecast.length > 0)) && (
+        <WeatherForecastCard weather={weather} projectLocation={project.location} />
       )}
 
       <Card className="shadow-sm">
@@ -328,10 +475,10 @@ export default function DashboardPage({ params }: DashboardPageProps) {
                       <TableCell>
                         <Badge className={
                           log.status === 'pm_approved' ? 'bg-emerald-100 text-emerald-700' :
-                          log.status === 'consultant_approved' ? 'bg-indigo-100 text-indigo-700' :
-                          log.status === 'submitted' ? 'bg-amber-100 text-amber-700' :
-                          log.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                          'bg-gray-100 text-gray-700'
+                            log.status === 'consultant_approved' ? 'bg-indigo-100 text-indigo-700' :
+                              log.status === 'submitted' ? 'bg-amber-100 text-amber-700' :
+                                log.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                                  'bg-gray-100 text-gray-700'
                         }>
                           {log.status === 'pm_approved' ? 'Approved' : log.status.replace(/_/g, ' ')}
                         </Badge>

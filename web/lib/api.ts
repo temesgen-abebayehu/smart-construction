@@ -1,14 +1,20 @@
 import { apiRequest } from './api-client'
 import type {
   BudgetItemResponse,
+  BudgetPaymentItem,
   BudgetSummary,
   ClientListItem,
-  CompanyListItem,
+  ContractorItem,
   CreateProjectResponse,
   EnrichedMemberRow,
+  EquipmentItem,
+  EquipmentIdleItem,
+  DailyLogPhoto,
   InvitationResponse,
   LogDetailResponse,
   LogListItem,
+  ManpowerItem,
+  MaterialItem,
   MessageRow,
   Paginated,
   PredictionResponse,
@@ -16,6 +22,10 @@ import type {
   ProjectListItem,
   ProjectMemberRow,
   ProjectMemberWithUserRow,
+  ReportResponse,
+  SupplierItem,
+  TaskActivityItem,
+  TaskDependencyItem,
   TaskListItem,
   UserMe,
   WeatherResponse,
@@ -293,14 +303,15 @@ export async function createClient(body: { name: string; contact_email?: string 
   })
 }
 
-/** @deprecated Prefer listClients */
-export async function listCompanies(params?: { search?: string; page?: number; limit?: number }) {
-  const { data, ...rest } = await listClients(params)
-  const mapped: CompanyListItem[] = data.map((c) => ({
-    id: c.id,
-    company_name: c.name,
-  }))
-  return { ...rest, data: mapped }
+export async function updateClient(clientId: string, body: { name?: string; contact_email?: string }) {
+  return apiRequest<ClientListItem>(`/clients/${clientId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteClient(clientId: string) {
+  return apiRequest<void>(`/clients/${clientId}`, { method: 'DELETE' })
 }
 
 /* ── Tasks ── */
@@ -327,7 +338,7 @@ export async function listProjectTasks(
 
 export async function createTask(
   projectId: string,
-  body: { name: string; status?: string; start_date?: string; end_date?: string; assigned_to?: string },
+  body: { name: string; status?: string; start_date?: string; duration_days?: number; allocated_budget?: number; depends_on_task_id?: string; assigned_to?: string },
 ) {
   return apiRequest<TaskListItem>(`/projects/${projectId}/tasks`, {
     method: 'POST',
@@ -409,16 +420,13 @@ export async function getLog(logId: string) {
 
 export async function createDailyLog(
   projectId: string,
-  body: { date?: string; notes?: string; weather?: string },
-  taskId?: string,
+  taskId: string,
+  body: { notes?: string; weather?: string },
 ) {
-  const path = taskId
-    ? `/projects/${projectId}/tasks/${taskId}/daily-logs`
-    : `/projects/${projectId}/daily-logs`
-  return apiRequest<LogDetailResponse>(path, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
+  return apiRequest<LogDetailResponse>(
+    `/projects/${projectId}/tasks/${taskId}/daily-logs`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
 }
 
 // Daily log workflow transitions
@@ -426,9 +434,7 @@ export async function submitLog(logId: string) {
   return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/submit`, { method: 'PATCH' })
 }
 
-export async function reviewLog(logId: string) {
-  return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/review`, { method: 'PATCH' })
-}
+
 
 export async function consultantApproveLog(logId: string) {
   return apiRequest<LogDetailResponse>(`/daily-logs/${logId}/consultant-approve`, { method: 'PATCH' })
@@ -445,46 +451,59 @@ export async function rejectLog(logId: string, rejectionReason: string) {
   })
 }
 
-// Daily log sub-entities
-export async function listLogShifts(logId: string) {
-  return apiRequest<{ id: string; log_id: string; shift_type: string }[]>(`/daily-logs/${logId}/shifts`)
+// Daily log sub-entities — Manpower
+export async function listLogManpower(logId: string) {
+  return apiRequest<ManpowerItem[]>(`/daily-logs/${logId}/manpower`)
 }
 
-export async function addLogShift(logId: string, body: { shift_type: string }) {
-  return apiRequest(`/daily-logs/${logId}/shifts`, { method: 'POST', body: JSON.stringify(body) })
+export async function addLogManpower(logId: string, body: { worker_type: string; hours_worked: number; cost: number }) {
+  return apiRequest<ManpowerItem>(`/daily-logs/${logId}/manpower`, { method: 'POST', body: JSON.stringify(body) })
 }
 
-export async function listLogLabor(logId: string) {
-  return apiRequest<{ id: string; log_id: string; worker_type: string; hours_worked: number; cost: number }[]>(
-    `/daily-logs/${logId}/labor`,
-  )
-}
-
-export async function addLogLabor(logId: string, body: { worker_type: string; hours_worked: number; cost: number }) {
-  return apiRequest(`/daily-logs/${logId}/labor`, { method: 'POST', body: JSON.stringify(body) })
-}
-
+// Materials
 export async function listLogMaterials(logId: string) {
-  return apiRequest<{ id: string; log_id: string; name: string; quantity: number; unit: string; cost: number }[]>(
-    `/daily-logs/${logId}/materials`,
-  )
+  return apiRequest<MaterialItem[]>(`/daily-logs/${logId}/materials`)
 }
 
-export async function addLogMaterial(
-  logId: string,
-  body: { name: string; quantity: number; unit: string; cost: number },
-) {
-  return apiRequest(`/daily-logs/${logId}/materials`, { method: 'POST', body: JSON.stringify(body) })
+export async function addLogMaterial(logId: string, body: { name: string; quantity: number; unit: string; cost: number }) {
+  return apiRequest<MaterialItem>(`/daily-logs/${logId}/materials`, { method: 'POST', body: JSON.stringify(body) })
 }
 
+// Equipment
 export async function listLogEquipment(logId: string) {
-  return apiRequest<{ id: string; log_id: string; name: string; hours_used: number; cost: number }[]>(
-    `/daily-logs/${logId}/equipment`,
-  )
+  return apiRequest<EquipmentItem[]>(`/daily-logs/${logId}/equipment`)
 }
 
 export async function addLogEquipment(logId: string, body: { name: string; hours_used: number; cost: number }) {
-  return apiRequest(`/daily-logs/${logId}/equipment`, { method: 'POST', body: JSON.stringify(body) })
+  return apiRequest<EquipmentItem>(`/daily-logs/${logId}/equipment`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+// Equipment Idle
+export async function listEquipmentIdle(equipmentId: string) {
+  return apiRequest<EquipmentIdleItem[]>(`/equipment/${equipmentId}/idle`)
+}
+
+export async function addEquipmentIdle(equipmentId: string, body: { reason: string; hours_idle: number }) {
+  return apiRequest<EquipmentIdleItem>(`/equipment/${equipmentId}/idle`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+// Photos
+export async function listLogPhotos(logId: string) {
+  return apiRequest<DailyLogPhoto[]>(`/daily-logs/${logId}/photos`)
+}
+
+export async function uploadLogPhoto(logId: string, file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiRequest<DailyLogPhoto>(`/daily-logs/${logId}/photos`, {
+    method: 'POST',
+    body: formData,
+    headers: {},
+  })
+}
+
+export async function deleteLogPhoto(logId: string, photoId: string) {
+  return apiRequest<void>(`/daily-logs/${logId}/photos/${photoId}`, { method: 'DELETE' })
 }
 
 /* ── Members ── */
@@ -551,26 +570,13 @@ export async function getWeather(projectId: string) {
 
 /* ── Reports ── */
 
-export async function getReportPreview(
+export async function generateReport(
   projectId: string,
-  params: { period: string; start?: string; end?: string; sections?: string[] },
+  params: { start_date?: string; end_date?: string },
 ) {
-  const queryParts: string[] = [`period=${params.period}`]
-  if (params.start) queryParts.push(`start=${params.start}`)
-  if (params.end) queryParts.push(`end=${params.end}`)
-  if (params.sections) params.sections.forEach(s => queryParts.push(`sections=${s}`))
-  return apiRequest<Record<string, unknown>>(`/projects/${projectId}/reports/preview?${queryParts.join('&')}`)
-}
-
-export function getReportDownloadUrl(
-  projectId: string,
-  params: { period: string; start?: string; end?: string },
-) {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1'
-  const queryParts: string[] = [`period=${params.period}`]
-  if (params.start) queryParts.push(`start=${params.start}`)
-  if (params.end) queryParts.push(`end=${params.end}`)
-  return `${base}/projects/${projectId}/reports/download?${queryParts.join('&')}`
+  return apiRequest<ReportResponse>(
+    `/projects/${projectId}/reports/generate${q({ start_date: params.start_date, end_date: params.end_date })}`,
+  )
 }
 
 /* ── Budget ── */
@@ -585,6 +591,17 @@ export async function listBudgetItems(projectId: string) {
 
 export async function createBudgetItem(projectId: string, body: { amount: number; description?: string }) {
   return apiRequest<BudgetItemResponse>(`/projects/${projectId}/budget-items`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function listBudgetPayments(projectId: string) {
+  return apiRequest<BudgetPaymentItem[]>(`/projects/${projectId}/budget-payments`)
+}
+
+export async function recordBudgetPayment(projectId: string, body: { payment_amount: number; payment_date: string; reference?: string; notes?: string }) {
+  return apiRequest<BudgetPaymentItem>(`/projects/${projectId}/budget-payments`, {
     method: 'POST',
     body: JSON.stringify(body),
   })
@@ -770,4 +787,64 @@ export async function fetchProjectRole(
   } catch {
     return null
   }
+}
+
+/* ── Task Activities ── */
+
+export async function listTaskActivities(taskId: string) {
+  return apiRequest<TaskActivityItem[]>(`/projects/tasks/${taskId}/activities`)
+}
+
+export async function addTaskActivity(taskId: string, body: { name: string; percentage: number }) {
+  return apiRequest<TaskActivityItem>(`/projects/tasks/${taskId}/activities`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateTaskActivity(taskId: string, activityId: string, body: { name?: string; percentage?: number; is_completed?: boolean }) {
+  return apiRequest<TaskActivityItem>(`/projects/tasks/${taskId}/activities/${activityId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteTaskActivity(taskId: string, activityId: string) {
+  return apiRequest<void>(`/projects/tasks/${taskId}/activities/${activityId}`, { method: 'DELETE' })
+}
+
+/* ── Contractors ── */
+
+export async function listContractors(params?: { skip?: number; limit?: number }) {
+  return apiRequest<ContractorItem[]>(`/contractors${q(params || {})}`)
+}
+
+export async function createContractor(body: { name: string; specialization?: string; contact_email?: string; contact_phone?: string }) {
+  return apiRequest<ContractorItem>('/contractors', { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function updateContractor(id: string, body: { name?: string; specialization?: string; contact_email?: string; contact_phone?: string }) {
+  return apiRequest<ContractorItem>(`/contractors/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+}
+
+export async function deleteContractor(id: string) {
+  return apiRequest<void>(`/contractors/${id}`, { method: 'DELETE' })
+}
+
+/* ── Suppliers ── */
+
+export async function listSuppliers(params?: { skip?: number; limit?: number }) {
+  return apiRequest<SupplierItem[]>(`/suppliers${q(params || {})}`)
+}
+
+export async function createSupplier(body: { name: string; contact_email?: string; contact_phone?: string }) {
+  return apiRequest<SupplierItem>('/suppliers', { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function updateSupplier(id: string, body: { name?: string; contact_email?: string; contact_phone?: string }) {
+  return apiRequest<SupplierItem>(`/suppliers/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+}
+
+export async function deleteSupplier(id: string) {
+  return apiRequest<void>(`/suppliers/${id}`, { method: 'DELETE' })
 }

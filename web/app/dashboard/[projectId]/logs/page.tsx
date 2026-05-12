@@ -200,10 +200,10 @@ export default function LogsPage({ params }: LogsPageProps) {
         }
       } catch { /* weather is optional */ }
 
-      const created = await createDailyLog(projectId, {
+      const created = await createDailyLog(projectId, selectedTaskId, {
         notes: logNotes.trim() || undefined,
         weather: weatherStr,
-      }, selectedTaskId)
+      })
       setCreateOpen(false)
       toast.success('Daily log created — add labor, materials, and equipment')
       // Navigate to the log detail to fill in sub-entities

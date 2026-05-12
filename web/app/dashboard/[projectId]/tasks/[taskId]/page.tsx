@@ -24,6 +24,7 @@ import {
 import {
   ArrowLeft,
   Calendar,
+  CheckCircle2,
   GitBranch,
   Loader2,
   PencilLine,
@@ -33,8 +34,8 @@ import {
   UserCircle2,
   X,
 } from 'lucide-react'
-import { getTask, updateTask, listProjectMembersEnriched, listProjectTasks, listTaskDependencies, addTaskDependency, removeTaskDependency } from '@/lib/api'
-import type { TaskListItem, EnrichedMemberRow } from '@/lib/api-types'
+import { getTask, updateTask, listProjectMembersEnriched, listProjectTasks, listTaskDependencies, addTaskDependency, removeTaskDependency, listTaskActivities, addTaskActivity, updateTaskActivity, deleteTaskActivity } from '@/lib/api'
+import type { TaskListItem, EnrichedMemberRow, TaskActivityItem } from '@/lib/api-types'
 import type { TaskStatus } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
 import { toast } from 'sonner'
@@ -58,12 +59,16 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   const [members, setMembers] = useState<EnrichedMemberRow[]>([])
   const [allTasks, setAllTasks] = useState<TaskListItem[]>([])
   const [deps, setDeps] = useState<{ id: string; task_id: string; depends_on_task_id: string }[]>([])
+  const [activities, setActivities] = useState<TaskActivityItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState(false)
   const [depAdding, setDepAdding] = useState(false)
   const [depPending, setDepPending] = useState<Set<string>>(new Set())
+  const [newActName, setNewActName] = useState('')
+  const [newActPct, setNewActPct] = useState('')
+  const [addingAct, setAddingAct] = useState(false)
 
   // Editable fields
   const [editName, setEditName] = useState('')
@@ -79,33 +84,35 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
 
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const [t, m, tasksRes, d] = await Promise.all([
-          getTask(taskId),
-          listProjectMembersEnriched(projectId),
-          listProjectTasks(projectId, { limit: 200 }),
-          listTaskDependencies(taskId).catch(() => []),
-        ])
-        if (cancelled) return
-        setTask(t)
-        setMembers(m)
-        setAllTasks(tasksRes.data.filter(tk => tk.id !== taskId))
-        setDeps(d)
-        setEditName(t.title)
-        setEditStatus(t.status)
-        setEditProgress(String(t.progress_percentage))
-        setEditStartDate(t.start_date ? t.start_date.split('T')[0] : '')
-        setEditEndDate(t.end_date ? t.end_date.split('T')[0] : '')
-        setEditAssignee(t.assigned_to ?? null)
-      } catch {
-        if (!cancelled) setError('Failed to load task')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
+      ; (async () => {
+        setLoading(true)
+        setError(null)
+        try {
+          const [t, m, tasksRes, d, acts] = await Promise.all([
+            getTask(taskId),
+            listProjectMembersEnriched(projectId),
+            listProjectTasks(projectId, { limit: 200 }),
+            listTaskDependencies(taskId).catch(() => []),
+            listTaskActivities(taskId).catch(() => []),
+          ])
+          if (cancelled) return
+          setTask(t)
+          setMembers(m)
+          setAllTasks(tasksRes.data.filter(tk => tk.id !== taskId))
+          setDeps(d)
+          setActivities(acts)
+          setEditName(t.title)
+          setEditStatus(t.status)
+          setEditProgress(String(t.progress_percentage))
+          setEditStartDate(t.start_date ? t.start_date.split('T')[0] : '')
+          setEditEndDate(t.end_date ? t.end_date.split('T')[0] : '')
+          setEditAssignee(t.assigned_to ?? null)
+        } catch {
+          if (!cancelled) setError('Failed to load task')
+        } finally {
+          if (!cancelled) setLoading(false)
+        }
+      })()
     return () => { cancelled = true }
   }, [taskId, projectId])
 
@@ -115,16 +122,16 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
       // Site engineer can only update progress; PM can update everything
       const body = canEdit
         ? {
-            name: editName.trim() || undefined,
-            status: editStatus,
-            progress_percentage: Number.parseFloat(editProgress) || 0,
-            start_date: editStartDate ? `${editStartDate}T00:00:00` : undefined,
-            end_date: editEndDate ? `${editEndDate}T00:00:00` : undefined,
-            assigned_to: editAssignee || undefined,
-          }
+          name: editName.trim() || undefined,
+          status: editStatus,
+          progress_percentage: Number.parseFloat(editProgress) || 0,
+          start_date: editStartDate ? `${editStartDate}T00:00:00` : undefined,
+          end_date: editEndDate ? `${editEndDate}T00:00:00` : undefined,
+          assigned_to: editAssignee || undefined,
+        }
         : {
-            progress_percentage: Number.parseFloat(editProgress) || 0,
-          }
+          progress_percentage: Number.parseFloat(editProgress) || 0,
+        }
       await updateTask(taskId, body)
       // Reload
       const t = await getTask(taskId)
@@ -454,11 +461,10 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
                       <span className="text-sm truncate">{blockerTask?.title ?? dep.depends_on_task_id.slice(0, 8)}</span>
                       <Badge
                         variant="outline"
-                        className={`text-[10px] shrink-0 ${
-                          blockerTask?.status === 'completed'
+                        className={`text-[10px] shrink-0 ${blockerTask?.status === 'completed'
                             ? 'border-emerald-300 text-emerald-700'
                             : 'border-amber-300 text-amber-700'
-                        }`}
+                          }`}
                       >
                         {blockerTask?.status === 'completed' ? 'Done' : 'Blocking'}
                       </Badge>
@@ -479,6 +485,138 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
                   </div>
                 )
               })}
+            </CardContent>
+          </Card>
+
+          {/* Activities */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Activities</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {activities.map((act) => (
+                <div key={act.id} className="flex items-center justify-between rounded-lg border p-2.5">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <button
+                      type="button"
+                      className={`grid h-5 w-5 shrink-0 place-items-center rounded border transition-colors ${act.is_completed
+                          ? 'border-emerald-500 bg-emerald-500 text-white'
+                          : 'border-slate-300 hover:border-emerald-400'
+                        }`}
+                      onClick={async () => {
+                        try {
+                          await updateTaskActivity(taskId, act.id, { is_completed: !act.is_completed })
+                          setActivities(prev => prev.map(a => a.id === act.id ? { ...a, is_completed: !a.is_completed } : a))
+                          // Reload task to get updated progress
+                          const t = await getTask(taskId)
+                          setTask(t)
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : 'Failed to update')
+                        }
+                      }}
+                    >
+                      {act.is_completed && <CheckCircle2 className="h-3 w-3" />}
+                    </button>
+                    <span className={`text-sm truncate ${act.is_completed ? 'line-through text-muted-foreground' : ''}`}>{act.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge variant="outline" className="text-[10px]">{act.percentage}%</Badge>
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        onClick={async () => {
+                          try {
+                            await deleteTaskActivity(taskId, act.id)
+                            setActivities(prev => prev.filter(a => a.id !== act.id))
+                            const t = await getTask(taskId)
+                            setTask(t)
+                            toast.success('Activity removed')
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : 'Failed')
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {activities.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center py-2">No activities. Add activities to track progress.</p>
+              )}
+
+              {canEdit && (
+                <div className="rounded-lg border p-3 space-y-2">
+                  <div className="grid grid-cols-[1fr_80px] gap-2">
+                    <Input
+                      placeholder="Activity name"
+                      value={newActName}
+                      onChange={(e) => setNewActName(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      placeholder="%"
+                      value={newActPct}
+                      onChange={(e) => setNewActPct(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Leave percentage empty to auto-distribute equally among all activities
+                  </p>
+                  <Button
+                    size="sm"
+                    className="w-full gap-1"
+                    disabled={addingAct || !newActName.trim()}
+                    onClick={async () => {
+                      setAddingAct(true)
+                      try {
+                        // If percentage not provided, calculate equal distribution
+                        let percentage = newActPct ? Number(newActPct) : null
+
+                        if (percentage === null) {
+                          // Auto-distribute: 100 / (existing + 1)
+                          const totalActivities = activities.length + 1
+                          percentage = Math.floor(100 / totalActivities)
+
+                          // Update existing activities to equal distribution
+                          for (const act of activities) {
+                            await updateTaskActivity(taskId, act.id, { percentage })
+                          }
+                        }
+
+                        const created = await addTaskActivity(taskId, {
+                          name: newActName.trim(),
+                          percentage,
+                        })
+                        setActivities(prev => [...prev, created])
+                        setNewActName('')
+                        setNewActPct('')
+
+                        // Reload task to get updated progress
+                        const t = await getTask(taskId)
+                        setTask(t)
+
+                        toast.success('Activity added')
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : 'Failed')
+                      } finally {
+                        setAddingAct(false)
+                      }
+                    }}
+                  >
+                    {addingAct ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                    Add Activity
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

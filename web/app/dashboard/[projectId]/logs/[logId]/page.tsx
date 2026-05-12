@@ -23,18 +23,22 @@ import {
   consultantApproveLog,
   pmApproveLog,
   rejectLog,
-  listLogLabor,
+  listLogManpower,
   listLogMaterials,
   listLogEquipment,
-  addLogLabor,
+  addLogManpower,
   addLogMaterial,
   addLogEquipment,
+  listLogPhotos,
+  deleteLogPhoto,
 } from '@/lib/api'
-import type { LogDetailResponse, ProjectDetail } from '@/lib/api-types'
+import type { LogDetailResponse, ProjectDetail, DailyLogPhoto } from '@/lib/api-types'
 import type { LogStatus } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
-import { ArrowLeft, CheckCircle2, Clock3, FileText, Loader2, MapPin, Plus, Users, XCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Clock3, FileText, Loader2, MapPin, Plus, Users, XCircle, Image as ImageIcon, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
+import { uploadToCloudinary, validateImageFile } from '@/lib/cloudinary'
+import { apiRequest } from '@/lib/api-client'
 
 interface LogDetailPageProps {
   params: Promise<{ projectId: string; logId: string }>
@@ -76,27 +80,34 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
   const [labor, setLabor] = useState<LaborEntry[]>([])
   const [materials, setMaterials] = useState<MaterialEntry[]>([])
   const [equipment, setEquipment] = useState<EquipmentEntry[]>([])
+  const [photos, setPhotos] = useState<DailyLogPhoto[]>([])
 
   // Add entry forms
   const [addType, setAddType] = useState<'labor' | 'material' | 'equipment' | null>(null)
   const [formData, setFormData] = useState<Record<string, string>>({})
   const [addingEntry, setAddingEntry] = useState(false)
 
+  // Photo upload
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null)
+
   const loadData = async () => {
     setLoading(true)
     try {
-      const [proj, logData, laborData, materialData, equipData] = await Promise.all([
+      const [proj, logData, laborData, materialData, equipData, photoData] = await Promise.all([
         getProject(projectId),
         getLog(logId),
-        listLogLabor(logId).catch(() => []),
+        listLogManpower(logId).catch(() => []),
         listLogMaterials(logId).catch(() => []),
         listLogEquipment(logId).catch(() => []),
+        listLogPhotos(logId).catch(() => []),
       ])
       setProject(proj)
       setLog(logData)
       setLabor(laborData)
       setMaterials(materialData)
       setEquipment(equipData)
+      setPhotos(photoData)
     } catch {
       setProject(null)
       setLog(null)
@@ -127,7 +138,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
     setAddingEntry(true)
     try {
       if (addType === 'labor') {
-        await addLogLabor(logId, {
+        await addLogManpower(logId, {
           worker_type: formData.worker_type || 'general',
           hours_worked: Number(formData.hours_worked) || 0,
           cost: Number(formData.cost) || 0,
@@ -154,6 +165,60 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
       toast.error(e instanceof Error ? e.message : 'Failed to add entry')
     } finally {
       setAddingEntry(false)
+    }
+  }
+
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Validate file
+    const validation = validateImageFile(file)
+    if (!validation.valid) {
+      toast.error(validation.error || 'Invalid file')
+      return
+    }
+
+    setUploadingPhoto(true)
+    try {
+      // Upload to Cloudinary
+      const cloudinaryResult = await uploadToCloudinary(file, `smart-construction/daily-logs/${logId}`)
+
+      // Save photo metadata to backend
+      await apiRequest(`/daily-logs/${logId}/photos`, {
+        method: 'POST',
+        body: JSON.stringify({
+          file_path: cloudinaryResult.public_id,
+          url_path: cloudinaryResult.secure_url,
+          original_filename: file.name,
+          content_type: file.type,
+          size_bytes: file.size,
+        }),
+      })
+
+      await loadData()
+      toast.success('Photo uploaded successfully')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to upload photo')
+    } finally {
+      setUploadingPhoto(false)
+      // Reset input
+      event.target.value = ''
+    }
+  }
+
+  const handlePhotoDelete = async (photoId: string) => {
+    if (!confirm('Are you sure you want to delete this photo?')) return
+
+    setDeletingPhotoId(photoId)
+    try {
+      await deleteLogPhoto(logId, photoId)
+      await loadData()
+      toast.success('Photo deleted')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to delete photo')
+    } finally {
+      setDeletingPhotoId(null)
     }
   }
 
@@ -321,6 +386,83 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                     </div>
                   ))}
                   <p className="text-right text-sm font-medium">Total: ETB {totalEquipmentCost.toLocaleString()}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Photos */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <ImageIcon className="h-4 w-4" />
+                Photos ({photos.length})
+              </CardTitle>
+              {canAddEntries && (
+                <div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoUpload}
+                    disabled={uploadingPhoto}
+                    className="hidden"
+                    id="photo-upload"
+                  />
+                  <label htmlFor="photo-upload">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      disabled={uploadingPhoto}
+                      asChild
+                    >
+                      <span>
+                        {uploadingPhoto ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Upload className="h-3.5 w-3.5" />
+                        )}
+                        {uploadingPhoto ? 'Uploading...' : 'Upload'}
+                      </span>
+                    </Button>
+                  </label>
+                </div>
+              )}
+            </CardHeader>
+            <CardContent>
+              {photos.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No photos attached.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {photos.map((photo) => (
+                    <div key={photo.id} className="relative group rounded-lg overflow-hidden border">
+                      <img
+                        src={photo.url_path}
+                        alt={photo.original_filename || 'Daily log photo'}
+                        className="w-full h-32 object-cover"
+                      />
+                      {canAddEntries && (
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => handlePhotoDelete(photo.id)}
+                          disabled={deletingPhotoId === photo.id}
+                        >
+                          {deletingPhotoId === photo.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      )}
+                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
+                        <p className="text-xs text-white truncate">
+                          {photo.original_filename || 'Photo'}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>

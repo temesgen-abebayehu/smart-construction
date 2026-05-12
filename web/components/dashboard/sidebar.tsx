@@ -16,6 +16,7 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  Briefcase,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -54,16 +55,34 @@ const getNavItems = (projectId: string, role: ProjectRole) => {
       roles: ['project_manager', 'consultant', 'site_engineer'] as ProjectRole[],
     },
     {
+      label: 'Budget',
+      href: `/dashboard/${projectId}/budget`,
+      icon: DollarSign,
+      roles: ['project_manager'] as ProjectRole[],
+    },
+    {
       label: 'Team',
       href: `/dashboard/${projectId}/team`,
       icon: Users,
-      roles: ['project_manager'] as ProjectRole[],
+      roles: ['project_manager', 'consultant'] as ProjectRole[],
+    },
+    {
+      label: 'Stakeholders',
+      href: `/dashboard/${projectId}/stakeholders`,
+      icon: Briefcase,
+      roles: ['project_manager', 'consultant'] as ProjectRole[],
     },
     {
       label: 'Reports',
       href: `/dashboard/${projectId}/reports`,
       icon: FileText,
-      roles: ['project_manager'] as ProjectRole[],
+      roles: ['project_manager', 'consultant'] as ProjectRole[],
+    },
+    {
+      label: 'Notifications',
+      href: `/dashboard/${projectId}/notifications`,
+      icon: Bell,
+      roles: ['project_manager', 'consultant', 'site_engineer'] as ProjectRole[],
     },
     {
       label: 'Settings',
@@ -80,9 +99,9 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
   const pathname = usePathname()
   const { user, logout } = useAuth()
   const [collapsed, setCollapsed] = useState(false)
-  
+
   const navItems = getNavItems(projectId, userRole)
-  
+
   const initials = user?.full_name
     .split(' ')
     .filter(n => n.length > 0)
@@ -91,7 +110,7 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
     .toUpperCase() || 'U'
 
   return (
-    <aside 
+    <aside
       className={cn(
         "flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border/60 transition-all duration-300",
         collapsed ? "w-16" : "w-64"
@@ -129,8 +148,8 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
             Current Project
           </p>
           <h2 className="font-semibold text-sm truncate">{projectName}</h2>
-          <Badge 
-            variant="outline" 
+          <Badge
+            variant="outline"
             className="mt-2 text-xs border-sidebar-border/80 text-sidebar-foreground/90 bg-sidebar-accent/40"
           >
             {roleLabels[userRole]}
@@ -142,17 +161,17 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
       <ScrollArea className="flex-1 py-4">
         <nav className="space-y-1 px-2">
           {navItems.map((item) => {
-            const isActive = pathname === item.href || 
+            const isActive = pathname === item.href ||
               (item.href !== `/dashboard/${projectId}` && pathname.startsWith(item.href))
-            
+
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={cn(
                   "group relative flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
-                  isActive 
-                    ? "bg-card/14 text-sidebar-primary shadow-sm" 
+                  isActive
+                    ? "bg-card/14 text-sidebar-primary shadow-sm"
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                 )}
                 title={collapsed ? item.label : undefined}
@@ -177,7 +196,7 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
           "p-4 flex items-center gap-3",
           collapsed && "justify-center p-2"
         )}>
-          <Link href={`/dashboard/${projectId}/profile`} className={cn("flex min-w-0 flex-1 items-center gap-3", collapsed && "justify-center") }>
+          <Link href={`/dashboard/${projectId}/profile`} className={cn("flex min-w-0 flex-1 items-center gap-3", collapsed && "justify-center")}>
             <Avatar className="h-9 w-9">
               <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground text-xs">
                 {initials}

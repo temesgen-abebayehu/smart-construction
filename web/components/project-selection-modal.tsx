@@ -42,18 +42,18 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
   useEffect(() => {
     if (!open || !user) return
     let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const visible = await fetchMyProjects(user!.id)
-        if (!cancelled) setProjects(visible)
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load projects')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
+      ; (async () => {
+        setLoading(true)
+        setError(null)
+        try {
+          const visible = await fetchMyProjects(user!.id)
+          if (!cancelled) setProjects(visible)
+        } catch (e) {
+          if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load projects')
+        } finally {
+          if (!cancelled) setLoading(false)
+        }
+      })()
     return () => {
       cancelled = true
     }
@@ -127,85 +127,87 @@ export function ProjectSelectionModal({ open, onOpenChange }: ProjectSelectionMo
                       statusColors[project.status] ?? 'bg-muted text-muted-foreground'
                     const roleLabel = roleLabels[project.my_role] ?? 'Team member'
                     return (
-                    <button
-                      key={project.id}
-                      type="button"
-                      onClick={() => handleProjectSelect(project)}
-                      className="w-full p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-all text-left group cursor-pointer"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-semibold text-foreground truncate">
-                              {project.name}
-                            </h4>
-                            <Badge
-                              variant="secondary"
-                              className={`${statusClass} shrink-0`}
-                            >
-                              {String(project.status ?? 'unknown').replace('_', ' ')}
-                            </Badge>
-                          </div>
-
-                          <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
-                            <span className="flex items-center gap-1">
-                              <MapPin className="h-3.5 w-3.5" />
-                              {project.location || project.client_name || '—'}
-                            </span>
-                            {project.planned_end_date && (
-                              <span className="flex items-center gap-1">
-                                <Calendar className="h-3.5 w-3.5" />
-                                {new Date(project.planned_end_date).toLocaleDateString('en-US', {
-                                  month: 'short',
-                                  year: 'numeric',
-                                })}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-2">
-                              <Users className="h-4 w-4 text-primary" />
-                              <Badge variant="outline" className="font-normal">
-                                {roleLabel}
+                      <button
+                        key={project.id}
+                        type="button"
+                        onClick={() => handleProjectSelect(project)}
+                        className="w-full p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-all text-left group cursor-pointer"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="font-semibold text-foreground truncate">
+                                {project.name}
+                              </h4>
+                              <Badge
+                                variant="secondary"
+                                className={`${statusClass} shrink-0`}
+                              >
+                                {String(project.status ?? 'unknown').replace('_', ' ')}
                               </Badge>
                             </div>
 
-                            <div className="flex items-center gap-2">
-                              <TrendingUp className="h-4 w-4 text-accent" />
-                              <span className="text-sm font-medium">
-                                {progressPct.toFixed(1)}% complete
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
+                              <span className="flex items-center gap-1">
+                                <MapPin className="h-3.5 w-3.5" />
+                                {project.location || project.client_name || '—'}
                               </span>
+                              {project.planned_end_date && (
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3.5 w-3.5" />
+                                  {new Date(project.planned_end_date).toLocaleDateString('en-US', {
+                                    month: 'short',
+                                    year: 'numeric',
+                                  })}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-4">
+                              <div className="flex items-center gap-2">
+                                <Users className="h-4 w-4 text-primary" />
+                                <Badge variant="outline" className="font-normal">
+                                  {roleLabel}
+                                </Badge>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <TrendingUp className="h-4 w-4 text-accent" />
+                                <span className="text-sm font-medium">
+                                  {progressPct.toFixed(1)}% complete
+                                </span>
+                              </div>
                             </div>
                           </div>
+
+                          <ArrowRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors shrink-0 mt-1" />
                         </div>
 
-                        <ArrowRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors shrink-0 mt-1" />
-                      </div>
-
-                      <div className="mt-3 h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary rounded-full transition-all"
-                          style={{ width: `${progressPct}%` }}
-                        />
-                      </div>
-                    </button>
+                        <div className="mt-3 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-primary rounded-full transition-all"
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                      </button>
                     )
                   })}
                 </div>
               </ScrollArea>
             )}
           </div>
-          <div className="w-full flex justify-end"> 
+        </div>
+
+        {/* Create Project Button - Always Visible */}
+        <div className="border-t border-border px-6 py-4">
           <Button
-              onClick={handleCreateProject}
-              className=" mb-6 h-auto py-4 justify-start gap-4 cursor-pointer"
-              variant="outline"
-            >
-              <Plus className="h-6 w-6 text-primary" />
-              Create New Project
-            </Button>
-            </div>
+            onClick={handleCreateProject}
+            className="w-full h-auto py-3 justify-center gap-2"
+            variant="default"
+          >
+            <Plus className="h-5 w-5" />
+            Create New Project
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
