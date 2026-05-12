@@ -119,17 +119,17 @@ export default function TeamPage({ params }: TeamPageProps) {
 
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      try {
-        const enriched = await listProjectMembersEnriched(projectId)
-        if (!cancelled) setRows(enriched)
-      } catch {
-        if (!cancelled) setRows([])
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
+      ; (async () => {
+        setLoading(true)
+        try {
+          const enriched = await listProjectMembersEnriched(projectId)
+          if (!cancelled) setRows(enriched)
+        } catch {
+          if (!cancelled) setRows([])
+        } finally {
+          if (!cancelled) setLoading(false)
+        }
+      })()
     return () => {
       cancelled = true
     }
@@ -155,7 +155,10 @@ export default function TeamPage({ params }: TeamPageProps) {
       // Auto-close after 2s
       setTimeout(() => { setInviteOpen(false); setInviteSuccess(null) }, 2000)
     } catch (e) {
-      setInviteError(e instanceof Error ? e.message : 'Failed to send invitation')
+      // Show detailed error message from backend
+      const errorMessage = e instanceof Error ? e.message : 'Failed to send invitation'
+      setInviteError(errorMessage)
+      console.error('Invitation error:', e)
     } finally {
       setInviteLoading(false)
     }

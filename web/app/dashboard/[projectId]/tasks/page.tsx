@@ -88,10 +88,11 @@ export default function TasksPage({ params }: TasksPageProps) {
   const [creating, setCreating] = useState(false)
   const [newTaskName, setNewTaskName] = useState('')
   const today = new Date().toISOString().split('T')[0]
-  const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
   const [newTaskStart, setNewTaskStart] = useState(today)
-  const [newTaskEnd, setNewTaskEnd] = useState(nextWeek)
+  const [newTaskDuration, setNewTaskDuration] = useState('7')
+  const [newTaskBudget, setNewTaskBudget] = useState('')
   const [newTaskAssignee, setNewTaskAssignee] = useState<string | null>(null)
+  const [newTaskDependsOn, setNewTaskDependsOn] = useState<string | null>(null)
   const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [members, setMembers] = useState<EnrichedMemberRow[]>([])
@@ -118,21 +119,32 @@ export default function TasksPage({ params }: TasksPageProps) {
   }, [projectId])
 
   const handleCreateTask = async () => {
-    if (!newTaskName.trim()) return
+    if (!newTaskName.trim()) {
+      toast.error('Task name is required')
+      return
+    }
+    if (!newTaskBudget || Number(newTaskBudget) <= 0) {
+      toast.error('Budget is required and must be greater than 0')
+      return
+    }
     setCreating(true)
     setCreateError(null)
     try {
       await createTask(projectId, {
         name: newTaskName.trim(),
         start_date: newTaskStart ? `${newTaskStart}T00:00:00` : undefined,
-        end_date: newTaskEnd ? `${newTaskEnd}T00:00:00` : undefined,
+        duration_days: Number(newTaskDuration) || 7,
+        allocated_budget: Number(newTaskBudget),
         assigned_to: newTaskAssignee || undefined,
+        depends_on_task_id: newTaskDependsOn || undefined,
       })
       setNewTaskOpen(false)
       setNewTaskName('')
       setNewTaskStart(today)
-      setNewTaskEnd(nextWeek)
+      setNewTaskDuration('7')
+      setNewTaskBudget('')
       setNewTaskAssignee(null)
+      setNewTaskDependsOn(null)
       await loadTasks()
       toast.success('Task created')
     } catch (err) {
@@ -293,6 +305,39 @@ export default function TasksPage({ params }: TasksPageProps) {
                         />
                       </div>
 
+                      <div className="grid gap-2">
+                        <label className="text-sm font-medium">Depends on (optional)</label>
+                        <select
+                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          value={newTaskDependsOn ?? ''}
+                          onChange={(e) => {
+                            const depId = e.target.value || null
+                            setNewTaskDependsOn(depId)
+                            if (depId) {
+                              const depTask = projectTasks.find(t => t.id === depId)
+                              if (depTask?.end_date) {
+                                const endDate = new Date(depTask.end_date)
+                                endDate.setDate(endDate.getDate() + 1)
+                                // Skip weekends
+                                while (endDate.getDay() === 0 || endDate.getDay() === 6) {
+                                  endDate.setDate(endDate.getDate() + 1)
+                                }
+                                setNewTaskStart(endDate.toISOString().split('T')[0])
+                              }
+                            }
+                          }}
+                        >
+                          <option value="">No dependency</option>
+                          {projectTasks
+                            .filter(t => t.status !== 'completed')
+                            .map(t => (
+                              <option key={t.id} value={t.id}>
+                                {t.title} ({t.status.replace('_', ' ')})
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
                       <div className="grid gap-4 md:grid-cols-2">
                         <div className="grid gap-2">
                           <label className="text-sm font-medium" htmlFor="task-start">Start date</label>
@@ -304,14 +349,30 @@ export default function TasksPage({ params }: TasksPageProps) {
                           />
                         </div>
                         <div className="grid gap-2">
-                          <label className="text-sm font-medium" htmlFor="task-end">End date</label>
+                          <label className="text-sm font-medium" htmlFor="task-duration">Duration (days) *</label>
                           <Input
-                            id="task-end"
-                            type="date"
-                            value={newTaskEnd}
-                            onChange={(e) => setNewTaskEnd(e.target.value)}
+                            id="task-duration"
+                            type="number"
+                            min={1}
+                            max={365}
+                            placeholder="7"
+                            value={newTaskDuration}
+                            onChange={(e) => setNewTaskDuration(e.target.value)}
                           />
                         </div>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <label className="text-sm font-medium" htmlFor="task-budget">Budget (ETB) *</label>
+                        <Input
+                          id="task-budget"
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          placeholder="e.g. 50000"
+                          value={newTaskBudget}
+                          onChange={(e) => setNewTaskBudget(e.target.value)}
+                        />
                       </div>
 
                       <div className="grid gap-2">
@@ -378,7 +439,7 @@ export default function TasksPage({ params }: TasksPageProps) {
 
                     <DialogFooter>
                       <Button variant="outline" onClick={() => setNewTaskOpen(false)}>Cancel</Button>
-                      <Button onClick={handleCreateTask} disabled={creating || !newTaskName.trim()}>
+                      <Button onClick={handleCreateTask} disabled={creating || !newTaskName.trim() || !newTaskBudget}>
                         {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         Create Task
                       </Button>
@@ -395,7 +456,8 @@ export default function TasksPage({ params }: TasksPageProps) {
                 <TableHead>Task Details</TableHead>
                 <TableHead>Assignee</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Timeline</TableHead>
+                <TableHead>Budget</TableHead>
+                <TableHead>Duration</TableHead>
                 <TableHead>Progress</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -403,13 +465,16 @@ export default function TasksPage({ params }: TasksPageProps) {
             <TableBody>
               {pageTasks.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
                     No tasks found for current filter.
                   </TableCell>
                 </TableRow>
               ) : (
                 pageTasks.map((task) => {
                   const progress = task.progress_percentage
+                  const durationDays = task.start_date && task.end_date
+                    ? Math.ceil((new Date(task.end_date).getTime() - new Date(task.start_date).getTime()) / (1000 * 60 * 60 * 24))
+                    : 0
 
                   return (
                     <TableRow key={task.id}>
@@ -497,10 +562,23 @@ export default function TasksPage({ params }: TasksPageProps) {
                       </TableCell>
 
                       <TableCell>
-                        <p className="text-sm">{timelineLabel(task.start_date, task.end_date)}</p>
-                        <p className="text-xs text-muted-foreground">
-                          EST: {estimateHours(task.start_date, task.end_date)} Hours
+                        <p className="text-sm font-medium">
+                          {task.allocated_budget ? `ETB ${task.allocated_budget.toLocaleString()}` : '—'}
                         </p>
+                        {task.spent_budget !== null && task.spent_budget !== undefined && task.allocated_budget && (
+                          <p className="text-xs text-muted-foreground">
+                            {((task.spent_budget / task.allocated_budget) * 100).toFixed(0)}% spent
+                          </p>
+                        )}
+                      </TableCell>
+
+                      <TableCell>
+                        <p className="text-sm">{durationDays > 0 ? `${durationDays} days` : '—'}</p>
+                        {task.start_date && task.end_date && (
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(task.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(task.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </p>
+                        )}
                       </TableCell>
 
                       <TableCell>

@@ -65,32 +65,6 @@ export interface ProjectClientRef {
   contact_email?: string | null
 }
 
-export interface ProjectManagerRef {
-  id: string
-  full_name: string
-}
-
-export interface ProjectBudget {
-  contract_value: number
-  total_spent: number
-  total_received: number
-}
-
-export interface LatestPrediction {
-  risk_level: string
-  delay_estimate_days: number
-  budget_overrun_estimate: number
-  confidence_score: number
-  factors: Record<string, unknown>
-}
-
-export interface TasksSummary {
-  total: number
-  completed: number
-  in_progress: number
-  pending: number
-}
-
 export interface ProjectDetail {
   id: string
   name: string
@@ -104,10 +78,8 @@ export interface ProjectDetail {
   budget_spent: number
   client?: ProjectClientRef | null
   owner_id?: string | null
-  /** Populated from /dashboard endpoint */
   tasks_summary?: TasksSummary | null
-  /** Populated from /prediction endpoint */
-  latest_prediction?: LatestPrediction | null
+  latest_prediction?: PredictionResponse | null
 }
 
 export interface CreateProjectResponse {
@@ -121,9 +93,11 @@ export interface CreateProjectResponse {
   created_at?: string
 }
 
-export interface CompanyListItem {
-  id: string
-  company_name: string
+export interface TasksSummary {
+  total: number
+  completed: number
+  in_progress: number
+  pending: number
 }
 
 /** API: ClientResponse from GET /clients */
@@ -135,15 +109,16 @@ export interface ClientListItem {
 
 /* ── Tasks ── */
 
-/** Backend TaskResponse */
 export interface TaskListItem {
   id: string
-  /** Backend field is `name` — normalized to `title` in api.ts */
   title: string
   status: TaskStatus
   progress_percentage: number
   start_date?: string | null
   end_date?: string | null
+  duration_days?: number | null
+  allocated_budget?: number | null
+  spent_budget?: number | null
   project_id: string
   assigned_to?: string | null
   assignee?: {
@@ -153,9 +128,26 @@ export interface TaskListItem {
   } | null
 }
 
+/* ── Task Activities ── */
+
+export interface TaskActivityItem {
+  id: string
+  task_id: string
+  name: string
+  percentage: number
+  is_completed: boolean
+}
+
+/* ── Task Dependencies ── */
+
+export interface TaskDependencyItem {
+  id: string
+  task_id: string
+  depends_on_task_id: string
+}
+
 /* ── Logs ── */
 
-/** Backend DailyLogResponse */
 export interface LogListItem {
   id: string
   project_id: string
@@ -180,9 +172,54 @@ export interface LogDetailResponse {
   rejection_reason?: string | null
 }
 
+/* ── Log Sub-Entities ── */
+
+export interface ManpowerItem {
+  id: string
+  log_id: string
+  worker_type: string
+  hours_worked: number
+  cost: number
+}
+
+export interface MaterialItem {
+  id: string
+  log_id: string
+  name: string
+  quantity: number
+  unit: string
+  cost: number
+}
+
+export interface EquipmentItem {
+  id: string
+  log_id: string
+  name: string
+  hours_used: number
+  cost: number
+}
+
+export interface EquipmentIdleItem {
+  id: string
+  equipment_id: string
+  reason: string
+  hours_idle: number
+}
+
+export interface DailyLogPhoto {
+  id: string
+  log_id: string
+  file_path: string
+  url_path: string
+  original_filename?: string | null
+  content_type?: string | null
+  size_bytes?: number | null
+  uploaded_by_id?: string | null
+  created_at?: string | null
+}
+
 /* ── Members ── */
 
-/** Backend ProjectMemberResponse — flat, no nested user */
 export interface ProjectMemberRow {
   id: string
   user_id: string
@@ -190,7 +227,6 @@ export interface ProjectMemberRow {
   role: ProjectRole
 }
 
-/** Backend ProjectMemberWithUserResponse — includes nested user */
 export interface ProjectMemberWithUserRow {
   id: string
   user_id: string
@@ -204,7 +240,6 @@ export interface ProjectMemberWithUserRow {
   }
 }
 
-/** Frontend-enriched member with user details */
 export interface EnrichedMemberRow {
   id: string
   user: {
@@ -217,26 +252,14 @@ export interface EnrichedMemberRow {
   project_id: string
 }
 
-export interface MembersResponse {
-  total: number
-  data: ProjectMemberRow[]
-}
-
 /* ── Messages ── */
 
-/** Backend MessageResponse */
 export interface MessageRow {
   id: string
   user_id: string
   content: string
   is_read: boolean
   created_at: string
-}
-
-export interface MessagesResponse {
-  total: number
-  data: MessageRow[]
-  unread_count?: number
 }
 
 /* ── Prediction ── */
@@ -262,6 +285,16 @@ export interface WeatherResponse {
   latitude: number | null
   longitude: number | null
   fetched_at: string | null
+  forecast: DailyForecast[]
+}
+
+export interface DailyForecast {
+  date: string
+  temperature_max: number | null
+  temperature_min: number | null
+  precipitation_sum: number | null
+  wind_speed_max: number | null
+  weather_code: number | null
 }
 
 /* ── Budget ── */
@@ -281,6 +314,17 @@ export interface BudgetItemResponse {
   created_at: string
 }
 
+export interface BudgetPaymentItem {
+  id: string
+  project_id: string
+  payment_amount: number
+  payment_date: string
+  reference?: string | null
+  notes?: string | null
+  recorded_by: string
+  created_at: string
+}
+
 /* ── Invitations ── */
 
 export interface InvitationResponse {
@@ -290,4 +334,60 @@ export interface InvitationResponse {
   role: ProjectRole
   token: string
   status: string
+}
+
+/* ── Contractors ── */
+
+export interface ContractorItem {
+  id: string
+  name: string
+  specialization?: string | null
+  contact_email?: string | null
+  contact_phone?: string | null
+}
+
+/* ── Suppliers ── */
+
+export interface SupplierItem {
+  id: string
+  name: string
+  contact_email?: string | null
+  contact_phone?: string | null
+}
+
+/* ── Reports ── */
+
+export interface ReportManpowerGroup {
+  worker_type: string
+  total_workers: number
+  total_hours: number
+  total_cost: number
+}
+
+export interface ReportResponse {
+  project_id: string
+  project_name: string
+  project_status: string
+  project_location: string
+  project_progress: number
+  contractor_name: string | null
+  start_date: string
+  end_date: string
+  total_days: number
+  manpower: {
+    staff: ReportManpowerGroup[]
+    technical: ReportManpowerGroup[]
+    labor: ReportManpowerGroup[]
+  }
+  materials: { name: string; quantity: number; unit: string; cost: number }[]
+  equipment: { name: string; hours_used: number; hours_idle: number; cost: number }[]
+  tasks: { id: string; name: string; status: string; progress_percentage: number; start_date: string | null; end_date: string | null }[]
+  tasks_total: number
+  tasks_completed: number
+  tasks_in_progress: number
+  tasks_pending: number
+  total_budget: number
+  used_budget: number
+  remaining_budget: number
+  budget_spent_in_period: number
 }
