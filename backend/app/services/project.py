@@ -98,7 +98,46 @@ class ProjectService:
 
     @staticmethod
     async def delete_project(db: AsyncSession, project_id: UUID) -> bool:
-        return await project_repo.delete(db, project_id)
+        """Delete a project and all its related data (cascade delete)."""
+        from app.models.log import DailyLog
+        from app.models.system import BudgetItem  # Fixed: was BudgetPayment
+        
+        project = await project_repo.get_by_id(db, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Manually delete related records to avoid foreign key violations
+        # The order matters: delete children before parents
+        
+        # 1. Delete daily logs (which will cascade to manpower, materials, equipment, photos)
+        logs_result = await db.execute(select(DailyLog).where(DailyLog.project_id == project_id))
+        logs = logs_result.scalars().all()
+        for log in logs:
+            await db.delete(log)
+        
+        # 2. Delete tasks (which will cascade to task_activities and task_dependencies)
+        tasks_result = await db.execute(select(Task).where(Task.project_id == project_id))
+        tasks = tasks_result.scalars().all()
+        for task in tasks:
+            await db.delete(task)
+        
+        # 3. Delete budget items
+        try:
+            items_result = await db.execute(select(BudgetItem).where(BudgetItem.project_id == project_id))
+            items = items_result.scalars().all()
+            for item in items:
+                await db.delete(item)
+        except Exception:
+            # BudgetItem might not have any records
+            pass
+        
+        # 4. Project members and invitations are already set to cascade in the model
+        # 5. Progress snapshots are already set to cascade in the model
+        
+        # 6. Finally delete the project itself
+        await db.delete(project)
+        await db.commit()
+        return True
 
     @staticmethod
     async def get_dashboard(db: AsyncSession, project_id: UUID) -> ProjectDashboard:

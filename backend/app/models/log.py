@@ -24,6 +24,7 @@ class DailyLog(Base):
     materials = relationship("Material", back_populates="log", cascade="all, delete-orphan")
     equipment = relationship("Equipment", back_populates="log", cascade="all, delete-orphan")
     photos = relationship("DailyLogPhoto", back_populates="log", cascade="all, delete-orphan")
+    completed_activities = relationship("DailyLogActivity", back_populates="log", cascade="all, delete-orphan")
 
 class Manpower(Base):
     """Tracks workers/hours/cost recorded against a daily log."""
@@ -79,3 +80,16 @@ class DailyLogPhoto(Base):
     uploaded_at = Column(DateTime(timezone=True), default=utcnow)
 
     log = relationship("DailyLog", back_populates="photos")
+
+
+class DailyLogActivity(Base):
+    """Links a daily log to completed task activities.
+    When a site engineer creates a log, they select which task activities
+    were completed that day. This links log progress to task progress."""
+    __tablename__ = "daily_log_activities"
+    id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    log_id = Column(SQL_UUID(as_uuid=True), ForeignKey("daily_logs.id"), nullable=False)
+    task_activity_id = Column(SQL_UUID(as_uuid=True), ForeignKey("task_activities.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    log = relationship("DailyLog", back_populates="completed_activities")
