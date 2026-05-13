@@ -1,1 +1,12 @@
-["temperature", "humidity", "material_usage", "machinery_status", "worker_count", "task_progress", "cost_deviation", "time_deviation", "equipment_utilization_rate", "material_shortage_alert"]
+[
+  "temperature",
+  "humidity",
+  "material_usage",
+  "machinery_status",
+  "worker_count",
+  "task_progress",
+  "cost_deviation",
+  "time_deviation",
+  "equipment_utilization_rate",
+  "material_shortage_alert"
+]
