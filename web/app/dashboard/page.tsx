@@ -8,6 +8,17 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/lib/auth-context'
 import { ProjectSelectionModal } from '@/components/project-selection-modal'
+import { Building2, Loader2, LogOut, User, Settings, ChevronDown, Moon, Sun } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { useTheme } from 'next-themes'
 import { fetchMyProjects } from '@/lib/api'
 import type { ProjectListItem } from '@/lib/api-types'
 import { roleLabels, statusColors } from '@/lib/domain'
@@ -26,6 +37,7 @@ import {
 export default function DashboardProjectListPage() {
   const router = useRouter()
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth()
+  const { theme, setTheme } = useTheme()
   const [modalOpen, setModalOpen] = useState(true)
   const [projects, setProjects] = useState<ProjectListItem[]>([])
   const [projectsLoading, setProjectsLoading] = useState(false)
@@ -129,6 +141,19 @@ export default function DashboardProjectListPage() {
                 <DropdownMenuItem onSelect={() => router.push('/dashboard/settings')}>
                   <Settings className="mr-2 h-4 w-4" />
                   Settings
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+                  {theme === 'dark' ? (
+                    <>
+                      <Sun className="mr-2 h-4 w-4" />
+                      Light Mode
+                    </>
+                  ) : (
+                    <>
+                      <Moon className="mr-2 h-4 w-4" />
+                      Dark Mode
+                    </>
+                  )}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setModalOpen(true)}>
                   <Building2 className="mr-2 h-4 w-4" />

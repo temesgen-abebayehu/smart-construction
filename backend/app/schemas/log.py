@@ -78,6 +78,7 @@ class DailyLogBase(BaseModel):
     weather: str | None = None  # e.g. 'sunny', 'rainy'
 
 class DailyLogCreate(DailyLogBase):
+    task_activity_ids: list[str] | None = None  # IDs of task activities completed
     pass  # project_id and task_id come from the URL path, not the body
 
 class DailyLogUpdate(BaseModel):

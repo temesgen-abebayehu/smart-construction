@@ -33,6 +33,7 @@ import {
     Mail,
     Phone,
     Briefcase,
+    ShieldAlert,
 } from 'lucide-react'
 import {
     listClients,
@@ -51,6 +52,7 @@ import {
 } from '@/lib/api'
 import type { ClientListItem, ContractorItem, SupplierItem } from '@/lib/api-types'
 import { toast } from 'sonner'
+import { useProjectRole } from '@/lib/project-role-context'
 
 type StakeholderType = 'clients' | 'contractors' | 'suppliers'
 
@@ -60,6 +62,7 @@ interface StakeholdersPageProps {
 
 export default function StakeholdersPage({ params }: StakeholdersPageProps) {
     const { projectId } = use(params)
+    const userRole = useProjectRole()
     const [activeTab, setActiveTab] = useState<StakeholderType>('clients')
     const [loading, setLoading] = useState(true)
 
@@ -202,6 +205,23 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
         return (
             <div className="flex justify-center py-24">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+        )
+    }
+
+    // Only Project Managers can access stakeholder management
+    const isProjectManager = userRole === 'project_manager'
+
+    if (!isProjectManager) {
+        return (
+            <div className="flex flex-col items-center justify-center py-24 space-y-4">
+                <ShieldAlert className="h-16 w-16 text-muted-foreground" />
+                <div className="text-center">
+                    <h2 className="text-2xl font-bold mb-2">Access Restricted</h2>
+                    <p className="text-muted-foreground">
+                        Only Project Managers can manage stakeholders.
+                    </p>
+                </div>
             </div>
         )
     }
