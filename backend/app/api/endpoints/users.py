@@ -7,6 +7,7 @@ from app.schemas.user import UserResponse, UserUpdate
 from app.models.user import User
 from app.services.user import UserService
 from app.repositories.user import UserRepository
+from app.core.audit import log_audit
 
 router = APIRouter()
 
@@ -36,10 +37,15 @@ async def read_users(
     db: DbSession,
     skip: int = 0,
     limit: int = 100,
+    search: str | None = None,
+    is_active: bool | None = None,
+    is_admin: bool | None = None,
     current_user: User = Depends(get_current_admin_user),
 ) -> Any:
-    """Retrieve all users. Admin only."""
-    return await UserRepository.get_all(db, skip=skip, limit=limit)
+    """Retrieve all users with optional filters. Admin only."""
+    return await UserRepository.get_all(
+        db, skip=skip, limit=limit, search=search, is_active=is_active, is_admin=is_admin
+    )
 
 @router.get("/{user_id}", response_model=UserResponse, summary="Get user by ID (Admin)")
 async def read_user_by_id(
@@ -77,6 +83,18 @@ async def activate_user(
     user = await UserRepository.activate(db, id=user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Audit log
+    await log_audit(
+        db=db,
+        user_id=current_user.id,
+        action="ACTIVATE_USER",
+        entity_type="user",
+        entity_id=str(user_id),
+        details=f"Activated user: {user.email}"
+    )
+    await db.commit()
+    
     return user
 
 @router.patch("/{user_id}/deactivate", response_model=UserResponse, summary="Deactivate user (Admin)")
@@ -89,4 +107,80 @@ async def deactivate_user(
     user = await UserRepository.deactivate(db, id=user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Audit log
+    await log_audit(
+        db=db,
+        user_id=current_user.id,
+        action="DEACTIVATE_USER",
+        entity_type="user",
+        entity_id=str(user_id),
+        details=f"Deactivated user: {user.email}"
+    )
+    await db.commit()
+    
+    return user
+
+@router.patch("/{user_id}/promote", response_model=UserResponse, summary="Promote user to admin (Admin)")
+async def promote_user(
+    user_id: UUID,
+    db: DbSession,
+    current_user: User = Depends(get_current_admin_user),
+) -> Any:
+    """Promote a user to admin. Admin cannot promote themselves. Admin only."""
+    if user_id == current_user.id:
+        raise HTTPException(status_code=403, detail="Cannot promote yourself")
+    
+    user = await UserRepository.get_by_id(db, id=user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.is_admin:
+        raise HTTPException(status_code=400, detail="User is already an admin")
+    
+    user = await UserRepository.promote(db, id=user_id)
+    
+    # Audit log
+    await log_audit(
+        db=db,
+        user_id=current_user.id,
+        action="PROMOTE_USER",
+        entity_type="user",
+        entity_id=str(user_id),
+        details=f"Promoted user to admin: {user.email}"
+    )
+    await db.commit()
+    
+    return user
+
+@router.patch("/{user_id}/demote", response_model=UserResponse, summary="Demote admin to regular user (Admin)")
+async def demote_user(
+    user_id: UUID,
+    db: DbSession,
+    current_user: User = Depends(get_current_admin_user),
+) -> Any:
+    """Demote an admin to regular user. Admin cannot demote themselves. Admin only."""
+    if user_id == current_user.id:
+        raise HTTPException(status_code=403, detail="Cannot demote yourself")
+    
+    user = await UserRepository.get_by_id(db, id=user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if not user.is_admin:
+        raise HTTPException(status_code=400, detail="User is not an admin")
+    
+    user = await UserRepository.demote(db, id=user_id)
+    
+    # Audit log
+    await log_audit(
+        db=db,
+        user_id=current_user.id,
+        action="DEMOTE_USER",
+        entity_type="user",
+        entity_id=str(user_id),
+        details=f"Demoted admin to user: {user.email}"
+    )
+    await db.commit()
+    
     return user

@@ -37,3 +37,14 @@ class SystemSetting(Base):
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     key = Column(String(255), unique=True, nullable=False)
     value = Column(Text)
+
+class Announcement(Base):
+    __tablename__ = "announcements"
+    id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)
+    priority = Column(String(50), default="normal")  # low, normal, high, urgent
+    is_active = Column(Boolean, default=True)
+    created_by = Column(SQL_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=True)

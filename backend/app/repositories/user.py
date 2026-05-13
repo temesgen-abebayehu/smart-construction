@@ -54,8 +54,34 @@ class UserRepository:
         return user
 
     @staticmethod
-    async def get_all(db: AsyncSession, skip: int = 0, limit: int = 100) -> list[User]:
-        result = await db.execute(select(User).offset(skip).limit(limit))
+    async def get_all(
+        db: AsyncSession, 
+        skip: int = 0, 
+        limit: int = 100,
+        search: str | None = None,
+        is_active: bool | None = None,
+        is_admin: bool | None = None,
+    ) -> list[User]:
+        query = select(User)
+        
+        # Apply search filter (name or email)
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.where(
+                (User.full_name.ilike(search_pattern)) | 
+                (User.email.ilike(search_pattern))
+            )
+        
+        # Apply is_active filter
+        if is_active is not None:
+            query = query.where(User.is_active == is_active)
+        
+        # Apply is_admin filter
+        if is_admin is not None:
+            query = query.where(User.is_admin == is_admin)
+        
+        query = query.offset(skip).limit(limit)
+        result = await db.execute(query)
         return list(result.scalars().all())
 
     @staticmethod
@@ -104,6 +130,26 @@ class UserRepository:
         db_obj = await UserRepository.get_by_id(db, id=id)
         if db_obj:
             db_obj.is_active = True
+            db.add(db_obj)
+            await db.commit()
+            await db.refresh(db_obj)
+        return db_obj
+
+    @staticmethod
+    async def promote(db: AsyncSession, id: UUID | str) -> User | None:
+        db_obj = await UserRepository.get_by_id(db, id=id)
+        if db_obj:
+            db_obj.is_admin = True
+            db.add(db_obj)
+            await db.commit()
+            await db.refresh(db_obj)
+        return db_obj
+
+    @staticmethod
+    async def demote(db: AsyncSession, id: UUID | str) -> User | None:
+        db_obj = await UserRepository.get_by_id(db, id=id)
+        if db_obj:
+            db_obj.is_admin = False
             db.add(db_obj)
             await db.commit()
             await db.refresh(db_obj)
