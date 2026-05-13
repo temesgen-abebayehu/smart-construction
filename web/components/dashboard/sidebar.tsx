@@ -70,7 +70,7 @@ const getNavItems = (projectId: string, role: ProjectRole) => {
       label: 'Stakeholders',
       href: `/dashboard/${projectId}/stakeholders`,
       icon: Briefcase,
-      roles: ['project_manager', 'consultant'] as ProjectRole[],
+      roles: ['project_manager'] as ProjectRole[],
     },
     {
       label: 'Reports',

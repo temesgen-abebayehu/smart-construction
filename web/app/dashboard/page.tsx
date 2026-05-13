@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import { ProjectSelectionModal } from '@/components/project-selection-modal'
-import { Building2, Loader2, LogOut, User, Settings, ChevronDown } from 'lucide-react'
+import { Building2, Loader2, LogOut, User, Settings, ChevronDown, Moon, Sun } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,10 +16,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { useTheme } from 'next-themes'
 
 export default function DashboardProjectListPage() {
   const router = useRouter()
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth()
+  const { theme, setTheme } = useTheme()
   const [modalOpen, setModalOpen] = useState(true)
 
   useEffect(() => {
@@ -98,6 +100,19 @@ export default function DashboardProjectListPage() {
                 <DropdownMenuItem onSelect={() => router.push('/dashboard/settings')}>
                   <Settings className="mr-2 h-4 w-4" />
                   Settings
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+                  {theme === 'dark' ? (
+                    <>
+                      <Sun className="mr-2 h-4 w-4" />
+                      Light Mode
+                    </>
+                  ) : (
+                    <>
+                      <Moon className="mr-2 h-4 w-4" />
+                      Dark Mode
+                    </>
+                  )}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setModalOpen(true)}>
                   <Building2 className="mr-2 h-4 w-4" />

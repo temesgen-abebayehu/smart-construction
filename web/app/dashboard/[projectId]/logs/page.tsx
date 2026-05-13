@@ -493,7 +493,7 @@ export default function LogsPage({ params }: LogsPageProps) {
             <div className="space-y-2">
               <Label>Notes (optional)</Label>
               <Textarea
-                placeholder="What work was done today..."
+                placeholder="Additional notes, issues, or observations..."
                 value={logNotes}
                 onChange={(e) => setLogNotes(e.target.value)}
                 rows={3}

@@ -15,8 +15,16 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
-import { ArrowLeft, Loader2, Save } from 'lucide-react'
-import { getProject, updateProject, listClients } from '@/lib/api'
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog'
+import { ArrowLeft, Loader2, Save, Trash2, AlertTriangle } from 'lucide-react'
+import { getProject, updateProject, listClients, deleteProject } from '@/lib/api'
 import type { ProjectDetail, ClientListItem } from '@/lib/api-types'
 import type { ProjectStatus } from '@/lib/domain'
 import { toast } from 'sonner'
@@ -40,6 +48,9 @@ export default function ProjectEditPage({ params }: ProjectEditPageProps) {
     const [clients, setClients] = useState<ClientListItem[]>([])
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+    const [deleteConfirmText, setDeleteConfirmText] = useState('')
+    const [deleting, setDeleting] = useState(false)
 
     // Form state
     const [name, setName] = useState('')
@@ -116,6 +127,23 @@ export default function ProjectEditPage({ params }: ProjectEditPageProps) {
             toast.error(error instanceof Error ? error.message : 'Failed to update project')
         } finally {
             setSaving(false)
+        }
+    }
+
+    const handleDelete = async () => {
+        if (deleteConfirmText !== project?.name) {
+            toast.error('Project name does not match')
+            return
+        }
+
+        setDeleting(true)
+        try {
+            await deleteProject(projectId)
+            toast.success('Project deleted successfully')
+            router.push('/dashboard')
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Failed to delete project')
+            setDeleting(false)
         }
     }
 
@@ -298,15 +326,71 @@ export default function ProjectEditPage({ params }: ProjectEditPageProps) {
                         </div>
                         <Button
                             variant="destructive"
-                            onClick={() => {
-                                toast.error('Project deletion is not yet implemented')
-                            }}
+                            onClick={() => setDeleteDialogOpen(true)}
+                            className="gap-2"
                         >
+                            <Trash2 className="h-4 w-4" />
                             Delete Project
                         </Button>
                     </div>
                 </CardContent>
             </Card>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-destructive">
+                            <AlertTriangle className="h-5 w-5" />
+                            Delete Project
+                        </DialogTitle>
+                        <DialogDescription>
+                            This action cannot be undone. This will permanently delete the project and all associated data including tasks, logs, budget records, and team assignments.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4">
+                            <p className="text-sm font-medium mb-2">Please type <span className="font-mono font-bold">{project?.name}</span> to confirm:</p>
+                            <Input
+                                placeholder="Type project name here"
+                                value={deleteConfirmText}
+                                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                                className="font-mono"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setDeleteDialogOpen(false)
+                                setDeleteConfirmText('')
+                            }}
+                            disabled={deleting}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleDelete}
+                            disabled={deleting || deleteConfirmText !== project?.name}
+                            className="gap-2"
+                        >
+                            {deleting ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Deleting...
+                                </>
+                            ) : (
+                                <>
+                                    <Trash2 className="h-4 w-4" />
+                                    Delete Project
+                                </>
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
