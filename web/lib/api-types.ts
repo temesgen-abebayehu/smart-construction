@@ -391,3 +391,57 @@ export interface ReportResponse {
   remaining_budget: number
   budget_spent_in_period: number
 }
+
+/* ── Admin ── */
+
+export interface UserListItem {
+  id: string
+  full_name: string
+  email: string
+  phone_number?: string | null
+  is_admin: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface SystemSettingsStructured {
+  working_hours_per_day: number
+  working_days_per_week: number
+  overtime_multiplier: number
+  delay_risk_threshold_pct: number
+  budget_alert_threshold_pct: number
+  maintenance_mode: boolean
+}
+
+export interface AdminStatsResponse {
+  total_users: number
+  active_users: number
+  total_projects: number
+  projects_by_status: Record<string, number>
+  total_contractors: number
+  total_suppliers: number
+  recent_activity_count: number
+}
+
+export interface AuditLogItem {
+  id: string
+  project_id?: string | null
+  user_id?: string | null
+  action: string
+  entity_type?: string | null
+  entity_id?: string | null
+  details?: string | null
+  created_at: string
+}
+
+export interface AnnouncementItem {
+  id: string
+  title: string
+  content: string
+  priority: string
+  is_active: boolean
+  created_by: string
+  created_at: string
+  expires_at?: string | null
+}

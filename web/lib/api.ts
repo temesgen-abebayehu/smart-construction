@@ -29,6 +29,11 @@ import type {
   TaskListItem,
   UserMe,
   WeatherResponse,
+  UserListItem,
+  SystemSettingsStructured,
+  AdminStatsResponse,
+  AuditLogItem,
+  AnnouncementItem,
 } from './api-types'
 import type { AuthUser, ProjectRole, ProjectStatus } from './domain'
 
@@ -847,4 +852,106 @@ export async function updateSupplier(id: string, body: { name?: string; contact_
 
 export async function deleteSupplier(id: string) {
   return apiRequest<void>(`/suppliers/${id}`, { method: 'DELETE' })
+}
+
+/* ── Admin: User Management ── */
+
+export async function listUsers(params?: {
+  search?: string
+  is_active?: boolean
+  is_admin?: boolean
+  skip?: number
+  limit?: number
+}) {
+  return apiRequest<UserListItem[]>(`/users${q(params || {})}`)
+}
+
+export async function promoteUser(userId: string) {
+  return apiRequest<UserListItem>(`/users/${userId}/promote`, { method: 'PATCH' })
+}
+
+export async function demoteUser(userId: string) {
+  return apiRequest<UserListItem>(`/users/${userId}/demote`, { method: 'PATCH' })
+}
+
+export async function activateUser(userId: string) {
+  return apiRequest<UserListItem>(`/users/${userId}/activate`, { method: 'PATCH' })
+}
+
+export async function deactivateUser(userId: string) {
+  return apiRequest<UserListItem>(`/users/${userId}/deactivate`, { method: 'PATCH' })
+}
+
+/* ── Admin: System Settings ── */
+
+export async function getSystemSettings() {
+  return apiRequest<SystemSettingsStructured>('/settings/structured')
+}
+
+export async function updateSystemSettings(body: Partial<SystemSettingsStructured>) {
+  return apiRequest<SystemSettingsStructured>('/settings/structured', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+/* ── Admin: Stats ── */
+
+export async function getAdminStats() {
+  return apiRequest<AdminStatsResponse>('/admin/stats')
+}
+
+/* ── Admin: Audit Logs ── */
+
+export async function listAuditLogs(params?: {
+  user_id?: string
+  action?: string
+  entity_type?: string
+  project_id?: string
+  skip?: number
+  limit?: number
+}) {
+  return apiRequest<AuditLogItem[]>(`/audit-logs${q(params || {})}`)
+}
+
+/* ── Admin: Announcements ── */
+
+export async function listAnnouncements(params?: { skip?: number; limit?: number }) {
+  return apiRequest<AnnouncementItem[]>(`/announcements${q(params || {})}`)
+}
+
+export async function listAllAnnouncements(params?: { skip?: number; limit?: number }) {
+  return apiRequest<AnnouncementItem[]>(`/announcements/all${q(params || {})}`)
+}
+
+export async function createAnnouncement(body: {
+  title: string
+  content: string
+  priority?: string
+  expires_at?: string
+}) {
+  return apiRequest<AnnouncementItem>('/announcements', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateAnnouncement(
+  announcementId: string,
+  body: {
+    title?: string
+    content?: string
+    priority?: string
+    is_active?: boolean
+    expires_at?: string
+  },
+) {
+  return apiRequest<AnnouncementItem>(`/announcements/${announcementId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteAnnouncement(announcementId: string) {
+  return apiRequest<void>(`/announcements/${announcementId}`, { method: 'DELETE' })
 }
