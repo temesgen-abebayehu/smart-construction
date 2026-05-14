@@ -166,21 +166,31 @@ export default function DashboardPage({ params }: DashboardPageProps) {
 
   return (
     <div className="space-y-6">
-      {/* Header with Edit Button */}
-      {isProjectManager && (
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold">{project.name}</h2>
-            <p className="text-sm text-muted-foreground">{project.location}</p>
-          </div>
-          <Link href={`/dashboard/${projectId}/edit`}>
-            <Button variant="outline" className="gap-2">
-              <Settings className="h-4 w-4" />
-              Edit Project
-            </Button>
-          </Link>
+      {/* Header with Action Buttons */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">{project.name}</h2>
+          <p className="text-sm text-muted-foreground">{project.location}</p>
         </div>
-      )}
+        <div className="flex items-center gap-2">
+          {userRole === 'site_engineer' && (
+            <Link href={`/dashboard/${projectId}/logs/create`}>
+              <Button className="gap-2">
+                <FileText className="h-4 w-4" />
+                Create Daily Log
+              </Button>
+            </Link>
+          )}
+          {isProjectManager && (
+            <Link href={`/dashboard/${projectId}/edit`}>
+              <Button variant="outline" className="gap-2">
+                <Settings className="h-4 w-4" />
+                Edit Project
+              </Button>
+            </Link>
+          )}
+        </div>
+      </div>
 
       <div className={`grid gap-4 ${isProjectManager ? 'xl:grid-cols-3' : 'xl:grid-cols-1'}`}>
         <Card className="shadow-sm">
@@ -208,10 +218,10 @@ export default function DashboardPage({ params }: DashboardPageProps) {
               <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
                 <span>Overall Progress</span>
                 <span className="font-medium text-foreground">
-                  {project.overall_progress_pct.toFixed(0)}%
+                  {(project.overall_progress_pct || 0).toFixed(0)}%
                 </span>
               </div>
-              <Progress value={project.overall_progress_pct} className="h-2" />
+              <Progress value={project.overall_progress_pct || 0} className="h-2" />
             </div>
           </CardContent>
         </Card>

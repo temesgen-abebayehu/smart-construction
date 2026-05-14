@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr
 from uuid import UUID
 from datetime import datetime
 from app.models.commons import LogStatus
@@ -71,6 +71,17 @@ class DailyLogPhotoResponse(BaseModel):
     uploaded_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+# Daily Log Activities (linking logs to completed task activities)
+class DailyLogActivityCreate(BaseModel):
+    task_activity_id: UUID
+
+class DailyLogActivityResponse(BaseModel):
+    id: UUID
+    log_id: UUID
+    task_activity_id: UUID
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
 # Daily Log Main Schema
 class DailyLogBase(BaseModel):
     date: datetime | None = None
@@ -86,6 +97,13 @@ class DailyLogUpdate(BaseModel):
     weather: str | None = None
     status: LogStatus | None = None
 
+class UserBasic(BaseModel):
+    id: UUID
+    full_name: str
+    email: str
+    phone_number: str | None = None
+    model_config = ConfigDict(from_attributes=True)
+
 class DailyLogResponse(DailyLogBase):
     id: UUID
     project_id: UUID
@@ -93,6 +111,15 @@ class DailyLogResponse(DailyLogBase):
     created_by_id: UUID
     status: LogStatus
     rejection_reason: str | None = None
+    # Enriched fields for list display
+    activities_count: int = 0
+    manpower_count: int = 0
+    manpower_cost: float = 0.0
+    materials_count: int = 0
+    materials_cost: float = 0.0
+    equipment_count: int = 0
+    equipment_cost: float = 0.0
+    created_by: UserBasic | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class DailyLogReject(BaseModel):

@@ -1,6 +1,6 @@
 from typing import Any, List
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.dependencies import DbSession, get_current_active_user, get_current_admin_user
 from app.schemas.project import SupplierCreate, SupplierUpdate, SupplierResponse
@@ -10,9 +10,15 @@ from app.models.user import User
 router = APIRouter()
 repo = SupplierRepository()
 
-@router.get("", response_model=List[SupplierResponse], summary="List suppliers")
-async def list_suppliers(db: DbSession, skip: int = 0, limit: int = 100, _: User = Depends(get_current_active_user)) -> Any:
-    return await repo.get_all(db, skip=skip, limit=limit)
+@router.get("", response_model=List[SupplierResponse], summary="List suppliers by project")
+async def list_suppliers(
+    db: DbSession, 
+    project_id: UUID = Query(..., description="Filter suppliers by project"),
+    skip: int = 0, 
+    limit: int = 100, 
+    _: User = Depends(get_current_active_user)
+) -> Any:
+    return await repo.get_by_project(db, project_id, skip=skip, limit=limit)
 
 @router.post("", response_model=SupplierResponse, status_code=201, summary="Create supplier")
 async def create_supplier(*, db: DbSession, supplier_in: SupplierCreate, _: User = Depends(get_current_active_user)) -> Any:

@@ -6,7 +6,7 @@ from sqlalchemy import select, func
 from app.api.dependencies import DbSession, get_current_active_user, get_current_admin_user
 from app.models.user import User
 from app.models.system import Message, AuditLog, SystemSetting, Announcement
-from app.models.project import Project, Contractor, Supplier
+from app.models.project import Project, Supplier
 from app.schemas.system import (
     MessageResponse, AuditLogResponse,
     SystemSettingCreate, SystemSettingUpdate, SystemSettingResponse,
@@ -175,10 +175,6 @@ async def get_admin_stats(
     projects_result = await db.execute(select(Project.status, func.count(Project.id)).group_by(Project.status))
     projects_by_status = {status: count for status, count in projects_result.all()}
     
-    # Total contractors
-    total_contractors_result = await db.execute(select(func.count(Contractor.id)))
-    total_contractors = total_contractors_result.scalar() or 0
-    
     # Total suppliers
     total_suppliers_result = await db.execute(select(func.count(Supplier.id)))
     total_suppliers = total_suppliers_result.scalar() or 0
@@ -195,7 +191,6 @@ async def get_admin_stats(
         active_users=active_users,
         total_projects=total_projects,
         projects_by_status=projects_by_status,
-        total_contractors=total_contractors,
         total_suppliers=total_suppliers,
         recent_activity_count=recent_activity_count,
     )

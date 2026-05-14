@@ -24,8 +24,8 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog'
 import { ArrowLeft, Loader2, Save, Trash2, AlertTriangle } from 'lucide-react'
-import { getProject, updateProject, listClients, deleteProject } from '@/lib/api'
-import type { ProjectDetail, ClientListItem } from '@/lib/api-types'
+import { getProject, updateProject, deleteProject } from '@/lib/api'
+import type { ProjectDetail } from '@/lib/api-types'
 import type { ProjectStatus } from '@/lib/domain'
 import { toast } from 'sonner'
 
@@ -45,7 +45,6 @@ export default function ProjectEditPage({ params }: ProjectEditPageProps) {
     const router = useRouter()
 
     const [project, setProject] = useState<ProjectDetail | null>(null)
-    const [clients, setClients] = useState<ClientListItem[]>([])
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -65,13 +64,8 @@ export default function ProjectEditPage({ params }: ProjectEditPageProps) {
         const loadData = async () => {
             setLoading(true)
             try {
-                const [proj, clientsRes] = await Promise.all([
-                    getProject(projectId),
-                    listClients(),
-                ])
-
+                const proj = await getProject(projectId)
                 setProject(proj)
-                setClients(clientsRes.data)
 
                 // Populate form
                 setName(proj.name)

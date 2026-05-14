@@ -147,12 +147,26 @@ class DailyLogService:
                 task.status = "in_progress"
             db.add(task)
 
-            # Recalculate project progress from all tasks
+            # Recalculate project progress from all tasks (weighted average)
             if project:
                 all_tasks = await db.execute(select(Task).where(Task.project_id == project.id))
                 tasks = list(all_tasks.scalars().all())
                 if tasks:
-                    project.progress_percentage = sum(t.progress_percentage for t in tasks) / len(tasks)
+                    total_weight = sum(t.weight for t in tasks if t.weight is not None)
+                    if total_weight > 0:
+                        # Weighted average: sum(progress * weight) / total_weight
+                        # If weights sum to 100, this gives the true weighted average
+                        # If weights sum to less than 100, it still works proportionally
+                        weighted_progress = sum(
+                            (t.progress_percentage or 0) * (t.weight or 0) 
+                            for t in tasks
+                        ) / total_weight
+                        project.progress_percentage = weighted_progress
+                    else:
+                        # Fallback to simple average if all weights are 0 or None
+                        project.progress_percentage = sum(
+                            t.progress_percentage or 0 for t in tasks
+                        ) / len(tasks)
                     db.add(project)
 
         await db.commit()

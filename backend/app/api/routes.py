@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.endpoints import auth, users, clients, contractors, suppliers, projects, budget, tasks, prediction, weather, reports, oauth
+from app.api.endpoints import auth, users, clients, suppliers, projects, budget, tasks, prediction, weather, reports, oauth
 from app.api.endpoints.daily_logs import project_logs_router, logs_router
 from app.api.endpoints.system import messages_router, audit_router, settings_router, admin_router, announcements_router
 
@@ -10,7 +10,6 @@ api_router.include_router(auth.router,            prefix="/auth",         tags=[
 api_router.include_router(oauth.router,           prefix="/auth",         tags=["Authentication"])
 api_router.include_router(users.router,           prefix="/users",        tags=["Users"])
 api_router.include_router(clients.router,         prefix="/clients",      tags=["Clients"])
-api_router.include_router(contractors.router,     prefix="/contractors",  tags=["Contractors"])
 api_router.include_router(suppliers.router,       prefix="/suppliers",    tags=["Suppliers"])
 api_router.include_router(projects.router,        prefix="/projects",     tags=["Projects & Members"])
 api_router.include_router(budget.router,          prefix="/projects",     tags=["Budget & Budget Items"])

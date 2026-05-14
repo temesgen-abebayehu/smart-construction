@@ -16,6 +16,7 @@ from app.schemas.task import (
     TaskDependencyCreate, TaskDependencyResponse,
     TaskActivityCreate, TaskActivityUpdate, TaskActivityResponse,
     TaskManpowerSummary, ManpowerByTrade,
+    TaskBudgetSummary,
 )
 from app.repositories.log import TaskRepository, TaskDependencyRepository, TaskActivityRepository
 
@@ -624,4 +625,86 @@ async def get_task_manpower_summary(
             )
             for trade, agg in by_trade_map.items()
         ],
+    )
+
+
+@router.get("/tasks/{task_id}/budget-summary", response_model=TaskBudgetSummary, summary="Task budget vs spent analysis")
+async def get_task_budget_summary(
+    task_id: UUID, db: DbSession,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Calculate budget allocation vs actual spending across all daily logs for this task.
+    
+    Returns:
+    - allocated_budget: Task.budget field
+    - spent_labor: Sum of Manpower.cost from all logs
+    - spent_materials: Sum of Material.cost from all logs
+    - spent_equipment: Sum of Equipment.cost from all logs
+    - total_spent: Sum of all costs
+    - remaining_budget: allocated - spent
+    - budget_utilization_pct: (spent / allocated) * 100
+    - status: under_budget / on_budget / over_budget
+    """
+    task = await db.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not current_user.is_admin:
+        from app.repositories.project import ProjectMemberRepository
+        member = await ProjectMemberRepository().get_by_project_and_user(db, task.project_id, current_user.id)
+        if not member:
+            raise HTTPException(status_code=403, detail="Not a member of this project")
+
+    # Get all logs for this task
+    logs_res = await db.execute(select(DailyLog).where(DailyLog.task_id == task_id))
+    logs = list(logs_res.scalars().all())
+    log_ids = [l.id for l in logs]
+
+    # Calculate spent amounts
+    spent_labor = 0.0
+    spent_materials = 0.0
+    spent_equipment = 0.0
+
+    if log_ids:
+        # Labor costs
+        from app.models.log import Material, Equipment
+        labor_res = await db.execute(select(Manpower).where(Manpower.log_id.in_(log_ids)))
+        spent_labor = sum(float(mp.cost or 0.0) for mp in labor_res.scalars().all())
+
+        # Material costs
+        material_res = await db.execute(select(Material).where(Material.log_id.in_(log_ids)))
+        spent_materials = sum(float(m.cost or 0.0) for m in material_res.scalars().all())
+
+        # Equipment costs
+        equipment_res = await db.execute(select(Equipment).where(Equipment.log_id.in_(log_ids)))
+        spent_equipment = sum(float(e.cost or 0.0) for e in equipment_res.scalars().all())
+
+    total_spent = spent_labor + spent_materials + spent_equipment
+    allocated_budget = float(task.budget or 0.0)
+    remaining_budget = allocated_budget - total_spent
+    
+    # Calculate utilization percentage
+    budget_utilization_pct = 0.0
+    if allocated_budget > 0:
+        budget_utilization_pct = (total_spent / allocated_budget) * 100
+
+    # Determine status
+    status = "under_budget"
+    if budget_utilization_pct >= 100:
+        status = "over_budget"
+    elif budget_utilization_pct >= 80:
+        status = "on_budget"
+
+    return TaskBudgetSummary(
+        task_id=task.id,
+        task_name=task.name,
+        allocated_budget=round(allocated_budget, 2),
+        spent_labor=round(spent_labor, 2),
+        spent_materials=round(spent_materials, 2),
+        spent_equipment=round(spent_equipment, 2),
+        total_spent=round(total_spent, 2),
+        remaining_budget=round(remaining_budget, 2),
+        budget_utilization_pct=round(budget_utilization_pct, 2),
+        status=status,
+        log_count=len(logs),
     )

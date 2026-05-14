@@ -88,8 +88,8 @@ class DailyLogActivity(Base):
     were completed that day. This links log progress to task progress."""
     __tablename__ = "daily_log_activities"
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    log_id = Column(SQL_UUID(as_uuid=True), ForeignKey("daily_logs.id"), nullable=False)
-    task_activity_id = Column(SQL_UUID(as_uuid=True), ForeignKey("task_activities.id"), nullable=False)
+    log_id = Column(SQL_UUID(as_uuid=True), ForeignKey("daily_logs.id", ondelete="CASCADE"), nullable=False)
+    task_activity_id = Column(SQL_UUID(as_uuid=True), ForeignKey("task_activities.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     log = relationship("DailyLog", back_populates="completed_activities")

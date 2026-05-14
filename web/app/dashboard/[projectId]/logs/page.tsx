@@ -248,10 +248,12 @@ export default function LogsPage({ params }: LogsPageProps) {
           <p className="text-sm text-muted-foreground">{pageDescription}</p>
         </div>
         {userRole === 'site_engineer' && (
-          <Button className="gap-2" onClick={() => void openCreateDialog()}>
-            <Plus className="h-4 w-4" />
-            New Daily Log
-          </Button>
+          <Link href={`/dashboard/${projectId}/logs/create`}>
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" />
+              Create Daily Log
+            </Button>
+          </Link>
         )}
       </div>
 
@@ -426,26 +428,43 @@ export default function LogsPage({ params }: LogsPageProps) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Weather</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>Activities</TableHead>
+                  <TableHead>Total Cost</TableHead>
+                  <TableHead>Human Resources</TableHead>
+                  <TableHead>Equipment</TableHead>
+                  <TableHead>Done By</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredLogs.map((log) => (
                   <TableRow key={log.id}>
-                    <TableCell className="font-medium text-primary">#{log.id.slice(0, 8).toUpperCase()}</TableCell>
-                    <TableCell>{new Date(log.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</TableCell>
+                    <TableCell className="font-medium">{new Date(log.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</TableCell>
                     <TableCell>
                       <Badge className={statusConfig[log.status]?.className ?? 'bg-gray-100 text-gray-700'}>
                         {statusConfig[log.status]?.label ?? log.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="capitalize">{log.weather || '-'}</TableCell>
-                    <TableCell className="max-w-[200px] truncate">{log.notes || '-'}</TableCell>
+                    <TableCell>
+                      <span className="text-sm font-medium">{log.activities_count || 0}</span>
+                      <span className="text-xs text-muted-foreground ml-1">activities</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm font-medium">ETB {((log.manpower_cost || 0) + (log.materials_cost || 0) + (log.equipment_cost || 0)).toLocaleString()}</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm font-medium">{log.manpower_count || 0}</span>
+                      <span className="text-xs text-muted-foreground ml-1">workers</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm font-medium">{log.equipment_count || 0}</span>
+                      <span className="text-xs text-muted-foreground ml-1">items</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm">{log.created_by?.full_name || 'Unknown'}</span>
+                    </TableCell>
                     <TableCell className="text-right">
                       <Link href={`/dashboard/${projectId}/logs/${log.id}`}>
                         <Button variant="ghost" size="sm" className="text-primary">

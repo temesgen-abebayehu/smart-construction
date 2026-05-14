@@ -9,20 +9,28 @@ from app.models.commons import ProjectStatus
 class Client(Base):
     __tablename__ = "clients"
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    name = Column(String(255), nullable=False, unique=True, index=True)
-    contact_email = Column(String(255), unique=True, index=True)
+    project_id = Column(SQL_UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    tin_number = Column(String(20))  # Ethiopian Tax Identification Number
+    address = Column(String(300))
+    contact_email = Column(String(150))
+    contact_phone = Column(String(20))
 
-    projects = relationship("Project", back_populates="client")
+    project = relationship("Project", back_populates="clients")
 
-class Contractor(Base):
-    __tablename__ = "contractors"
-    id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    name = Column(String(255), nullable=False)
 
 class Supplier(Base):
     __tablename__ = "suppliers"
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    name = Column(String(255), nullable=False)
+    project_id = Column(SQL_UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    role = Column(String(100))  # Type of supply e.g. Cement, Steel, Aggregate, Formwork, Equipment rental
+    tin_number = Column(String(20))  # Ethiopian Tax Identification Number
+    address = Column(String(300))
+    contact_email = Column(String(150))
+    contact_phone = Column(String(20))
+
+    project = relationship("Project", back_populates="suppliers")
 
 class Project(Base):
     __tablename__ = "projects"
@@ -43,8 +51,8 @@ class Project(Base):
     fiscal_year_start_month = Column(Integer, nullable=False, server_default="1")
     week_starts_on = Column(Integer, nullable=False, server_default="0")  # 0=Mon, 6=Sun
 
-    client_id = Column(SQL_UUID(as_uuid=True), ForeignKey("clients.id"))
-    client = relationship("Client", back_populates="projects", lazy="selectin")
+    clients = relationship("Client", back_populates="project", cascade="all, delete-orphan")
+    suppliers = relationship("Supplier", back_populates="project", cascade="all, delete-orphan")
 
     owner_id = Column(SQL_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     owner = relationship("User", foreign_keys=[owner_id], lazy="selectin")

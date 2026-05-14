@@ -48,6 +48,9 @@ export default function NewProjectPage() {
   const [selectedClientId, setSelectedClientId] = useState('')
   const [newClientName, setNewClientName] = useState('')
   const [newClientEmail, setNewClientEmail] = useState('')
+  const [newClientTin, setNewClientTin] = useState('')
+  const [newClientAddress, setNewClientAddress] = useState('')
+  const [newClientPhone, setNewClientPhone] = useState('')
 
   useEffect(() => {
     if (!isAuthenticated) router.push('/login')
@@ -56,23 +59,23 @@ export default function NewProjectPage() {
   useEffect(() => {
     if (!isAuthenticated) return
     let cancelled = false
-    ;(async () => {
-      setClientsLoading(true)
-      try {
-        const { data } = await listClients({ limit: 100 })
-        if (!cancelled) {
-          setClients(data)
-          if (data.length === 0) setClientMode('new')
+      ; (async () => {
+        setClientsLoading(true)
+        try {
+          const { data } = await listClients({ limit: 100 })
+          if (!cancelled) {
+            setClients(data)
+            if (data.length === 0) setClientMode('new')
+          }
+        } catch {
+          if (!cancelled) {
+            setClients([])
+            setClientMode('new')
+          }
+        } finally {
+          if (!cancelled) setClientsLoading(false)
         }
-      } catch {
-        if (!cancelled) {
-          setClients([])
-          setClientMode('new')
-        }
-      } finally {
-        if (!cancelled) setClientsLoading(false)
-      }
-    })()
+      })()
     return () => {
       cancelled = true
     }
@@ -126,6 +129,9 @@ export default function NewProjectPage() {
         planned_end_date: dateInputToApiDateTime(formData.planned_end_date) ?? null,
         client_name: clientFields.client_name,
         client_email: clientFields.client_email,
+        client_tin_number: newClientTin.trim() || null,
+        client_address: newClientAddress.trim() || null,
+        client_phone: newClientPhone.trim() || null,
       })
 
       // Show resolved client name if different from what was typed
@@ -317,6 +323,9 @@ export default function NewProjectPage() {
                               setClientMode('existing')
                               setNewClientName('')
                               setNewClientEmail('')
+                              setNewClientTin('')
+                              setNewClientAddress('')
+                              setNewClientPhone('')
                             }}
                           >
                             Cancel
@@ -340,6 +349,34 @@ export default function NewProjectPage() {
                               placeholder="e.g., contact@acme.com"
                               value={newClientEmail}
                               onChange={(e) => setNewClientEmail(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="client_tin">TIN Number</Label>
+                            <Input
+                              id="client_tin"
+                              placeholder="Ethiopian Tax ID"
+                              value={newClientTin}
+                              onChange={(e) => setNewClientTin(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="client_phone">Contact Phone</Label>
+                            <Input
+                              id="client_phone"
+                              type="tel"
+                              placeholder="+251 912 345 678"
+                              value={newClientPhone}
+                              onChange={(e) => setNewClientPhone(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-2 sm:col-span-2">
+                            <Label htmlFor="client_address">Address</Label>
+                            <Input
+                              id="client_address"
+                              placeholder="Physical address"
+                              value={newClientAddress}
+                              onChange={(e) => setNewClientAddress(e.target.value)}
                             />
                           </div>
                         </div>

@@ -33,9 +33,13 @@ import {
   Trash2,
   UserCircle2,
   X,
+  DollarSign,
+  TrendingUp,
+  TrendingDown,
+  AlertTriangle,
 } from 'lucide-react'
-import { getTask, updateTask, listProjectMembersEnriched, listProjectTasks, listTaskDependencies, addTaskDependency, removeTaskDependency, listTaskActivities, addTaskActivity, updateTaskActivity, deleteTaskActivity } from '@/lib/api'
-import type { TaskListItem, EnrichedMemberRow, TaskActivityItem } from '@/lib/api-types'
+import { getTask, updateTask, listProjectMembersEnriched, listProjectTasks, listTaskDependencies, addTaskDependency, removeTaskDependency, listTaskActivities, addTaskActivity, updateTaskActivity, deleteTaskActivity, getTaskBudgetSummary, deleteTask } from '@/lib/api'
+import type { TaskListItem, EnrichedMemberRow, TaskActivityItem, TaskBudgetSummary } from '@/lib/api-types'
 import type { TaskStatus } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
 import { toast } from 'sonner'
@@ -56,6 +60,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   const userRole = useProjectRole()
 
   const [task, setTask] = useState<TaskListItem | null>(null)
+  const [budgetSummary, setBudgetSummary] = useState<TaskBudgetSummary | null>(null)
   const [members, setMembers] = useState<EnrichedMemberRow[]>([])
   const [allTasks, setAllTasks] = useState<TaskListItem[]>([])
   const [deps, setDeps] = useState<{ id: string; task_id: string; depends_on_task_id: string }[]>([])
@@ -76,6 +81,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   const [editProgress, setEditProgress] = useState('')
   const [editStartDate, setEditStartDate] = useState('')
   const [editEndDate, setEditEndDate] = useState('')
+  const [editWeight, setEditWeight] = useState('')
   const [editAssignee, setEditAssignee] = useState<string | null>(null)
   const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false)
 
@@ -88,12 +94,13 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
         setLoading(true)
         setError(null)
         try {
-          const [t, m, tasksRes, d, acts] = await Promise.all([
+          const [t, m, tasksRes, d, acts, budget] = await Promise.all([
             getTask(taskId),
             listProjectMembersEnriched(projectId),
             listProjectTasks(projectId, { limit: 200 }),
             listTaskDependencies(taskId).catch(() => []),
             listTaskActivities(taskId).catch(() => []),
+            getTaskBudgetSummary(taskId).catch(() => null),
           ])
           if (cancelled) return
           setTask(t)
@@ -101,11 +108,13 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
           setAllTasks(tasksRes.data.filter(tk => tk.id !== taskId))
           setDeps(d)
           setActivities(acts)
+          setBudgetSummary(budget)
           setEditName(t.title)
           setEditStatus(t.status)
           setEditProgress(String(t.progress_percentage))
           setEditStartDate(t.start_date ? t.start_date.split('T')[0] : '')
           setEditEndDate(t.end_date ? t.end_date.split('T')[0] : '')
+          setEditWeight(String(t.weight ?? 0))
           setEditAssignee(t.assigned_to ?? null)
         } catch {
           if (!cancelled) setError('Failed to load task')
@@ -127,6 +136,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
           progress_percentage: Number.parseFloat(editProgress) || 0,
           start_date: editStartDate ? `${editStartDate}T00:00:00` : undefined,
           end_date: editEndDate ? `${editEndDate}T00:00:00` : undefined,
+          weight: Number.parseFloat(editWeight) || 0,
           assigned_to: editAssignee || undefined,
         }
         : {
@@ -167,7 +177,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => router.push(`/dashboard/${projectId}/tasks`)}>
           <ArrowLeft className="h-5 w-5" />
@@ -188,6 +198,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
               setEditProgress(String(task.progress_percentage))
               setEditStartDate(task.start_date ? task.start_date.split('T')[0] : '')
               setEditEndDate(task.end_date ? task.end_date.split('T')[0] : '')
+              setEditWeight(String(task.weight ?? 0))
               setEditAssignee(task.assigned_to ?? null)
             }}>
               <X className="h-4 w-4" />
@@ -202,34 +213,53 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
         )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Task Information</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="space-y-2">
-              <Label>Task Name</Label>
-              <Input
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                disabled={!editing}
-              />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-6 xl:grid-cols-[1.6fr_0.9fr]">
+        <div className="space-y-6">
+          {/* Task Information */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Task Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
               <div className="space-y-2">
-                <Label>Status</Label>
-                <Select value={editStatus} onValueChange={(v) => setEditStatus(v as TaskStatus)} disabled={!editing}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Task Name</Label>
+                <Input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  disabled={!editing}
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select value={editStatus} onValueChange={(v) => setEditStatus(v as TaskStatus)} disabled={!editing}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Weight (%)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.1}
+                    value={editWeight}
+                    onChange={(e) => setEditWeight(e.target.value)}
+                    disabled={!editing || !canEdit}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Task importance out of 100%
+                  </p>
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -243,159 +273,101 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
                   disabled={!editing}
                 />
               </div>
-            </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Start Date</Label>
-                <Input
-                  type="date"
-                  value={editStartDate}
-                  onChange={(e) => setEditStartDate(e.target.value)}
-                  disabled={!editing}
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Input
+                    type="date"
+                    value={editStartDate}
+                    onChange={(e) => setEditStartDate(e.target.value)}
+                    disabled={!editing}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Date</Label>
+                  <Input
+                    type="date"
+                    value={editEndDate}
+                    onChange={(e) => setEditEndDate(e.target.value)}
+                    disabled={!editing}
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>End Date</Label>
-                <Input
-                  type="date"
-                  value={editEndDate}
-                  onChange={(e) => setEditEndDate(e.target.value)}
-                  disabled={!editing}
-                />
-              </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label>Assign to</Label>
-              <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" type="button" className="w-full justify-start gap-2 font-normal" disabled={!editing}>
-                    {selectedMember ? (
-                      <>
-                        <Avatar className="h-5 w-5">
-                          <AvatarFallback className="text-[10px]">
-                            {selectedMember.user.full_name.split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        {selectedMember.user.full_name}
-                      </>
-                    ) : (
-                      <>
-                        <UserCircle2 className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">Unassigned</span>
-                      </>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-64 p-1" align="start">
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"
-                    onClick={() => { setEditAssignee(null); setAssigneePopoverOpen(false) }}
-                  >
-                    <UserCircle2 className="h-6 w-6 text-muted-foreground" />
-                    <span>Unassigned</span>
-                  </button>
-                  <div className="max-h-48 overflow-y-auto">
-                    {members.map((m) => {
-                      const initials = m.user.full_name.split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase() || 'U'
-                      return (
-                        <button
-                          key={m.user.id}
-                          type="button"
-                          className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted ${editAssignee === m.user.id ? 'bg-muted' : ''}`}
-                          onClick={() => { setEditAssignee(m.user.id); setAssigneePopoverOpen(false) }}
-                        >
-                          <Avatar className="h-6 w-6">
-                            <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
+              <div className="space-y-2">
+                <Label>Assign to</Label>
+                <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" type="button" className="w-full justify-start gap-2 font-normal" disabled={!editing}>
+                      {selectedMember ? (
+                        <>
+                          <Avatar className="h-5 w-5">
+                            <AvatarFallback className="text-[10px]">
+                              {selectedMember.user.full_name.split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase()}
+                            </AvatarFallback>
                           </Avatar>
-                          <div className="text-left">
-                            <p className="font-medium">{m.user.full_name}</p>
-                            {m.user.email && <p className="text-xs text-muted-foreground">{m.user.email}</p>}
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            {editing && (
-              <div className="flex justify-end pt-2">
-                <Button onClick={() => void handleSave()} disabled={saving} className="gap-2">
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Save Changes
-                </Button>
+                          {selectedMember.user.full_name}
+                        </>
+                      ) : (
+                        <>
+                          <UserCircle2 className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-muted-foreground">Unassigned</span>
+                        </>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-1" align="start">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"
+                      onClick={() => { setEditAssignee(null); setAssigneePopoverOpen(false) }}
+                    >
+                      <UserCircle2 className="h-6 w-6 text-muted-foreground" />
+                      <span>Unassigned</span>
+                    </button>
+                    <div className="max-h-48 overflow-y-auto">
+                      {members.map((m) => {
+                        const initials = m.user.full_name.split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase() || 'U'
+                        return (
+                          <button
+                            key={m.user.id}
+                            type="button"
+                            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted ${editAssignee === m.user.id ? 'bg-muted' : ''}`}
+                            onClick={() => { setEditAssignee(m.user.id); setAssigneePopoverOpen(false) }}
+                          >
+                            <Avatar className="h-6 w-6">
+                              <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
+                            </Avatar>
+                            <div className="text-left">
+                              <p className="font-medium">{m.user.full_name}</p>
+                              {m.user.email && <p className="text-xs text-muted-foreground">{m.user.email}</p>}
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
-            )}
-          </CardContent>
-        </Card>
 
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Progress</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Completion</span>
-                  <span className="font-medium">{task.progress_percentage}%</span>
+              {editing && (
+                <div className="flex justify-end pt-2">
+                  <Button onClick={() => void handleSave()} disabled={saving} className="gap-2">
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Save Changes
+                  </Button>
                 </div>
-                <Progress
-                  value={task.progress_percentage}
-                  className={`h-2 ${task.status === 'completed' ? '[&>div]:bg-emerald-500' : ''}`}
-                />
-              </div>
+              )}
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Timeline</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Start:</span>
-                <span>{task.start_date ? new Date(task.start_date).toLocaleDateString() : 'Not set'}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">End:</span>
-                <span>{task.end_date ? new Date(task.end_date).toLocaleDateString() : 'Not set'}</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          {task.assignee && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Assigned To</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback className="text-xs">
-                      {task.assignee.full_name.split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="text-sm font-medium">{task.assignee.full_name}</p>
-                    <p className="text-xs text-muted-foreground">{task.assignee.email}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {/* Dependencies */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm flex items-center gap-2">
+                <CardTitle className="text-base flex items-center gap-2">
                   <GitBranch className="h-4 w-4" />
                   Dependencies
                 </CardTitle>
@@ -462,8 +434,8 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
                       <Badge
                         variant="outline"
                         className={`text-[10px] shrink-0 ${blockerTask?.status === 'completed'
-                            ? 'border-emerald-300 text-emerald-700'
-                            : 'border-amber-300 text-amber-700'
+                          ? 'border-emerald-300 text-emerald-700'
+                          : 'border-amber-300 text-amber-700'
                           }`}
                       >
                         {blockerTask?.status === 'completed' ? 'Done' : 'Blocking'}
@@ -491,7 +463,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
           {/* Activities */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Activities</CardTitle>
+              <CardTitle>Activities</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {activities.map((act) => (
@@ -500,8 +472,8 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
                     <button
                       type="button"
                       className={`grid h-5 w-5 shrink-0 place-items-center rounded border transition-colors ${act.is_completed
-                          ? 'border-emerald-500 bg-emerald-500 text-white'
-                          : 'border-slate-300 hover:border-emerald-400'
+                        ? 'border-emerald-500 bg-emerald-500 text-white'
+                        : 'border-slate-300 hover:border-emerald-400'
                         }`}
                       onClick={async () => {
                         try {
@@ -619,6 +591,196 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
               )}
             </CardContent>
           </Card>
+        </div>
+
+        {/* Right sidebar */}
+        <div className="space-y-6">
+          {/* Budget Card */}
+          {budgetSummary ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" />
+                  Budget
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Allocated</span>
+                    <span className="font-medium">ETB {budgetSummary.allocated_budget.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Spent</span>
+                    <span className={`font-medium ${budgetSummary.status === 'over_budget' ? 'text-red-600' : ''}`}>
+                      ETB {budgetSummary.total_spent.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Remaining</span>
+                    <span className={`font-semibold ${budgetSummary.remaining_budget < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      ETB {budgetSummary.remaining_budget.toLocaleString()}
+                    </span>
+                  </div>
+                  <Progress
+                    value={Math.min(budgetSummary.budget_utilization_pct, 100)}
+                    className={`h-2 ${budgetSummary.status === 'over_budget'
+                      ? '[&>div]:bg-red-500'
+                      : budgetSummary.status === 'on_budget'
+                        ? '[&>div]:bg-amber-500'
+                        : '[&>div]:bg-emerald-500'
+                      }`}
+                  />
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">{budgetSummary.budget_utilization_pct.toFixed(1)}% used</span>
+                    {budgetSummary.status === 'over_budget' && (
+                      <span className="flex items-center gap-1 text-red-600">
+                        <AlertTriangle className="h-3 w-3" />
+                        Over budget
+                      </span>
+                    )}
+                    {budgetSummary.status === 'on_budget' && (
+                      <span className="flex items-center gap-1 text-amber-600">
+                        <TrendingUp className="h-3 w-3" />
+                        Near limit
+                      </span>
+                    )}
+                    {budgetSummary.status === 'under_budget' && (
+                      <span className="flex items-center gap-1 text-emerald-600">
+                        <TrendingDown className="h-3 w-3" />
+                        On track
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-1 pt-2 border-t">
+                  <p className="text-xs font-medium text-muted-foreground">Cost Breakdown</p>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Labor</span>
+                    <span>ETB {budgetSummary.spent_labor.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Materials</span>
+                    <span>ETB {budgetSummary.spent_materials.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Equipment</span>
+                    <span>ETB {budgetSummary.spent_equipment.toLocaleString()}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground pt-1">From {budgetSummary.log_count} daily logs</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : task.allocated_budget ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" />
+                  Budget
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Allocated</span>
+                  <span className="font-medium">ETB {task.allocated_budget.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Spent</span>
+                  <span className="font-medium">ETB 0</span>
+                </div>
+                <Progress value={0} className="h-2" />
+                <p className="text-xs text-muted-foreground text-center pt-1">No expenses logged yet</p>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Progress</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Completion</span>
+                  <span className="font-medium">{task.progress_percentage}%</span>
+                </div>
+                <Progress
+                  value={task.progress_percentage}
+                  className={`h-2 ${task.status === 'completed' ? '[&>div]:bg-emerald-500' : ''}`}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Timeline</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">Start:</span>
+                <span>{task.start_date ? new Date(task.start_date).toLocaleDateString() : 'Not set'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">End:</span>
+                <span>{task.end_date ? new Date(task.end_date).toLocaleDateString() : 'Not set'}</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {task.assignee && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Assigned To</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="text-xs">
+                      {task.assignee.full_name.split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p className="text-sm font-medium">{task.assignee.full_name}</p>
+                    <p className="text-xs text-muted-foreground">{task.assignee.email}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Delete Task - Danger Zone */}
+          {canEdit && (
+            <Card className="border-destructive/50">
+              <CardHeader>
+                <CardTitle className="text-base text-destructive">Danger Zone</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  variant="destructive"
+                  className="w-full gap-2"
+                  onClick={async () => {
+                    if (!confirm('Are you sure you want to delete this task? This action cannot be undone.')) return
+                    try {
+                      await deleteTask(taskId)
+                      toast.success('Task deleted')
+                      router.push(`/dashboard/${projectId}/tasks`)
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : 'Failed to delete task')
+                    }
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete Task
+                </Button>
+                <p className="text-xs text-muted-foreground mt-2 text-center">
+                  This action cannot be undone
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

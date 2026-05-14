@@ -103,8 +103,12 @@ export interface TasksSummary {
 /** API: ClientResponse from GET /clients */
 export interface ClientListItem {
   id: string
+  project_id: string
   name: string
+  tin_number?: string | null
+  address?: string | null
   contact_email?: string | null
+  contact_phone?: string | null
 }
 
 /* ── Tasks ── */
@@ -119,6 +123,7 @@ export interface TaskListItem {
   duration_days?: number | null
   allocated_budget?: number | null
   spent_budget?: number | null
+  weight?: number
   project_id: string
   assigned_to?: string | null
   assignee?: {
@@ -136,6 +141,20 @@ export interface TaskActivityItem {
   name: string
   percentage: number
   is_completed: boolean
+}
+
+export interface TaskBudgetSummary {
+  task_id: string
+  task_name: string
+  allocated_budget: number
+  spent_labor: number
+  spent_materials: number
+  spent_equipment: number
+  total_spent: number
+  remaining_budget: number
+  budget_utilization_pct: number
+  status: 'under_budget' | 'on_budget' | 'over_budget'
+  log_count: number
 }
 
 /* ── Task Dependencies ── */
@@ -158,6 +177,20 @@ export interface LogListItem {
   notes?: string | null
   weather?: string | null
   rejection_reason?: string | null
+  // Enriched fields for display
+  activities_count?: number
+  manpower_count?: number
+  manpower_cost?: number
+  materials_count?: number
+  materials_cost?: number
+  equipment_count?: number
+  equipment_cost?: number
+  created_by?: {
+    id: string
+    full_name: string
+    email: string
+    phone_number?: string | null
+  } | null
 }
 
 export interface LogDetailResponse {
@@ -336,21 +369,15 @@ export interface InvitationResponse {
   status: string
 }
 
-/* ── Contractors ── */
-
-export interface ContractorItem {
-  id: string
-  name: string
-  specialization?: string | null
-  contact_email?: string | null
-  contact_phone?: string | null
-}
-
 /* ── Suppliers ── */
 
 export interface SupplierItem {
   id: string
+  project_id: string
   name: string
+  role?: string | null
+  tin_number?: string | null
+  address?: string | null
   contact_email?: string | null
   contact_phone?: string | null
 }

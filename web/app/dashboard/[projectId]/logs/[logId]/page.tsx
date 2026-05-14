@@ -2,6 +2,7 @@
 
 import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -31,14 +32,20 @@ import {
   addLogEquipment,
   listLogPhotos,
   deleteLogPhoto,
+  listLogCompletedActivities,
+  addLogCompletedActivity,
+  removeLogCompletedActivity,
+  listTaskActivities,
+  listEquipmentIdle,
+  addEquipmentIdle,
+  getTask,
+  deleteDailyLog,
 } from '@/lib/api'
-import type { LogDetailResponse, ProjectDetail, DailyLogPhoto } from '@/lib/api-types'
+import type { LogDetailResponse, ProjectDetail, DailyLogPhoto, TaskListItem, TaskActivityItem } from '@/lib/api-types'
 import type { LogStatus } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
-import { ArrowLeft, CheckCircle2, Clock3, FileText, Loader2, MapPin, Plus, Users, XCircle, Image as ImageIcon, Trash2, Upload } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Clock3, FileText, Loader2, MapPin, Plus, Users, XCircle, Image as ImageIcon, Trash2, Upload, ListChecks, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
-import { uploadToCloudinary, validateImageFile } from '@/lib/cloudinary'
-import { apiRequest } from '@/lib/api-client'
 
 interface LogDetailPageProps {
   params: Promise<{ projectId: string; logId: string }>
@@ -63,16 +70,19 @@ function checkItem(label: string, complete: boolean) {
   )
 }
 
-type LaborEntry = { worker_type: string; hours_worked: number; cost: number }
-type MaterialEntry = { name: string; quantity: number; unit: string; cost: number }
-type EquipmentEntry = { name: string; hours_used: number; cost: number }
+type LaborEntry = { id: string; worker_type: string; hours_worked: number; cost: number }
+type MaterialEntry = { id: string; name: string; quantity: number; unit: string; cost: number }
+type EquipmentEntry = { id: string; name: string; hours_used: number; cost: number }
+type EquipmentIdleEntry = { id: string; equipment_id: string; reason: string; hours_idle: number }
 
 export default function LogDetailPage({ params }: LogDetailPageProps) {
   const { projectId, logId } = use(params)
+  const router = useRouter()
   const userRole = useProjectRole()
 
   const [project, setProject] = useState<ProjectDetail | null>(null)
   const [log, setLog] = useState<LogDetailResponse | null>(null)
+  const [task, setTask] = useState<TaskListItem | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
@@ -81,11 +91,15 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
   const [materials, setMaterials] = useState<MaterialEntry[]>([])
   const [equipment, setEquipment] = useState<EquipmentEntry[]>([])
   const [photos, setPhotos] = useState<DailyLogPhoto[]>([])
+  const [availableActivities, setAvailableActivities] = useState<TaskActivityItem[]>([])
+  const [completedActivityIds, setCompletedActivityIds] = useState<Set<string>>(new Set())
+  const [equipmentIdle, setEquipmentIdle] = useState<Map<string, EquipmentIdleEntry[]>>(new Map())
 
   // Add entry forms
-  const [addType, setAddType] = useState<'labor' | 'material' | 'equipment' | null>(null)
+  const [addType, setAddType] = useState<'labor' | 'material' | 'equipment' | 'equipment_idle' | null>(null)
   const [formData, setFormData] = useState<Record<string, string>>({})
   const [addingEntry, setAddingEntry] = useState(false)
+  const [selectedEquipmentForIdle, setSelectedEquipmentForIdle] = useState<string | null>(null)
 
   // Photo upload
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
@@ -108,9 +122,42 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
       setMaterials(materialData)
       setEquipment(equipData)
       setPhotos(photoData)
+
+      // Load task and activities if log has a task
+      if (logData.task_id) {
+        try {
+          const [taskData, activities, completedActivities] = await Promise.all([
+            getTask(logData.task_id),
+            listTaskActivities(logData.task_id),
+            listLogCompletedActivities(logId),
+          ])
+          setTask(taskData)
+          setAvailableActivities(activities)
+          setCompletedActivityIds(new Set(completedActivities.map(a => a.task_activity_id)))
+        } catch {
+          setTask(null)
+          setAvailableActivities([])
+          setCompletedActivityIds(new Set())
+        }
+      }
+
+      // Load equipment idle time for each equipment
+      const idleMap = new Map<string, EquipmentIdleEntry[]>()
+      for (const eq of equipData) {
+        try {
+          const idle = await listEquipmentIdle(eq.id)
+          if (idle.length > 0) {
+            idleMap.set(eq.id, idle)
+          }
+        } catch {
+          // Ignore errors
+        }
+      }
+      setEquipmentIdle(idleMap)
     } catch {
       setProject(null)
       setLog(null)
+      setTask(null)
     } finally {
       setLoading(false)
     }
@@ -156,11 +203,17 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
           hours_used: Number(formData.hours_used) || 0,
           cost: Number(formData.cost) || 0,
         })
+      } else if (addType === 'equipment_idle' && selectedEquipmentForIdle) {
+        await addEquipmentIdle(selectedEquipmentForIdle, {
+          reason: formData.reason || '',
+          hours_idle: Number(formData.hours_idle) || 0,
+        })
       }
       setAddType(null)
       setFormData({})
+      setSelectedEquipmentForIdle(null)
       await loadData()
-      toast.success(`${addType} entry added`)
+      toast.success(`${addType.replace('_', ' ')} entry added`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to add entry')
     } finally {
@@ -173,27 +226,31 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
     if (!file) return
 
     // Validate file
-    const validation = validateImageFile(file)
-    if (!validation.valid) {
-      toast.error(validation.error || 'Invalid file')
+    const MAX_SIZE = 10 * 1024 * 1024 // 10MB
+    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      toast.error('Invalid file type. Allowed: JPEG, PNG, WebP, GIF')
+      return
+    }
+
+    if (file.size > MAX_SIZE) {
+      toast.error('File too large. Maximum 10MB')
       return
     }
 
     setUploadingPhoto(true)
     try {
-      // Upload to Cloudinary
-      const cloudinaryResult = await uploadToCloudinary(file, `smart-construction/daily-logs/${logId}`)
+      // Upload using backend endpoint
+      const formData = new FormData()
+      formData.append('file', file)
 
-      // Save photo metadata to backend
-      await apiRequest(`/daily-logs/${logId}/photos`, {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/daily-logs/${logId}/photos`, {
         method: 'POST',
-        body: JSON.stringify({
-          file_path: cloudinaryResult.public_id,
-          url_path: cloudinaryResult.secure_url,
-          original_filename: file.name,
-          content_type: file.type,
-          size_bytes: file.size,
-        }),
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: formData,
       })
 
       await loadData()
@@ -219,6 +276,21 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
       toast.error(e instanceof Error ? e.message : 'Failed to delete photo')
     } finally {
       setDeletingPhotoId(null)
+    }
+  }
+
+  const handleDeleteLog = async () => {
+    if (!confirm('Are you sure you want to delete this draft log? This action cannot be undone.')) return
+
+    setActionLoading(true)
+    try {
+      await deleteDailyLog(logId)
+      toast.success('Draft log deleted')
+      router.push(`/dashboard/${projectId}/logs`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to delete log')
+    } finally {
+      setActionLoading(false)
     }
   }
 
@@ -313,7 +385,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
           {/* Labor */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">Labor ({labor.length})</CardTitle>
+              <CardTitle className="text-base">Human Resources ({labor.length})</CardTitle>
               {canAddEntries && (
                 <Button variant="outline" size="sm" className="gap-1" onClick={() => { setAddType('labor'); setFormData({}) }}>
                   <Plus className="h-3.5 w-3.5" /> Add
@@ -326,12 +398,17 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
               ) : (
                 <div className="space-y-2">
                   {labor.map((l, i) => (
-                    <div key={i} className="flex items-center justify-between rounded border p-2 text-sm">
-                      <span className="font-medium capitalize">{l.worker_type}</span>
-                      <span>{l.hours_worked}h — ETB {l.cost.toLocaleString()}</span>
+                    <div key={i} className="rounded border p-3 text-sm space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium capitalize">{l.worker_type}</span>
+                        <span className="font-medium">ETB {l.cost.toLocaleString()}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Hours worked: {l.hours_worked}h
+                      </div>
                     </div>
                   ))}
-                  <p className="text-right text-sm font-medium">Total: ETB {totalLaborCost.toLocaleString()}</p>
+                  <p className="text-right text-sm font-medium pt-2 border-t">Total: ETB {totalLaborCost.toLocaleString()}</p>
                 </div>
               )}
             </CardContent>
@@ -353,12 +430,17 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
               ) : (
                 <div className="space-y-2">
                   {materials.map((m, i) => (
-                    <div key={i} className="flex items-center justify-between rounded border p-2 text-sm">
-                      <span className="font-medium">{m.name}</span>
-                      <span>{m.quantity} {m.unit} — ETB {m.cost.toLocaleString()}</span>
+                    <div key={i} className="rounded border p-3 text-sm space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{m.name}</span>
+                        <span className="font-medium">ETB {m.cost.toLocaleString()}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Quantity: {m.quantity} {m.unit}
+                      </div>
                     </div>
                   ))}
-                  <p className="text-right text-sm font-medium">Total: ETB {totalMaterialCost.toLocaleString()}</p>
+                  <p className="text-right text-sm font-medium pt-2 border-t">Total: ETB {totalMaterialCost.toLocaleString()}</p>
                 </div>
               )}
             </CardContent>
@@ -379,13 +461,52 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                 <p className="text-sm text-muted-foreground">No equipment recorded.</p>
               ) : (
                 <div className="space-y-2">
-                  {equipment.map((e, i) => (
-                    <div key={i} className="flex items-center justify-between rounded border p-2 text-sm">
-                      <span className="font-medium">{e.name}</span>
-                      <span>{e.hours_used}h — ETB {e.cost.toLocaleString()}</span>
-                    </div>
-                  ))}
-                  <p className="text-right text-sm font-medium">Total: ETB {totalEquipmentCost.toLocaleString()}</p>
+                  {equipment.map((e) => {
+                    const idle = equipmentIdle.get(e.id) || []
+                    const totalIdleHours = idle.reduce((sum, i) => sum + i.hours_idle, 0)
+                    return (
+                      <div key={e.id} className="space-y-2">
+                        <div className="rounded border p-3 text-sm space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">{e.name}</span>
+                            <span className="font-medium">ETB {e.cost.toLocaleString()}</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Hours used: {e.hours_used}h
+                          </div>
+                        </div>
+                        {idle.length > 0 && (
+                          <div className="ml-4 space-y-1">
+                            {idle.map((i) => (
+                              <div key={i.id} className="flex items-start gap-2 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-2 text-xs">
+                                <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-amber-900 dark:text-amber-100">Idle: {i.hours_idle}h</p>
+                                  <p className="text-amber-700 dark:text-amber-300">{i.reason}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {canAddEntries && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ml-4 h-7 gap-1 text-xs"
+                            onClick={() => {
+                              setSelectedEquipmentForIdle(e.id)
+                              setAddType('equipment_idle')
+                              setFormData({})
+                            }}
+                          >
+                            <Plus className="h-3 w-3" />
+                            Record Idle Time
+                          </Button>
+                        )}
+                      </div>
+                    )
+                  })}
+                  <p className="text-right text-sm font-medium pt-2 border-t">Total: ETB {totalEquipmentCost.toLocaleString()}</p>
                 </div>
               )}
             </CardContent>
@@ -467,10 +588,108 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
               )}
             </CardContent>
           </Card>
+
+          {/* Activity Completion */}
+          {task && availableActivities.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ListChecks className="h-4 w-4" />
+                  Activities Completed Today
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  {completedActivityIds.size} {completedActivityIds.size === 1 ? 'activity' : 'activities'} completed in this log
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {availableActivities.map((activity) => {
+                  const isCompleted = completedActivityIds.has(activity.id)
+                  return (
+                    <div key={activity.id} className="flex items-center justify-between rounded-lg border p-2.5">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <button
+                          type="button"
+                          disabled={!canAddEntries}
+                          className={`grid h-5 w-5 shrink-0 place-items-center rounded border transition-colors ${isCompleted
+                            ? 'border-emerald-500 bg-emerald-500 text-white'
+                            : 'border-slate-300 hover:border-emerald-400'
+                            } ${!canAddEntries ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          onClick={async () => {
+                            if (!canAddEntries) return
+                            try {
+                              if (isCompleted) {
+                                await removeLogCompletedActivity(logId, activity.id)
+                                setCompletedActivityIds(prev => {
+                                  const next = new Set(prev)
+                                  next.delete(activity.id)
+                                  return next
+                                })
+                                toast.success('Activity unmarked')
+                              } else {
+                                await addLogCompletedActivity(logId, activity.id)
+                                setCompletedActivityIds(prev => new Set(prev).add(activity.id))
+                                toast.success('Activity marked complete')
+                              }
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : 'Failed to update')
+                            }
+                          }}
+                        >
+                          {isCompleted && <CheckCircle2 className="h-3 w-3" />}
+                        </button>
+                        <span className={`text-sm truncate ${isCompleted ? 'font-medium' : ''}`}>
+                          {activity.name}
+                        </span>
+                      </div>
+                      <Badge variant="outline" className="text-[10px] shrink-0">
+                        {activity.percentage}%
+                      </Badge>
+                    </div>
+                  )
+                })}
+                {canAddEntries && (
+                  <p className="text-xs text-muted-foreground pt-2">
+                    Mark activities completed today. Task progress will update when log is approved by PM.
+                  </p>
+                )}
+                {!canAddEntries && completedActivityIds.size === 0 && (
+                  <p className="text-sm text-muted-foreground">No activities were completed in this log.</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Right sidebar */}
         <div className="space-y-6">
+          {/* Task Context */}
+          {task && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Task</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div>
+                  <Link href={`/dashboard/${projectId}/tasks/${task.id}`} className="font-medium text-primary hover:underline">
+                    {task.title}
+                  </Link>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Badge variant="outline" className="text-[10px]">
+                      {task.status.replace('_', ' ')}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">{task.progress_percentage}% complete</span>
+                  </div>
+                </div>
+                {task.assignee && (
+                  <div className="text-sm">
+                    <p className="text-muted-foreground">Assigned to</p>
+                    <p className="font-medium">{task.assignee.full_name}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Approval Progress */}
           <Card>
             <CardHeader>
@@ -502,26 +721,29 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
             </CardHeader>
             <CardContent className="space-y-2">
               {canSubmit && (
-                <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => submitLog(logId))}>
+                <Button className="w-full mt-4" disabled={actionLoading} onClick={() => handleAction(() => submitLog(logId))}>
                   {log.status === 'rejected' ? 'Re-submit Log' : 'Submit for Review'}
                 </Button>
               )}
               {canConsultantApprove && (
-                <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => consultantApproveLog(logId))}>
+                <Button className="w-full gap-2" disabled={actionLoading} onClick={() => handleAction(() => consultantApproveLog(logId))}>
+                  <CheckCircle2 className="h-4 w-4" />
                   Approve (Consultant)
                 </Button>
               )}
               {canPmApprove && (
-                <Button className="w-full" disabled={actionLoading} onClick={() => handleAction(() => pmApproveLog(logId))}>
+                <Button className="w-full gap-2" disabled={actionLoading} onClick={() => handleAction(() => pmApproveLog(logId))}>
+                  <CheckCircle2 className="h-4 w-4" />
                   Final Approve (PM)
                 </Button>
               )}
               {canReject && (
-                <Button variant="destructive" className="w-full" disabled={actionLoading} onClick={() => setRejectOpen(true)}>
+                <Button variant="destructive" className="w-full gap-2" disabled={actionLoading} onClick={() => setRejectOpen(true)}>
+                  <XCircle className="h-4 w-4" />
                   Reject
                 </Button>
               )}
-              {!canSubmit && !canConsultantApprove && !canPmApprove && !canReject && (
+              {!canSubmit && !canConsultantApprove && !canPmApprove && !canReject && !canAddEntries && (
                 <p className="text-sm text-muted-foreground text-center py-2">No actions available.</p>
               )}
             </CardContent>
@@ -558,18 +780,42 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
               </div>
             </CardContent>
           </Card>
+
+          {/* Delete Draft - Separated at bottom for safety */}
+          {canAddEntries && log.status === 'draft' && (
+            <Card className="border-destructive/50">
+              <CardHeader>
+                <CardTitle className="text-base text-destructive">Danger Zone</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  variant="destructive"
+                  className="w-full gap-2"
+                  disabled={actionLoading}
+                  onClick={handleDeleteLog}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete Draft Log
+                </Button>
+                <p className="text-xs text-muted-foreground mt-2 text-center">
+                  This action cannot be undone
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 
       {/* Add Entry Dialog */}
-      <Dialog open={!!addType} onOpenChange={(open) => { if (!open) setAddType(null) }}>
+      <Dialog open={!!addType} onOpenChange={(open) => { if (!open) { setAddType(null); setSelectedEquipmentForIdle(null) } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="capitalize">Add {addType} Entry</DialogTitle>
+            <DialogTitle className="capitalize">Add {addType?.replace('_', ' ')} Entry</DialogTitle>
             <DialogDescription>
               {addType === 'labor' && 'Record labor hours and cost for this log.'}
               {addType === 'material' && 'Record materials used for this log.'}
               {addType === 'equipment' && 'Record equipment usage for this log.'}
+              {addType === 'equipment_idle' && 'Record idle time and reason for equipment downtime.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
@@ -631,9 +877,33 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                 </div>
               </>
             )}
+            {addType === 'equipment_idle' && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Reason for Idle Time *</Label>
+                  <Textarea
+                    placeholder="e.g. Mechanical breakdown, Waiting for materials, Weather delay"
+                    value={formData.reason ?? ''}
+                    onChange={(e) => setFormData(p => ({ ...p, reason: e.target.value }))}
+                    rows={3}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Idle Hours *</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    placeholder="2.5"
+                    value={formData.hours_idle ?? ''}
+                    onChange={(e) => setFormData(p => ({ ...p, hours_idle: e.target.value }))}
+                  />
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddType(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setAddType(null); setSelectedEquipmentForIdle(null) }}>Cancel</Button>
             <Button onClick={() => void handleAddEntry()} disabled={addingEntry}>
               {addingEntry ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Add Entry

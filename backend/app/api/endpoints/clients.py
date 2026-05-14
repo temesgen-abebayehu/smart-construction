@@ -1,6 +1,6 @@
 from typing import Any, List
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.dependencies import DbSession, get_current_active_user, get_current_admin_user
 from app.schemas.project import ClientCreate, ClientUpdate, ClientResponse
@@ -10,9 +10,15 @@ from app.models.user import User
 router = APIRouter()
 repo = ClientRepository()
 
-@router.get("", response_model=List[ClientResponse], summary="List clients")
-async def list_clients(db: DbSession, skip: int = 0, limit: int = 100, _: User = Depends(get_current_active_user)) -> Any:
-    return await repo.get_all(db, skip=skip, limit=limit)
+@router.get("", response_model=List[ClientResponse], summary="List clients by project")
+async def list_clients(
+    db: DbSession, 
+    project_id: UUID = Query(..., description="Filter clients by project"),
+    skip: int = 0, 
+    limit: int = 100, 
+    _: User = Depends(get_current_active_user)
+) -> Any:
+    return await repo.get_by_project(db, project_id, skip=skip, limit=limit)
 
 @router.post("", response_model=ClientResponse, status_code=201, summary="Create client")
 async def create_client(*, db: DbSession, client_in: ClientCreate, _: User = Depends(get_current_active_user)) -> Any:

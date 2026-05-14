@@ -17,6 +17,10 @@ class Task(Base):
 
     # Per-task budget (allocated cost).
     budget = Column(Float, nullable=True, default=0.0)
+    
+    # Task weight for project progress calculation (0-100%, must sum to 100% across all tasks)
+    # Example: If task is 30% of project scope, weight = 30.0
+    weight = Column(Float, nullable=False, default=0.0)
 
     start_date = Column(DateTime(timezone=True))
     # duration_days is the source of truth for task length. end_date is kept as an

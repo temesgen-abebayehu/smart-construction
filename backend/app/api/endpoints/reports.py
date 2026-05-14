@@ -60,6 +60,8 @@ class TaskReportEntry(BaseModel):
     status: str
     progress_percentage: float
     budget: float | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
 
 class ReportResponse(BaseModel):
     # Project info
@@ -250,6 +252,7 @@ async def generate_report(
         TaskReportEntry(
             id=t.id, name=t.name, status=t.status,
             progress_percentage=t.progress_percentage, budget=t.budget,
+            start_date=t.start_date, end_date=t.end_date,
         )
         for t in tasks
     ]
