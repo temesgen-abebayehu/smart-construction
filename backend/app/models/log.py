@@ -54,6 +54,7 @@ class Equipment(Base):
     hours_used = Column(Float, default=0.0)
     cost = Column(Float, default=0.0)
     log = relationship("DailyLog", back_populates="equipment")
+    idle_times = relationship("EquipmentIdle", cascade="all, delete-orphan")
 
 class EquipmentIdle(Base):
     __tablename__ = "equipment_idle"

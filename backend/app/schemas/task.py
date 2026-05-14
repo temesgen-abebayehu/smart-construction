@@ -41,6 +41,7 @@ class TaskResponse(TaskBase):
     project_id: UUID
     progress_percentage: float
     assignee: AssigneeBasic | None = None
+    activity_count: int = 0
     model_config = ConfigDict(from_attributes=True)
     
     @computed_field

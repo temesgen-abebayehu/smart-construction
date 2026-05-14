@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from fastapi import HTTPException
 
-from app.models.log import DailyLog, Manpower, Material, Equipment
+from app.models.log import DailyLog, Manpower, Material, Equipment, DailyLogActivity
 from app.models.task import Task, TaskActivity
 from app.models.project import Project
 from app.models.commons import LogStatus, ProjectRole
@@ -108,9 +108,9 @@ class DailyLogService:
 
     @staticmethod
     async def _on_final_approval(db: AsyncSession, log: DailyLog):
-        """Update project budget after PM approval.
-        Task progress is driven by TaskActivity completion, not by log counts."""
-        # Calculate total cost from this log's sub-entities
+        """Update project budget and task progress after PM approval.
+        Recalculates progress for every task touched by activities in this log."""
+        # ── 1. Update project budget_spent ──────────────────────────────────
         manpower_cost = await db.execute(
             select(func.coalesce(func.sum(Manpower.cost), 0)).where(Manpower.log_id == log.id)
         )
@@ -122,24 +122,39 @@ class DailyLogService:
         )
         total_cost = manpower_cost.scalar() + mat_cost.scalar() + equip_cost.scalar()
 
-        # Update project budget_spent
         project = await db.get(Project, log.project_id)
         if project:
             project.budget_spent = (project.budget_spent or 0) + total_cost
             db.add(project)
 
-        # Recalculate task progress from activities (not from log counts)
-        task = await db.get(Task, log.task_id)
-        if task:
-            activities = (await db.execute(
-                select(TaskActivity).where(TaskActivity.task_id == task.id)
+        # ── 2. Collect every task touched by this log's completed activities ─
+        linked = (await db.execute(
+            select(DailyLogActivity).where(DailyLogActivity.log_id == log.id)
+        )).scalars().all()
+
+        touched_task_ids: set = set()
+        for link in linked:
+            activity = await db.get(TaskActivity, link.task_activity_id)
+            if activity:
+                touched_task_ids.add(activity.task_id)
+        # Always include the log's primary task even if it has no linked activities
+        if log.task_id:
+            touched_task_ids.add(log.task_id)
+
+        # ── 3. Recalculate progress for every touched task ───────────────────
+        for task_id in touched_task_ids:
+            task = await db.get(Task, task_id)
+            if not task:
+                continue
+
+            all_activities = (await db.execute(
+                select(TaskActivity).where(TaskActivity.task_id == task_id)
             )).scalars().all()
 
-            if activities:
+            if all_activities:
                 task.progress_percentage = sum(
-                    a.percentage for a in activities if a.is_completed
+                    a.percentage for a in all_activities if a.is_completed
                 )
-            # else: no activities defined, keep current progress
 
             if task.progress_percentage >= 100:
                 task.status = "completed"
@@ -147,26 +162,18 @@ class DailyLogService:
                 task.status = "in_progress"
             db.add(task)
 
-            # Recalculate project progress from all tasks (weighted average)
-            if project:
-                all_tasks = await db.execute(select(Task).where(Task.project_id == project.id))
-                tasks = list(all_tasks.scalars().all())
-                if tasks:
-                    total_weight = sum(t.weight for t in tasks if t.weight is not None)
-                    if total_weight > 0:
-                        # Weighted average: sum(progress * weight) / total_weight
-                        # If weights sum to 100, this gives the true weighted average
-                        # If weights sum to less than 100, it still works proportionally
-                        weighted_progress = sum(
-                            (t.progress_percentage or 0) * (t.weight or 0) 
-                            for t in tasks
-                        ) / total_weight
-                        project.progress_percentage = weighted_progress
-                    else:
-                        # Fallback to simple average if all weights are 0 or None
-                        project.progress_percentage = sum(
-                            t.progress_percentage or 0 for t in tasks
-                        ) / len(tasks)
-                    db.add(project)
+        await db.flush()
+
+        # ── 4. Recalculate overall project completion (weighted by task weight) ─
+        if project:
+            all_tasks = (await db.execute(
+                select(Task).where(Task.project_id == project.id)
+            )).scalars().all()
+
+            if all_tasks:
+                project.progress_percentage = round(
+                    sum((t.progress_percentage or 0) / 100.0 * (t.weight or 0) for t in all_tasks), 2
+                )
+                db.add(project)
 
         await db.commit()

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete, or_
 from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import DbSession, get_current_active_user, require_project_role, get_project_member
@@ -157,14 +157,18 @@ async def _recalculate_task_progress(db, task_id: UUID):
 
 
 async def _recalculate_project_progress(db, project_id: UUID):
-    """Recalculate project progress_percentage as average of all task progress."""
-    result = await db.execute(
-        select(func.avg(Task.progress_percentage)).where(Task.project_id == project_id)
-    )
-    avg = result.scalar()
+    """Recalculate project progress as absolute scope completion.
+    Each task contributes (its_progress% / 100 * its_weight) to the project total.
+    When all tasks (weights summing to 100) are fully done, project = 100%."""
+    all_tasks = (await db.execute(
+        select(Task).where(Task.project_id == project_id)
+    )).scalars().all()
+
     project = await db.get(Project, project_id)
-    if project:
-        project.progress_percentage = round(avg or 0, 2)
+    if project and all_tasks:
+        project.progress_percentage = round(
+            sum((t.progress_percentage or 0) / 100.0 * (t.weight or 0) for t in all_tasks), 2
+        )
         db.add(project)
         await db.commit()
 
@@ -189,6 +193,7 @@ async def create_task(
         duration_days=task_in.duration_days,
         end_date=task_in.end_date,
         budget=task_in.budget or 0.0,
+        weight=task_in.weight or 0.0,
         assigned_to=task_in.assigned_to,
     )
 
@@ -236,20 +241,30 @@ async def list_tasks(
     assigned_to: UUID = None,
     skip: int = 0, limit: int = 100,
 ) -> Any:
-    stmt = select(Task).options(selectinload(Task.assignee)).where(Task.project_id == project_id)
+    stmt = select(Task).options(
+        selectinload(Task.assignee),
+        selectinload(Task.activities),
+    ).where(Task.project_id == project_id)
     if status:
         stmt = stmt.where(Task.status == status)
     if assigned_to:
         stmt = stmt.where(Task.assigned_to == assigned_to)
     stmt = stmt.offset(skip).limit(limit)
     result = await db.execute(stmt)
-    return list(result.scalars().all())
+    tasks = list(result.scalars().all())
+    return [
+        TaskResponse.model_validate(t).model_copy(update={"activity_count": len(t.activities)})
+        for t in tasks
+    ]
 
 
 @router.get("/tasks/{task_id}", response_model=TaskResponse, summary="Get task details")
 async def get_task(task_id: UUID, db: DbSession, current_user: User = Depends(get_current_active_user)) -> Any:
     result = await db.execute(
-        select(Task).options(selectinload(Task.assignee)).where(Task.id == task_id)
+        select(Task).options(
+            selectinload(Task.assignee),
+            selectinload(Task.activities),
+        ).where(Task.id == task_id)
     )
     task = result.scalars().first()
     if not task:
@@ -260,7 +275,7 @@ async def get_task(task_id: UUID, db: DbSession, current_user: User = Depends(ge
         member = await ProjectMemberRepository().get_by_project_and_user(db, task.project_id, current_user.id)
         if not member:
             raise HTTPException(status_code=403, detail="Not a member of this project")
-    return task
+    return TaskResponse.model_validate(task).model_copy(update={"activity_count": len(task.activities)})
 
 
 @router.put("/tasks/{task_id}", response_model=TaskResponse, summary="Update task (PM only)")
@@ -351,6 +366,17 @@ async def delete_task(task_id: UUID, db: DbSession, current_user: User = Depends
             raise HTTPException(status_code=403, detail="Only the project manager can delete tasks")
 
     project_id = task.project_id
+
+    # Remove all dependency rows that reference this task (both sides of the FK)
+    await db.execute(
+        delete(TaskDependency).where(
+            or_(
+                TaskDependency.task_id == task_id,
+                TaskDependency.depends_on_task_id == task_id,
+            )
+        )
+    )
+
     await task_repo.delete(db, task_id)
     await _recalculate_project_progress(db, project_id)
 
