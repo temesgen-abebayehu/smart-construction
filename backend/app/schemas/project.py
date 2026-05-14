@@ -7,45 +7,49 @@ from app.models.commons import ProjectStatus, ProjectRole
 # Client Schemas
 class ClientBase(BaseModel):
     name: str
-    contact_email: EmailStr | None = None
+    tin_number: str | None = None  # Ethiopian Tax Identification Number
+    address: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
 
 class ClientCreate(ClientBase):
-    pass
+    project_id: UUID
 
 class ClientUpdate(BaseModel):
     name: str | None = None
-    contact_email: EmailStr | None = None
+    tin_number: str | None = None
+    address: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
 
 class ClientResponse(ClientBase):
     id: UUID
-    model_config = ConfigDict(from_attributes=True)
-
-# Contractor Schemas
-class ContractorBase(BaseModel):
-    name: str
-
-class ContractorCreate(ContractorBase):
-    pass
-
-class ContractorUpdate(BaseModel):
-    name: str | None = None
-
-class ContractorResponse(ContractorBase):
-    id: UUID
+    project_id: UUID
     model_config = ConfigDict(from_attributes=True)
 
 # Supplier Schemas
 class SupplierBase(BaseModel):
     name: str
+    role: str | None = None  # Type of supply e.g. Cement, Steel, Aggregate, Formwork, Equipment rental
+    tin_number: str | None = None
+    address: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
 
 class SupplierCreate(SupplierBase):
-    pass
+    project_id: UUID
 
 class SupplierUpdate(BaseModel):
     name: str | None = None
+    role: str | None = None
+    tin_number: str | None = None
+    address: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
 
 class SupplierResponse(SupplierBase):
     id: UUID
+    project_id: UUID
     model_config = ConfigDict(from_attributes=True)
 
 # Project Member Schemas
@@ -92,6 +96,9 @@ class ProjectBase(BaseModel):
 class ProjectCreate(ProjectBase):
     client_name: str
     client_email: EmailStr
+    client_tin_number: str | None = None
+    client_address: str | None = None
+    client_phone: str | None = None
 
 class ProjectUpdate(BaseModel):
     name: str | None = None

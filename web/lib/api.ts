@@ -4,7 +4,6 @@ import type {
   BudgetPaymentItem,
   BudgetSummary,
   ClientListItem,
-  ContractorItem,
   CreateProjectResponse,
   EnrichedMemberRow,
   EquipmentItem,
@@ -140,6 +139,9 @@ function normalizeTaskItem(raw: unknown): TaskListItem {
     progress_percentage: parseFiniteNumber(r.progress_percentage),
     start_date: (r.start_date as string | null | undefined) ?? null,
     end_date: (r.end_date as string | null | undefined) ?? null,
+    duration_days: (r.duration_days as number | null | undefined) ?? null,
+    allocated_budget: parseFiniteNumber(r.allocated_budget ?? r.budget),
+    spent_budget: parseFiniteNumber(r.spent_budget),
     project_id: String(r.project_id ?? ''),
     assigned_to: (r.assigned_to as string | null | undefined) ?? null,
     assignee: assigneeRaw ? {
@@ -162,6 +164,23 @@ function normalizeLogItem(raw: unknown): LogListItem {
     status: (r.status as LogListItem['status']) ?? 'draft',
     notes: (r.notes as string | null | undefined) ?? null,
     weather: (r.weather as string | null | undefined) ?? null,
+    rejection_reason: (r.rejection_reason as string | null | undefined) ?? null,
+    // Enriched fields
+    activities_count: parseFiniteNumber(r.activities_count, 0),
+    manpower_count: parseFiniteNumber(r.manpower_count, 0),
+    manpower_cost: parseFiniteNumber(r.manpower_cost, 0),
+    materials_count: parseFiniteNumber(r.materials_count, 0),
+    materials_cost: parseFiniteNumber(r.materials_cost, 0),
+    equipment_count: parseFiniteNumber(r.equipment_count, 0),
+    equipment_cost: parseFiniteNumber(r.equipment_cost, 0),
+    created_by: r.created_by ? {
+      id: String((r.created_by as Record<string, unknown>).id ?? ''),
+      full_name: String((r.created_by as Record<string, unknown>).full_name ?? ''),
+      email: String((r.created_by as Record<string, unknown>).email ?? ''),
+      phone_number: (r.created_by as Record<string, unknown>).phone_number
+        ? String((r.created_by as Record<string, unknown>).phone_number)
+        : null,
+    } : null,
   }
 }
 
@@ -230,6 +249,9 @@ export async function createProject(body: {
   planned_end_date?: string | null
   client_name: string
   client_email: string
+  client_tin_number?: string | null
+  client_address?: string | null
+  client_phone?: string | null
 }) {
   return apiRequest<CreateProjectResponse>('/projects', {
     method: 'POST',
@@ -272,7 +294,7 @@ function normalizeClientRow(raw: unknown): ClientListItem {
   }
 }
 
-export async function listClients(params?: {
+export async function listClients(projectId: string, params?: {
   search?: string
   skip?: number
   page?: number
@@ -282,33 +304,37 @@ export async function listClients(params?: {
   const skip =
     params?.skip ??
     (params?.page != null && limit != null ? Math.max(0, (params.page - 1) * limit) : undefined)
-  const res = await apiRequest<ClientListItem[] | Paginated<ClientListItem>>(`/clients${q({ limit, skip })}`)
-  let rows: ClientListItem[]
-  if (Array.isArray(res)) {
-    rows = res.map(normalizeClientRow)
-  } else {
-    rows = (Array.isArray(res.data) ? res.data : []).map(normalizeClientRow)
-  }
+  const res = await apiRequest<ClientListItem[]>(`/clients${q({ project_id: projectId, limit, skip })}`)
+  const rows = Array.isArray(res) ? res : []
+
   if (params?.search?.trim()) {
     const s = params.search.trim().toLowerCase()
-    rows = rows.filter((r) => r.name.toLowerCase().includes(s))
+    return rows.filter((r) => r.name.toLowerCase().includes(s))
   }
-  return {
-    total: rows.length,
-    data: rows,
-    page: params?.page,
-    limit: params?.limit ?? rows.length,
-  }
+  return rows
 }
 
-export async function createClient(body: { name: string; contact_email?: string }) {
+export async function createClient(body: {
+  project_id: string
+  name: string
+  tin_number?: string
+  address?: string
+  contact_email?: string
+  contact_phone?: string
+}) {
   return apiRequest<ClientListItem>('/clients', {
     method: 'POST',
     body: JSON.stringify(body),
   })
 }
 
-export async function updateClient(clientId: string, body: { name?: string; contact_email?: string }) {
+export async function updateClient(clientId: string, body: {
+  name?: string
+  tin_number?: string
+  address?: string
+  contact_email?: string
+  contact_phone?: string
+}) {
   return apiRequest<ClientListItem>(`/clients/${clientId}`, {
     method: 'PUT',
     body: JSON.stringify(body),
@@ -343,11 +369,17 @@ export async function listProjectTasks(
 
 export async function createTask(
   projectId: string,
-  body: { name: string; status?: string; start_date?: string; duration_days?: number; allocated_budget?: number; depends_on_task_id?: string; assigned_to?: string },
+  body: { name: string; status?: string; start_date?: string; duration_days?: number; allocated_budget?: number; weight?: number; depends_on_task_id?: string; assigned_to?: string },
 ) {
+  // Map allocated_budget to budget for backend
+  const backendBody = {
+    ...body,
+    budget: body.allocated_budget,
+    allocated_budget: undefined,
+  }
   return apiRequest<TaskListItem>(`/projects/${projectId}/tasks`, {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify(backendBody),
   })
 }
 
@@ -358,7 +390,7 @@ export async function getTask(taskId: string) {
 
 export async function updateTask(
   taskId: string,
-  body: { name?: string; status?: string; progress_percentage?: number; start_date?: string; end_date?: string; assigned_to?: string },
+  body: { name?: string; status?: string; progress_percentage?: number; start_date?: string; end_date?: string; budget?: number; assigned_to?: string },
 ) {
   return apiRequest<TaskListItem>(`/projects/tasks/${taskId}`, {
     method: 'PUT',
@@ -432,6 +464,20 @@ export async function createDailyLog(
     `/projects/${projectId}/tasks/${taskId}/daily-logs`,
     { method: 'POST', body: JSON.stringify(body) },
   )
+}
+
+export async function updateDailyLog(
+  logId: string,
+  body: { notes?: string; weather?: string },
+) {
+  return apiRequest<LogDetailResponse>(
+    `/daily-logs/${logId}`,
+    { method: 'PUT', body: JSON.stringify(body) },
+  )
+}
+
+export async function deleteDailyLog(logId: string) {
+  return apiRequest<void>(`/daily-logs/${logId}`, { method: 'DELETE' })
 }
 
 // Daily log workflow transitions
@@ -818,35 +864,67 @@ export async function deleteTaskActivity(taskId: string, activityId: string) {
   return apiRequest<void>(`/projects/tasks/${taskId}/activities/${activityId}`, { method: 'DELETE' })
 }
 
-/* ── Contractors ── */
+/* ── Task Budget Summary ── */
 
-export async function listContractors(params?: { skip?: number; limit?: number }) {
-  return apiRequest<ContractorItem[]>(`/contractors${q(params || {})}`)
+export async function getTaskBudgetSummary(taskId: string) {
+  return apiRequest<{
+    task_id: string
+    task_name: string
+    allocated_budget: number
+    spent_labor: number
+    spent_materials: number
+    spent_equipment: number
+    total_spent: number
+    remaining_budget: number
+    budget_utilization_pct: number
+    status: 'under_budget' | 'on_budget' | 'over_budget'
+    log_count: number
+  }>(`/projects/tasks/${taskId}/budget-summary`)
 }
 
-export async function createContractor(body: { name: string; specialization?: string; contact_email?: string; contact_phone?: string }) {
-  return apiRequest<ContractorItem>('/contractors', { method: 'POST', body: JSON.stringify(body) })
+/* ── Daily Log Activities (completed task activities) ── */
+
+export async function listLogCompletedActivities(logId: string) {
+  return apiRequest<Array<{ id: string; log_id: string; task_activity_id: string; created_at: string }>>(`/daily-logs/${logId}/completed-activities`)
 }
 
-export async function updateContractor(id: string, body: { name?: string; specialization?: string; contact_email?: string; contact_phone?: string }) {
-  return apiRequest<ContractorItem>(`/contractors/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+export async function addLogCompletedActivity(logId: string, activityId: string) {
+  return apiRequest(`/daily-logs/${logId}/completed-activities`, {
+    method: 'POST',
+    body: JSON.stringify({ task_activity_id: activityId }),
+  })
 }
 
-export async function deleteContractor(id: string) {
-  return apiRequest<void>(`/contractors/${id}`, { method: 'DELETE' })
+export async function removeLogCompletedActivity(logId: string, activityId: string) {
+  return apiRequest(`/daily-logs/${logId}/completed-activities/${activityId}`, { method: 'DELETE' })
 }
 
 /* ── Suppliers ── */
 
-export async function listSuppliers(params?: { skip?: number; limit?: number }) {
-  return apiRequest<SupplierItem[]>(`/suppliers${q(params || {})}`)
+export async function listSuppliers(projectId: string, params?: { skip?: number; limit?: number }) {
+  return apiRequest<SupplierItem[]>(`/suppliers${q({ project_id: projectId, ...(params || {}) })}`)
 }
 
-export async function createSupplier(body: { name: string; contact_email?: string; contact_phone?: string }) {
+export async function createSupplier(body: {
+  project_id: string
+  name: string
+  role?: string
+  tin_number?: string
+  address?: string
+  contact_email?: string
+  contact_phone?: string
+}) {
   return apiRequest<SupplierItem>('/suppliers', { method: 'POST', body: JSON.stringify(body) })
 }
 
-export async function updateSupplier(id: string, body: { name?: string; contact_email?: string; contact_phone?: string }) {
+export async function updateSupplier(id: string, body: {
+  name?: string
+  role?: string
+  tin_number?: string
+  address?: string
+  contact_email?: string
+  contact_phone?: string
+}) {
   return apiRequest<SupplierItem>(`/suppliers/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 }
 

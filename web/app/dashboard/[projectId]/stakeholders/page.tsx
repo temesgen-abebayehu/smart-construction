@@ -24,7 +24,6 @@ import {
 } from '@/components/ui/table'
 import {
     Building2,
-    HardHat,
     Package,
     Plus,
     Pencil,
@@ -32,7 +31,6 @@ import {
     Loader2,
     Mail,
     Phone,
-    Briefcase,
     ShieldAlert,
 } from 'lucide-react'
 import {
@@ -40,21 +38,16 @@ import {
     createClient,
     updateClient,
     deleteClient,
-    listContractors,
-    createContractor,
-    updateContractor,
-    deleteContractor,
     listSuppliers,
     createSupplier,
     updateSupplier,
     deleteSupplier,
-    getProject,
 } from '@/lib/api'
-import type { ClientListItem, ContractorItem, SupplierItem } from '@/lib/api-types'
+import type { ClientListItem, SupplierItem } from '@/lib/api-types'
 import { toast } from 'sonner'
 import { useProjectRole } from '@/lib/project-role-context'
 
-type StakeholderType = 'clients' | 'contractors' | 'suppliers'
+type StakeholderType = 'clients' | 'suppliers'
 
 interface StakeholdersPageProps {
     params: Promise<{ projectId: string }>
@@ -68,7 +61,6 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
 
     // Data
     const [clients, setClients] = useState<ClientListItem[]>([])
-    const [contractors, setContractors] = useState<ContractorItem[]>([])
     const [suppliers, setSuppliers] = useState<SupplierItem[]>([])
 
     // Dialog state
@@ -83,13 +75,11 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
     const loadData = async () => {
         setLoading(true)
         try {
-            const [clientsRes, contractorsRes, suppliersRes] = await Promise.all([
-                listClients(),
-                listContractors(),
-                listSuppliers(),
+            const [clientsRes, suppliersRes] = await Promise.all([
+                listClients(projectId),
+                listSuppliers(projectId),
             ])
-            setClients(clientsRes.data)
-            setContractors(contractorsRes)
+            setClients(clientsRes)
             setSuppliers(suppliersRes)
         } catch (error) {
             toast.error('Failed to load stakeholders')
@@ -110,16 +100,32 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
         setDialogOpen(true)
     }
 
-    const openEditDialog = (type: StakeholderType, item: ClientListItem | ContractorItem | SupplierItem) => {
+    const openEditDialog = (type: StakeholderType, item: ClientListItem | SupplierItem) => {
         setActiveTab(type)
         setDialogMode('edit')
         setEditingId(item.id)
-        setFormData({
-            name: item.name,
-            contact_email: item.contact_email || '',
-            contact_phone: 'contact_phone' in item ? item.contact_phone || '' : '',
-            specialization: 'specialization' in item ? item.specialization || '' : '',
-        })
+
+        if (type === 'suppliers') {
+            const supplier = item as SupplierItem
+            setFormData({
+                name: supplier.name,
+                role: supplier.role || '',
+                tin_number: supplier.tin_number || '',
+                address: supplier.address || '',
+                contact_email: supplier.contact_email || '',
+                contact_phone: supplier.contact_phone || '',
+            })
+        } else {
+            const client = item as ClientListItem
+            setFormData({
+                name: client.name,
+                tin_number: client.tin_number || '',
+                address: client.address || '',
+                contact_email: client.contact_email || '',
+                contact_phone: client.contact_phone || '',
+            })
+        }
+
         setDialogOpen(true)
     }
 
@@ -133,33 +139,34 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
         try {
             if (activeTab === 'clients') {
                 const body = {
+                    project_id: projectId,
                     name: formData.name.trim(),
+                    tin_number: formData.tin_number?.trim() || undefined,
+                    address: formData.address?.trim() || undefined,
                     contact_email: formData.contact_email?.trim() || undefined,
+                    contact_phone: formData.contact_phone?.trim() || undefined,
                 }
                 if (dialogMode === 'create') {
                     await createClient(body)
                     toast.success('Client created')
                 } else if (editingId) {
-                    await updateClient(editingId, body)
+                    const updateBody = {
+                        name: formData.name.trim(),
+                        tin_number: formData.tin_number?.trim() || undefined,
+                        address: formData.address?.trim() || undefined,
+                        contact_email: formData.contact_email?.trim() || undefined,
+                        contact_phone: formData.contact_phone?.trim() || undefined,
+                    }
+                    await updateClient(editingId, updateBody)
                     toast.success('Client updated')
-                }
-            } else if (activeTab === 'contractors') {
-                const body = {
-                    name: formData.name.trim(),
-                    specialization: formData.specialization?.trim() || undefined,
-                    contact_email: formData.contact_email?.trim() || undefined,
-                    contact_phone: formData.contact_phone?.trim() || undefined,
-                }
-                if (dialogMode === 'create') {
-                    await createContractor(body)
-                    toast.success('Contractor created')
-                } else if (editingId) {
-                    await updateContractor(editingId, body)
-                    toast.success('Contractor updated')
                 }
             } else if (activeTab === 'suppliers') {
                 const body = {
+                    project_id: projectId,
                     name: formData.name.trim(),
+                    role: formData.role?.trim() || undefined,
+                    tin_number: formData.tin_number?.trim() || undefined,
+                    address: formData.address?.trim() || undefined,
                     contact_email: formData.contact_email?.trim() || undefined,
                     contact_phone: formData.contact_phone?.trim() || undefined,
                 }
@@ -167,7 +174,15 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
                     await createSupplier(body)
                     toast.success('Supplier created')
                 } else if (editingId) {
-                    await updateSupplier(editingId, body)
+                    const updateBody = {
+                        name: formData.name.trim(),
+                        role: formData.role?.trim() || undefined,
+                        tin_number: formData.tin_number?.trim() || undefined,
+                        address: formData.address?.trim() || undefined,
+                        contact_email: formData.contact_email?.trim() || undefined,
+                        contact_phone: formData.contact_phone?.trim() || undefined,
+                    }
+                    await updateSupplier(editingId, updateBody)
                     toast.success('Supplier updated')
                 }
             }
@@ -188,9 +203,6 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
             if (type === 'clients') {
                 await deleteClient(id)
                 toast.success('Client deleted')
-            } else if (type === 'contractors') {
-                await deleteContractor(id)
-                toast.success('Contractor deleted')
             } else if (type === 'suppliers') {
                 await deleteSupplier(id)
                 toast.success('Supplier deleted')
@@ -227,23 +239,19 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 px-6">
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold">Stakeholder Management</h1>
-                    <p className="text-muted-foreground">Manage clients, contractors, and suppliers for this project</p>
+                    <p className="text-muted-foreground">Manage clients and suppliers for this project</p>
                 </div>
             </div>
 
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as StakeholderType)}>
-                <TabsList className="grid w-full max-w-md grid-cols-3">
+                <TabsList className="grid w-full max-w-md grid-cols-2">
                     <TabsTrigger value="clients" className="gap-2">
                         <Building2 className="h-4 w-4" />
                         Clients
-                    </TabsTrigger>
-                    <TabsTrigger value="contractors" className="gap-2">
-                        <HardHat className="h-4 w-4" />
-                        Contractors
                     </TabsTrigger>
                     <TabsTrigger value="suppliers" className="gap-2">
                         <Package className="h-4 w-4" />
@@ -269,7 +277,8 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Name</TableHead>
-                                            <TableHead>Email</TableHead>
+                                            <TableHead>TIN Number</TableHead>
+                                            <TableHead>Contact</TableHead>
                                             <TableHead className="text-right">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -278,14 +287,26 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
                                             <TableRow key={client.id}>
                                                 <TableCell className="font-medium">{client.name}</TableCell>
                                                 <TableCell>
-                                                    {client.contact_email ? (
-                                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                            <Mail className="h-3.5 w-3.5" />
-                                                            {client.contact_email}
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-sm text-muted-foreground">—</span>
-                                                    )}
+                                                    {client.tin_number || <span className="text-sm text-muted-foreground">—</span>}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="space-y-1">
+                                                        {client.contact_email && (
+                                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                                <Mail className="h-3.5 w-3.5" />
+                                                                {client.contact_email}
+                                                            </div>
+                                                        )}
+                                                        {client.contact_phone && (
+                                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                                <Phone className="h-3.5 w-3.5" />
+                                                                {client.contact_phone}
+                                                            </div>
+                                                        )}
+                                                        {!client.contact_email && !client.contact_phone && (
+                                                            <span className="text-sm text-muted-foreground">—</span>
+                                                        )}
+                                                    </div>
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <div className="flex justify-end gap-2">
@@ -300,89 +321,6 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
                                                             variant="ghost"
                                                             size="icon"
                                                             onClick={() => handleDelete('clients', client.id, client.name)}
-                                                        >
-                                                            <Trash2 className="h-4 w-4 text-destructive" />
-                                                        </Button>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            )}
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
-                {/* Contractors Tab */}
-                <TabsContent value="contractors" className="space-y-4">
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <CardTitle>Contractors ({contractors.length})</CardTitle>
-                            <Button onClick={() => openCreateDialog('contractors')} className="gap-2">
-                                <Plus className="h-4 w-4" />
-                                Add Contractor
-                            </Button>
-                        </CardHeader>
-                        <CardContent>
-                            {contractors.length === 0 ? (
-                                <p className="text-center text-muted-foreground py-8">No contractors yet. Add your first contractor.</p>
-                            ) : (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Name</TableHead>
-                                            <TableHead>Specialization</TableHead>
-                                            <TableHead>Contact</TableHead>
-                                            <TableHead className="text-right">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {contractors.map((contractor) => (
-                                            <TableRow key={contractor.id}>
-                                                <TableCell className="font-medium">{contractor.name}</TableCell>
-                                                <TableCell>
-                                                    {contractor.specialization ? (
-                                                        <div className="flex items-center gap-2 text-sm">
-                                                            <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
-                                                            {contractor.specialization}
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-sm text-muted-foreground">—</span>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="space-y-1">
-                                                        {contractor.contact_email && (
-                                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                                <Mail className="h-3.5 w-3.5" />
-                                                                {contractor.contact_email}
-                                                            </div>
-                                                        )}
-                                                        {contractor.contact_phone && (
-                                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                                <Phone className="h-3.5 w-3.5" />
-                                                                {contractor.contact_phone}
-                                                            </div>
-                                                        )}
-                                                        {!contractor.contact_email && !contractor.contact_phone && (
-                                                            <span className="text-sm text-muted-foreground">—</span>
-                                                        )}
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <div className="flex justify-end gap-2">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            onClick={() => openEditDialog('contractors', contractor)}
-                                                        >
-                                                            <Pencil className="h-4 w-4" />
-                                                        </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            onClick={() => handleDelete('contractors', contractor.id, contractor.name)}
                                                         >
                                                             <Trash2 className="h-4 w-4 text-destructive" />
                                                         </Button>
@@ -415,6 +353,7 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Name</TableHead>
+                                            <TableHead>Role / TIN</TableHead>
                                             <TableHead>Contact</TableHead>
                                             <TableHead className="text-right">Actions</TableHead>
                                         </TableRow>
@@ -423,6 +362,24 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
                                         {suppliers.map((supplier) => (
                                             <TableRow key={supplier.id}>
                                                 <TableCell className="font-medium">{supplier.name}</TableCell>
+                                                <TableCell>
+                                                    <div className="space-y-1">
+                                                        {supplier.role && (
+                                                            <div className="flex items-center gap-2 text-sm">
+                                                                <Package className="h-3.5 w-3.5 text-muted-foreground" />
+                                                                {supplier.role}
+                                                            </div>
+                                                        )}
+                                                        {supplier.tin_number && (
+                                                            <div className="text-sm text-muted-foreground">
+                                                                TIN: {supplier.tin_number}
+                                                            </div>
+                                                        )}
+                                                        {!supplier.role && !supplier.tin_number && (
+                                                            <span className="text-sm text-muted-foreground">—</span>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
                                                 <TableCell>
                                                     <div className="space-y-1">
                                                         {supplier.contact_email && (
@@ -476,14 +433,14 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
                     <DialogHeader>
                         <DialogTitle>
                             {dialogMode === 'create' ? 'Add' : 'Edit'}{' '}
-                            {activeTab === 'clients' ? 'Client' : activeTab === 'contractors' ? 'Contractor' : 'Supplier'}
+                            {activeTab === 'clients' ? 'Client' : 'Supplier'}
                         </DialogTitle>
                         <DialogDescription>
                             {dialogMode === 'create' ? 'Create a new' : 'Update'}{' '}
-                            {activeTab === 'clients' ? 'client' : activeTab === 'contractors' ? 'contractor' : 'supplier'} record.
+                            {activeTab === 'clients' ? 'client' : 'supplier'} record.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4 py-4">
+                    <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
                         <div className="space-y-2">
                             <Label htmlFor="name">Name *</Label>
                             <Input
@@ -494,17 +451,37 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
                             />
                         </div>
 
-                        {activeTab === 'contractors' && (
+                        {activeTab === 'suppliers' && (
                             <div className="space-y-2">
-                                <Label htmlFor="specialization">Specialization</Label>
+                                <Label htmlFor="role">Role / Type of Supply</Label>
                                 <Input
-                                    id="specialization"
-                                    placeholder="e.g., Electrical, Plumbing, HVAC"
-                                    value={formData.specialization || ''}
-                                    onChange={(e) => setFormData({ ...formData, specialization: e.target.value })}
+                                    id="role"
+                                    placeholder="e.g., Cement, Steel, Aggregate, Equipment rental"
+                                    value={formData.role || ''}
+                                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                                 />
                             </div>
                         )}
+
+                        <div className="space-y-2">
+                            <Label htmlFor="tin_number">TIN Number</Label>
+                            <Input
+                                id="tin_number"
+                                placeholder="Ethiopian Tax Identification Number"
+                                value={formData.tin_number || ''}
+                                onChange={(e) => setFormData({ ...formData, tin_number: e.target.value })}
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="address">Address</Label>
+                            <Input
+                                id="address"
+                                placeholder="Physical address"
+                                value={formData.address || ''}
+                                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                            />
+                        </div>
 
                         <div className="space-y-2">
                             <Label htmlFor="contact_email">Email</Label>
@@ -517,18 +494,16 @@ export default function StakeholdersPage({ params }: StakeholdersPageProps) {
                             />
                         </div>
 
-                        {activeTab !== 'clients' && (
-                            <div className="space-y-2">
-                                <Label htmlFor="contact_phone">Phone</Label>
-                                <Input
-                                    id="contact_phone"
-                                    type="tel"
-                                    placeholder="+251 912 345 678"
-                                    value={formData.contact_phone || ''}
-                                    onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
-                                />
-                            </div>
-                        )}
+                        <div className="space-y-2">
+                            <Label htmlFor="contact_phone">Phone</Label>
+                            <Input
+                                id="contact_phone"
+                                type="tel"
+                                placeholder="+251 912 345 678"
+                                value={formData.contact_phone || ''}
+                                onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
+                            />
+                        </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setDialogOpen(false)}>

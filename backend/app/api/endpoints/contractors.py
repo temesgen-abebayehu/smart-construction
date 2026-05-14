@@ -1,6 +1,6 @@
 from typing import Any, List
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.dependencies import DbSession, get_current_active_user, get_current_admin_user
 from app.schemas.project import ContractorCreate, ContractorUpdate, ContractorResponse
@@ -10,9 +10,15 @@ from app.models.user import User
 router = APIRouter()
 repo = ContractorRepository()
 
-@router.get("", response_model=List[ContractorResponse], summary="List contractors")
-async def list_contractors(db: DbSession, skip: int = 0, limit: int = 100, _: User = Depends(get_current_active_user)) -> Any:
-    return await repo.get_all(db, skip=skip, limit=limit)
+@router.get("", response_model=List[ContractorResponse], summary="List contractors by project")
+async def list_contractors(
+    db: DbSession, 
+    project_id: UUID = Query(..., description="Filter contractors by project"),
+    skip: int = 0, 
+    limit: int = 100, 
+    _: User = Depends(get_current_active_user)
+) -> Any:
+    return await repo.get_by_project(db, project_id, skip=skip, limit=limit)
 
 @router.post("", response_model=ContractorResponse, status_code=201, summary="Create contractor")
 async def create_contractor(*, db: DbSession, contractor_in: ContractorCreate, _: User = Depends(get_current_active_user)) -> Any:

@@ -64,7 +64,7 @@ const getNavItems = (projectId: string, role: ProjectRole) => {
       label: 'Team',
       href: `/dashboard/${projectId}/team`,
       icon: Users,
-      roles: ['project_manager', 'consultant'] as ProjectRole[],
+      roles: ['project_manager', 'consultant', 'site_engineer'] as ProjectRole[],
     },
     {
       label: 'Stakeholders',

@@ -81,7 +81,6 @@ class AdminStatsResponse(BaseModel):
     active_users: int
     total_projects: int
     projects_by_status: dict[str, int]
-    total_contractors: int
     total_suppliers: int
     recent_activity_count: int
 

@@ -24,22 +24,37 @@ client_repo = ClientRepository()
 
 class ProjectService:
     @staticmethod
-    async def _find_or_create_client(db: AsyncSession, name: str, email: str) -> Client:
+    async def _find_or_create_client(
+        db: AsyncSession, 
+        project_id: UUID,
+        name: str, 
+        email: str,
+        tin_number: str | None = None,
+        address: str | None = None,
+        phone: str | None = None
+    ) -> Client:
         normalized_email = email.strip().lower()
         normalized_name = name.strip()
 
-        # 1. Try email first — most precise match
-        client = await client_repo.get_by_email(db, email=normalized_email)
+        # 1. Try email first within this project
+        client = await client_repo.get_by_email(db, email=normalized_email, project_id=project_id)
         if client:
             return client
 
-        # 2. Fallback to name — prevents a second row for the same real-world client
-        client = await client_repo.get_by_name(db, name=normalized_name)
+        # 2. Fallback to name within this project
+        client = await client_repo.get_by_name(db, name=normalized_name, project_id=project_id)
         if client:
             return client
 
-        # 3. Neither matched — create new
-        client = Client(name=normalized_name, contact_email=normalized_email)
+        # 3. Neither matched — create new with all fields
+        client = Client(
+            project_id=project_id,
+            name=normalized_name, 
+            contact_email=normalized_email,
+            tin_number=tin_number.strip() if tin_number else None,
+            address=address.strip() if address else None,
+            contact_phone=phone.strip() if phone else None
+        )
         db.add(client)
         try:
             await db.commit()
@@ -49,20 +64,17 @@ class ProjectService:
             # Race: another request created a client with the same email or name
             # between our SELECTs and INSERT. Roll back and re-fetch.
             await db.rollback()
-            existing = await client_repo.get_by_email(db, email=normalized_email)
+            existing = await client_repo.get_by_email(db, email=normalized_email, project_id=project_id)
             if existing:
                 return existing
-            existing = await client_repo.get_by_name(db, name=normalized_name)
+            existing = await client_repo.get_by_name(db, name=normalized_name, project_id=project_id)
             if existing:
                 return existing
             raise
 
     @staticmethod
     async def create_project(db: AsyncSession, project_in: ProjectCreate, creator_id: UUID) -> Project:
-        client = await ProjectService._find_or_create_client(
-            db, name=project_in.client_name, email=project_in.client_email
-        )
-
+        # First create the project
         db_obj = Project(
             name=project_in.name,
             description=project_in.description,
@@ -71,12 +83,22 @@ class ProjectService:
             total_budget=project_in.total_budget,
             planned_start_date=project_in.planned_start_date,
             planned_end_date=project_in.planned_end_date,
-            client_id=client.id,
             owner_id=creator_id,
         )
         db.add(db_obj)
         await db.commit()
         await db.refresh(db_obj)
+
+        # Now create the client for this project
+        client = await ProjectService._find_or_create_client(
+            db, 
+            project_id=db_obj.id,
+            name=project_in.client_name, 
+            email=project_in.client_email,
+            tin_number=project_in.client_tin_number,
+            address=project_in.client_address,
+            phone=project_in.client_phone
+        )
 
         # Creator automatically becomes PROJECT_MANAGER
         member = ProjectMember(
@@ -86,7 +108,7 @@ class ProjectService:
         )
         db.add(member)
         await db.commit()
-        await db.refresh(db_obj, attribute_names=["client"])
+        await db.refresh(db_obj)
         return db_obj
 
     @staticmethod
@@ -100,7 +122,9 @@ class ProjectService:
     async def delete_project(db: AsyncSession, project_id: UUID) -> bool:
         """Delete a project and all its related data (cascade delete)."""
         from app.models.log import DailyLog
-        from app.models.system import BudgetItem  # Fixed: was BudgetPayment
+        from app.models.system import BudgetItem, AuditLog
+        from app.models.project import Contractor, Supplier
+        from sqlalchemy import text
         
         project = await project_repo.get_by_id(db, project_id)
         if not project:
@@ -131,10 +155,44 @@ class ProjectService:
             # BudgetItem might not have any records
             pass
         
-        # 4. Project members and invitations are already set to cascade in the model
-        # 5. Progress snapshots are already set to cascade in the model
+        # 4. Delete clients
+        try:
+            clients_result = await db.execute(select(Client).where(Client.project_id == project_id))
+            clients = clients_result.scalars().all()
+            for client in clients:
+                await db.delete(client)
+        except Exception:
+            pass
         
-        # 6. Finally delete the project itself
+        # 5. Delete suppliers
+        try:
+            suppliers_result = await db.execute(select(Supplier).where(Supplier.project_id == project_id))
+            suppliers = suppliers_result.scalars().all()
+            for supplier in suppliers:
+                await db.delete(supplier)
+        except Exception:
+            pass
+        
+        # 6. Delete audit logs
+        try:
+            audit_result = await db.execute(select(AuditLog).where(AuditLog.project_id == project_id))
+            audits = audit_result.scalars().all()
+            for audit in audits:
+                await db.delete(audit)
+        except Exception:
+            pass
+        
+        # 7. Delete risk_predictions (if table exists)
+        try:
+            await db.execute(text("DELETE FROM risk_predictions WHERE project_id = :project_id"), {"project_id": project_id})
+        except Exception:
+            # Table might not exist or no records
+            pass
+        
+        # 8. Project members and invitations are already set to cascade in the model
+        # 9. Progress snapshots are already set to cascade in the model
+        
+        # 10. Finally delete the project itself
         await db.delete(project)
         await db.commit()
         return True

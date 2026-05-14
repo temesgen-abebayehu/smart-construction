@@ -35,16 +35,18 @@ import {
   ChevronRight,
   Circle,
   Pencil,
+  Plus,
   Search,
   TriangleAlert,
   Loader2,
   UserCircle2,
+  X,
 } from 'lucide-react'
 import { useProjectRole } from '@/lib/project-role-context'
 import { useAuth } from '@/lib/auth-context'
 import type { TaskListItem, EnrichedMemberRow } from '@/lib/api-types'
 import type { TaskStatus } from '@/lib/domain'
-import { createTask, updateTask, listProjectTasks, listProjectMembersEnriched } from '@/lib/api'
+import { createTask, updateTask, listProjectTasks, listProjectMembersEnriched, addTaskActivity } from '@/lib/api'
 import { toast } from 'sonner'
 
 interface TasksPageProps {
@@ -90,12 +92,18 @@ export default function TasksPage({ params }: TasksPageProps) {
   const today = new Date().toISOString().split('T')[0]
   const [newTaskStart, setNewTaskStart] = useState(today)
   const [newTaskDuration, setNewTaskDuration] = useState('7')
-  const [newTaskBudget, setNewTaskBudget] = useState('')
+  const [newTaskWeight, setNewTaskWeight] = useState('1.0')
   const [newTaskAssignee, setNewTaskAssignee] = useState<string | null>(null)
   const [newTaskDependsOn, setNewTaskDependsOn] = useState<string | null>(null)
   const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [members, setMembers] = useState<EnrichedMemberRow[]>([])
+
+  // Activities for new task
+  const [newTaskActivities, setNewTaskActivities] = useState<Array<{ name: string; percentage: string }>>([
+    { name: '', percentage: '' }
+  ])
+
   const canCreateTask = userRole === 'project_manager'
 
   const loadTasks = async () => {
@@ -118,35 +126,106 @@ export default function TasksPage({ params }: TasksPageProps) {
     listProjectMembersEnriched(projectId).then(setMembers).catch(() => setMembers([]))
   }, [projectId])
 
+  // Update default weight when dialog opens or tasks change
+  useEffect(() => {
+    if (newTaskOpen) {
+      const totalUsed = projectTasks.reduce((sum, t) => sum + (t.weight || 0), 0)
+      const remaining = Math.max(0, 100 - totalUsed)
+      setNewTaskWeight(remaining > 0 ? remaining.toFixed(1) : '0')
+    }
+  }, [newTaskOpen, projectTasks])
+
   const handleCreateTask = async () => {
     if (!newTaskName.trim()) {
       toast.error('Task name is required')
       return
     }
-    if (!newTaskBudget || Number(newTaskBudget) <= 0) {
-      toast.error('Budget is required and must be greater than 0')
+    if (!newTaskWeight || Number(newTaskWeight) <= 0) {
+      toast.error('Weight is required and must be greater than 0')
       return
     }
+
+    // Calculate total weight of existing tasks
+    const existingWeight = projectTasks.reduce((sum, t) => sum + (t.weight || 0), 0)
+    const newWeight = Number(newTaskWeight)
+    const totalWeight = existingWeight + newWeight
+
+    if (totalWeight > 100) {
+      toast.error(`Total task weight cannot exceed 100%. Current: ${existingWeight.toFixed(1)}%, Adding: ${newWeight.toFixed(1)}%, Total would be: ${totalWeight.toFixed(1)}%`)
+      return
+    }
+
+    // Validate activities - only require name, percentage is optional
+    const activitiesWithNames = newTaskActivities.filter(a => a.name.trim())
+    if (activitiesWithNames.length === 0) {
+      toast.error('At least one activity is required')
+      return
+    }
+
+    // Auto-distribute percentages
+    // 1. Calculate total of activities with custom percentages
+    const activitiesWithCustomPercent = activitiesWithNames.filter(a => a.percentage.trim())
+    const customPercentTotal = activitiesWithCustomPercent.reduce((sum, a) => sum + Number(a.percentage), 0)
+
+    // 2. Calculate remaining percentage for activities without custom percentages
+    const activitiesWithoutPercent = activitiesWithNames.filter(a => !a.percentage.trim())
+    const remainingPercent = 100 - customPercentTotal
+
+    // 3. Distribute remaining percentage equally
+    const equalShare = activitiesWithoutPercent.length > 0
+      ? remainingPercent / activitiesWithoutPercent.length
+      : 0
+
+    // 4. Build final activities list with calculated percentages
+    const finalActivities = activitiesWithNames.map(a => ({
+      name: a.name.trim(),
+      percentage: a.percentage.trim() ? Number(a.percentage) : equalShare
+    }))
+
+    // 5. Validate total is 100% (with small tolerance for rounding)
+    const totalPercentage = finalActivities.reduce((sum, a) => sum + a.percentage, 0)
+    if (Math.abs(totalPercentage - 100) > 0.1) {
+      toast.error(`Activity percentages must sum to 100% (current: ${totalPercentage.toFixed(1)}%). Please adjust custom percentages.`)
+      return
+    }
+
     setCreating(true)
     setCreateError(null)
     try {
-      await createTask(projectId, {
+      const created = await createTask(projectId, {
         name: newTaskName.trim(),
         start_date: newTaskStart ? `${newTaskStart}T00:00:00` : undefined,
         duration_days: Number(newTaskDuration) || 7,
-        allocated_budget: Number(newTaskBudget),
+        weight: Number(newTaskWeight),
         assigned_to: newTaskAssignee || undefined,
         depends_on_task_id: newTaskDependsOn || undefined,
       })
+
+      // Add activities to the created task
+      const taskId = (created as any).id
+      if (taskId) {
+        for (const activity of finalActivities) {
+          try {
+            await addTaskActivity(taskId, {
+              name: activity.name,
+              percentage: activity.percentage,
+            })
+          } catch (e) {
+            console.error('Failed to add activity:', e)
+          }
+        }
+      }
+
       setNewTaskOpen(false)
       setNewTaskName('')
       setNewTaskStart(today)
       setNewTaskDuration('7')
-      setNewTaskBudget('')
+      setNewTaskWeight('1.0')
       setNewTaskAssignee(null)
       setNewTaskDependsOn(null)
+      setNewTaskActivities([{ name: '', percentage: '' }])
       await loadTasks()
-      toast.success('Task created')
+      toast.success('Task created with activities')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to create task'
       setCreateError(msg)
@@ -175,6 +254,10 @@ export default function TasksPage({ params }: TasksPageProps) {
   const pendingCount = projectTasks.filter((task) => task.status === 'pending').length
   const completedCount = projectTasks.filter((task) => task.status === 'completed').length
 
+  // Calculate total weight and remaining weight
+  const totalUsedWeight = projectTasks.reduce((sum, t) => sum + (t.weight || 0), 0)
+  const remainingWeight = Math.max(0, 100 - totalUsedWeight)
+
   const statusChipLabel: Record<(typeof statusFilters)[number], string> = {
     all: 'All',
     completed: 'Completed',
@@ -198,21 +281,296 @@ export default function TasksPage({ params }: TasksPageProps) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 px-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Task Management</h1>
           <p className="text-sm text-muted-foreground">Real-time oversight of site engineering operations</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => { setStatusFilter('all'); setSearchQuery('') }}>
-            Clear Filters
-          </Button>
-        </div>
+        {canCreateTask && (
+          <Dialog open={newTaskOpen} onOpenChange={setNewTaskOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <Plus className="h-4 w-4" />
+                Create Task
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Create New Task</DialogTitle>
+                <DialogDescription>
+                  Add a task for this project.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid gap-4 py-2 max-h-[60vh] overflow-y-auto pr-2">
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium" htmlFor="task-name">Task name *</label>
+                  <Input
+                    id="task-name"
+                    placeholder="Enter task name"
+                    value={newTaskName}
+                    onChange={(e) => setNewTaskName(e.target.value)}
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">Depends on (optional)</label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={newTaskDependsOn ?? ''}
+                    onChange={(e) => {
+                      const depId = e.target.value || null
+                      setNewTaskDependsOn(depId)
+                      if (depId) {
+                        const depTask = projectTasks.find(t => t.id === depId)
+                        if (depTask?.end_date) {
+                          const endDate = new Date(depTask.end_date)
+                          endDate.setDate(endDate.getDate() + 1)
+                          // Skip weekends
+                          while (endDate.getDay() === 0 || endDate.getDay() === 6) {
+                            endDate.setDate(endDate.getDate() + 1)
+                          }
+                          setNewTaskStart(endDate.toISOString().split('T')[0])
+                        }
+                      }
+                    }}
+                  >
+                    <option value="">No dependency</option>
+                    {projectTasks
+                      .filter(t => t.status !== 'completed')
+                      .map(t => (
+                        <option key={t.id} value={t.id}>
+                          {t.title} ({t.status.replace('_', ' ')})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium" htmlFor="task-start">Start date</label>
+                    <Input
+                      id="task-start"
+                      type="date"
+                      value={newTaskStart}
+                      onChange={(e) => setNewTaskStart(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium" htmlFor="task-duration">Duration (days) *</label>
+                    <Input
+                      id="task-duration"
+                      type="number"
+                      min={1}
+                      max={365}
+                      placeholder="7"
+                      value={newTaskDuration}
+                      onChange={(e) => setNewTaskDuration(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium" htmlFor="task-weight">
+                    Weight (%) *
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      ({remainingWeight.toFixed(1)}% remaining)
+                    </span>
+                  </label>
+                  <Input
+                    id="task-weight"
+                    type="number"
+                    min={0.1}
+                    max={remainingWeight}
+                    step={0.1}
+                    placeholder={remainingWeight.toFixed(1)}
+                    value={newTaskWeight}
+                    onChange={(e) => setNewTaskWeight(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Task importance out of 100%. Total must equal 100%.
+                  </p>
+                </div>
+
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">Assign to</label>
+                  <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" type="button" className="justify-start gap-2 font-normal">
+                        {newTaskAssignee ? (
+                          <>
+                            <Avatar className="h-5 w-5">
+                              <AvatarFallback className="text-[10px]">
+                                {members.find(m => m.user.id === newTaskAssignee)?.user.full_name
+                                  .split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase() || 'U'}
+                              </AvatarFallback>
+                            </Avatar>
+                            {members.find(m => m.user.id === newTaskAssignee)?.user.full_name || 'Unknown'}
+                          </>
+                        ) : (
+                          <>
+                            <UserCircle2 className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-muted-foreground">Unassigned</span>
+                          </>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-64 p-1" align="start">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"
+                        onClick={() => { setNewTaskAssignee(null); setAssigneePopoverOpen(false) }}
+                      >
+                        <UserCircle2 className="h-6 w-6 text-muted-foreground" />
+                        <span>Unassigned</span>
+                      </button>
+                      <div className="max-h-48 overflow-y-auto">
+                        {members.map((m) => {
+                          const initials = m.user.full_name.split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase() || 'U'
+                          return (
+                            <button
+                              key={m.user.id}
+                              type="button"
+                              className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted ${newTaskAssignee === m.user.id ? 'bg-muted' : ''}`}
+                              onClick={() => { setNewTaskAssignee(m.user.id); setAssigneePopoverOpen(false) }}
+                            >
+                              <Avatar className="h-6 w-6">
+                                <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
+                              </Avatar>
+                              <div className="text-left">
+                                <p className="font-medium">{m.user.full_name}</p>
+                                {m.user.email && <p className="text-xs text-muted-foreground">{m.user.email}</p>}
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">Activities * (percentages auto-distribute if not specified)</label>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {newTaskActivities.map((activity, index) => (
+                      <div key={index} className="flex gap-2">
+                        <Input
+                          placeholder="Activity name"
+                          value={activity.name}
+                          onChange={(e) => {
+                            const updated = [...newTaskActivities]
+                            updated[index].name = e.target.value
+                            setNewTaskActivities(updated)
+                          }}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          placeholder="%"
+                          value={activity.percentage}
+                          onChange={(e) => {
+                            const updated = [...newTaskActivities]
+                            updated[index].percentage = e.target.value
+                            setNewTaskActivities(updated)
+                          }}
+                          className="w-20"
+                        />
+                        {newTaskActivities.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 shrink-0"
+                            onClick={() => {
+                              setNewTaskActivities(newTaskActivities.filter((_, i) => i !== index))
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div className="text-xs text-muted-foreground">
+                      {(() => {
+                        const activitiesWithNames = newTaskActivities.filter(a => a.name.trim())
+                        const activitiesWithCustomPercent = activitiesWithNames.filter(a => a.percentage.trim())
+                        const customPercentTotal = activitiesWithCustomPercent.reduce((sum, a) => sum + Number(a.percentage), 0)
+                        const activitiesWithoutPercent = activitiesWithNames.filter(a => !a.percentage.trim())
+                        const remainingPercent = 100 - customPercentTotal
+                        const equalShare = activitiesWithoutPercent.length > 0 ? remainingPercent / activitiesWithoutPercent.length : 0
+
+                        const customTotal = activitiesWithCustomPercent.reduce((sum, a) => sum + Number(a.percentage), 0)
+                        const autoTotal = activitiesWithoutPercent.length * equalShare
+                        const total = customTotal + autoTotal
+
+                        return (
+                          <div>
+                            <p>Total: {total.toFixed(1)}%</p>
+                            {activitiesWithoutPercent.length > 0 && (
+                              <p className="text-[10px] text-emerald-600">
+                                Auto: {activitiesWithoutPercent.length} × {equalShare.toFixed(1)}% = {autoTotal.toFixed(1)}%
+                              </p>
+                            )}
+                          </div>
+                        )
+                      })()}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1"
+                      onClick={() => setNewTaskActivities([...newTaskActivities, { name: '', percentage: '' }])}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add Activity
+                    </Button>
+                  </div>
+                </div>
+
+                {createError && (
+                  <p className="text-sm text-destructive">{createError}</p>
+                )}
+              </div>
+
+              <DialogFooter className="sticky bottom-0 bg-background pt-4 border-t">
+                <Button variant="outline" onClick={() => setNewTaskOpen(false)}>Cancel</Button>
+                <Button onClick={handleCreateTask} disabled={creating || !newTaskName.trim() || !newTaskWeight} className="gap-2">
+                  {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Create Task
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={() => { setStatusFilter('all'); setSearchQuery('') }}>
+          Clear Filters
+        </Button>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardContent className="space-y-2 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Task Weight</p>
+            <p className="text-4xl font-semibold leading-none">{totalUsedWeight.toFixed(0)}%</p>
+            <div className="space-y-1">
+              <Progress value={totalUsedWeight} className="h-2" />
+              <p className="text-xs text-muted-foreground">
+                {remainingWeight.toFixed(1)}% remaining
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardContent className="space-y-2 p-4">
             <div className="flex items-center justify-between">
@@ -277,176 +635,6 @@ export default function TasksPage({ params }: TasksPageProps) {
                   className="h-9 pl-9"
                 />
               </div>
-
-              {canCreateTask && (
-                <Dialog open={newTaskOpen} onOpenChange={setNewTaskOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="gap-2">
-                      <Pencil className="h-4 w-4" />
-                      New Task
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-lg">
-                    <DialogHeader>
-                      <DialogTitle>Create New Task</DialogTitle>
-                      <DialogDescription>
-                        Add a task for this project.
-                      </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="grid gap-4 py-2">
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium" htmlFor="task-name">Task name *</label>
-                        <Input
-                          id="task-name"
-                          placeholder="Enter task name"
-                          value={newTaskName}
-                          onChange={(e) => setNewTaskName(e.target.value)}
-                        />
-                      </div>
-
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium">Depends on (optional)</label>
-                        <select
-                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                          value={newTaskDependsOn ?? ''}
-                          onChange={(e) => {
-                            const depId = e.target.value || null
-                            setNewTaskDependsOn(depId)
-                            if (depId) {
-                              const depTask = projectTasks.find(t => t.id === depId)
-                              if (depTask?.end_date) {
-                                const endDate = new Date(depTask.end_date)
-                                endDate.setDate(endDate.getDate() + 1)
-                                // Skip weekends
-                                while (endDate.getDay() === 0 || endDate.getDay() === 6) {
-                                  endDate.setDate(endDate.getDate() + 1)
-                                }
-                                setNewTaskStart(endDate.toISOString().split('T')[0])
-                              }
-                            }
-                          }}
-                        >
-                          <option value="">No dependency</option>
-                          {projectTasks
-                            .filter(t => t.status !== 'completed')
-                            .map(t => (
-                              <option key={t.id} value={t.id}>
-                                {t.title} ({t.status.replace('_', ' ')})
-                              </option>
-                            ))}
-                        </select>
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="grid gap-2">
-                          <label className="text-sm font-medium" htmlFor="task-start">Start date</label>
-                          <Input
-                            id="task-start"
-                            type="date"
-                            value={newTaskStart}
-                            onChange={(e) => setNewTaskStart(e.target.value)}
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <label className="text-sm font-medium" htmlFor="task-duration">Duration (days) *</label>
-                          <Input
-                            id="task-duration"
-                            type="number"
-                            min={1}
-                            max={365}
-                            placeholder="7"
-                            value={newTaskDuration}
-                            onChange={(e) => setNewTaskDuration(e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium" htmlFor="task-budget">Budget (ETB) *</label>
-                        <Input
-                          id="task-budget"
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          placeholder="e.g. 50000"
-                          value={newTaskBudget}
-                          onChange={(e) => setNewTaskBudget(e.target.value)}
-                        />
-                      </div>
-
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium">Assign to</label>
-                        <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" type="button" className="justify-start gap-2 font-normal">
-                              {newTaskAssignee ? (
-                                <>
-                                  <Avatar className="h-5 w-5">
-                                    <AvatarFallback className="text-[10px]">
-                                      {members.find(m => m.user.id === newTaskAssignee)?.user.full_name
-                                        .split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase() || 'U'}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  {members.find(m => m.user.id === newTaskAssignee)?.user.full_name || 'Unknown'}
-                                </>
-                              ) : (
-                                <>
-                                  <UserCircle2 className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-muted-foreground">Unassigned</span>
-                                </>
-                              )}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-64 p-1" align="start">
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"
-                              onClick={() => { setNewTaskAssignee(null); setAssigneePopoverOpen(false) }}
-                            >
-                              <UserCircle2 className="h-6 w-6 text-muted-foreground" />
-                              <span>Unassigned</span>
-                            </button>
-                            <div className="max-h-48 overflow-y-auto">
-                              {members.map((m) => {
-                                const initials = m.user.full_name.split(' ').filter(p => p).map(p => p[0]).join('').toUpperCase() || 'U'
-                                return (
-                                  <button
-                                    key={m.user.id}
-                                    type="button"
-                                    className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted ${newTaskAssignee === m.user.id ? 'bg-muted' : ''}`}
-                                    onClick={() => { setNewTaskAssignee(m.user.id); setAssigneePopoverOpen(false) }}
-                                  >
-                                    <Avatar className="h-6 w-6">
-                                      <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
-                                    </Avatar>
-                                    <div className="text-left">
-                                      <p className="font-medium">{m.user.full_name}</p>
-                                      {m.user.email && <p className="text-xs text-muted-foreground">{m.user.email}</p>}
-                                    </div>
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-
-                      {createError && (
-                        <p className="text-sm text-destructive">{createError}</p>
-                      )}
-                    </div>
-
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setNewTaskOpen(false)}>Cancel</Button>
-                      <Button onClick={handleCreateTask} disabled={creating || !newTaskName.trim() || !newTaskBudget}>
-                        {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                        Create Task
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              )}
             </div>
           </div>
 
@@ -456,7 +644,6 @@ export default function TasksPage({ params }: TasksPageProps) {
                 <TableHead>Task Details</TableHead>
                 <TableHead>Assignee</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Budget</TableHead>
                 <TableHead>Duration</TableHead>
                 <TableHead>Progress</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -465,7 +652,7 @@ export default function TasksPage({ params }: TasksPageProps) {
             <TableBody>
               {pageTasks.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
                     No tasks found for current filter.
                   </TableCell>
                 </TableRow>
@@ -559,17 +746,6 @@ export default function TasksPage({ params }: TasksPageProps) {
                         <Badge className={statusConfig[task.status]?.className ?? 'bg-slate-100 text-slate-700'}>
                           {statusConfig[task.status]?.label ?? task.status}
                         </Badge>
-                      </TableCell>
-
-                      <TableCell>
-                        <p className="text-sm font-medium">
-                          {task.allocated_budget ? `ETB ${task.allocated_budget.toLocaleString()}` : '—'}
-                        </p>
-                        {task.spent_budget !== null && task.spent_budget !== undefined && task.allocated_budget && (
-                          <p className="text-xs text-muted-foreground">
-                            {((task.spent_budget / task.allocated_budget) * 100).toFixed(0)}% spent
-                          </p>
-                        )}
                       </TableCell>
 
                       <TableCell>

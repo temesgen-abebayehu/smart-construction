@@ -15,7 +15,7 @@ from app.api.dependencies import DbSession, get_current_active_user
 from app.core.config import settings
 from app.models.user import User
 from app.models.log import (
-    DailyLog, Manpower, Material, Equipment, EquipmentIdle, DailyLogPhoto,
+    DailyLog, Manpower, Material, Equipment, EquipmentIdle, DailyLogPhoto, DailyLogActivity,
 )
 from app.models.task import TaskDependency, Task
 from app.schemas.log import (
@@ -25,6 +25,7 @@ from app.schemas.log import (
     EquipmentCreate, EquipmentResponse,
     EquipmentIdleCreate, EquipmentIdleResponse,
     DailyLogPhotoResponse,
+    DailyLogActivityCreate, DailyLogActivityResponse,
 )
 from app.services.log import DailyLogService
 from app.repositories.log import DailyLogRepository
@@ -94,6 +95,9 @@ async def list_daily_logs(
     skip: int = 0, limit: int = 100,
     _: User = Depends(get_current_active_user),
 ) -> Any:
+    from sqlalchemy import func
+    from app.schemas.log import UserBasic
+    
     query = select(DailyLog).where(DailyLog.project_id == project_id)
     if status:
         query = query.where(DailyLog.status == status)
@@ -105,7 +109,77 @@ async def list_daily_logs(
         query = query.where(DailyLog.date <= end_date)
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
-    return list(result.scalars().all())
+    logs = list(result.scalars().all())
+    
+    # Enrich each log with counts and costs
+    enriched_logs = []
+    for log in logs:
+        # Count activities
+        activities_result = await db.execute(
+            select(func.count(DailyLogActivity.id)).where(DailyLogActivity.log_id == log.id)
+        )
+        activities_count = activities_result.scalar() or 0
+        
+        # Count and sum manpower
+        manpower_result = await db.execute(
+            select(
+                func.count(Manpower.id),
+                func.coalesce(func.sum(Manpower.cost), 0.0)
+            ).where(Manpower.log_id == log.id)
+        )
+        manpower_row = manpower_result.first()
+        manpower_count = manpower_row[0] or 0
+        manpower_cost = float(manpower_row[1] or 0.0)
+        
+        # Count and sum materials
+        materials_result = await db.execute(
+            select(
+                func.count(Material.id),
+                func.coalesce(func.sum(Material.cost), 0.0)
+            ).where(Material.log_id == log.id)
+        )
+        materials_row = materials_result.first()
+        materials_count = materials_row[0] or 0
+        materials_cost = float(materials_row[1] or 0.0)
+        
+        # Count and sum equipment
+        equipment_result = await db.execute(
+            select(
+                func.count(Equipment.id),
+                func.coalesce(func.sum(Equipment.cost), 0.0)
+            ).where(Equipment.log_id == log.id)
+        )
+        equipment_row = equipment_result.first()
+        equipment_count = equipment_row[0] or 0
+        equipment_cost = float(equipment_row[1] or 0.0)
+        
+        # Get created_by user info
+        created_by_user = await db.get(User, log.created_by_id)
+        created_by_basic = UserBasic.model_validate(created_by_user) if created_by_user else None
+        
+        # Create enriched response
+        log_dict = {
+            "id": log.id,
+            "project_id": log.project_id,
+            "task_id": log.task_id,
+            "created_by_id": log.created_by_id,
+            "date": log.date,
+            "status": log.status,
+            "notes": log.notes,
+            "weather": log.weather,
+            "rejection_reason": log.rejection_reason,
+            "activities_count": activities_count,
+            "manpower_count": manpower_count,
+            "manpower_cost": manpower_cost,
+            "materials_count": materials_count,
+            "materials_cost": materials_cost,
+            "equipment_count": equipment_count,
+            "equipment_cost": equipment_cost,
+            "created_by": created_by_basic,
+        }
+        enriched_logs.append(log_dict)
+    
+    return enriched_logs
 
 
 # ── Task-scoped: /projects/{project_id}/tasks/{task_id}/daily-logs ──
@@ -146,6 +220,66 @@ async def get_daily_log(log_id: UUID, db: DbSession, _: User = Depends(get_curre
     if not log:
         raise HTTPException(status_code=404, detail="Daily log not found")
     return log
+
+
+@logs_router.put("/daily-logs/{log_id}", response_model=DailyLogResponse, summary="Update daily log (draft/rejected only)")
+async def update_daily_log(
+    log_id: UUID, 
+    db: DbSession, 
+    log_in: DailyLogCreate,
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """Update a daily log. Only draft or rejected logs can be updated."""
+    log = await log_repo.get_by_id(db, log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Daily log not found")
+    
+    # Only allow editing draft or rejected logs
+    if log.status not in ["draft", "rejected"]:
+        raise HTTPException(
+            status_code=400, 
+            detail="Only draft or rejected logs can be edited"
+        )
+    
+    # Check if user is the creator
+    if log.created_by_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only edit your own logs")
+    
+    # Update fields
+    if log_in.notes is not None:
+        log.notes = log_in.notes
+    if log_in.weather is not None:
+        log.weather = log_in.weather
+    
+    await db.commit()
+    await db.refresh(log)
+    return log
+
+
+@logs_router.delete("/daily-logs/{log_id}", status_code=204, summary="Delete daily log (draft only)")
+async def delete_daily_log(
+    log_id: UUID,
+    db: DbSession,
+    current_user: User = Depends(get_current_active_user)
+) -> None:
+    """Delete a daily log. Only draft logs can be deleted."""
+    log = await log_repo.get_by_id(db, log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Daily log not found")
+    
+    # Only allow deleting draft logs
+    if log.status != "draft":
+        raise HTTPException(
+            status_code=400,
+            detail="Only draft logs can be deleted"
+        )
+    
+    # Check if user is the creator
+    if log.created_by_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own logs")
+    
+    await db.delete(log)
+    await db.commit()
 
 
 # ── 3-step Approval Workflow: submit → consultant-approve → pm-approve ──
@@ -203,6 +337,7 @@ async def list_manpower(log_id: UUID, db: DbSession, _: User = Depends(get_curre
 async def add_material(*, db: DbSession, log_id: UUID, mat_in: MaterialCreate, _: User = Depends(get_current_active_user)) -> Any:
     obj = Material(log_id=log_id, name=mat_in.name, quantity=mat_in.quantity, unit=mat_in.unit, cost=mat_in.cost)
     db.add(obj); await db.commit(); await db.refresh(obj)
+    return obj
     return obj
 
 @logs_router.get("/daily-logs/{log_id}/materials", response_model=List[MaterialResponse], summary="List material entries")
@@ -357,3 +492,106 @@ async def delete_daily_log_photo(
 
     await db.delete(photo)
     await db.commit()
+
+
+# ── Sub-Entities: Daily Log Activities (completed task activities) ──
+
+@logs_router.post("/daily-logs/{log_id}/completed-activities", response_model=DailyLogActivityResponse, status_code=201, summary="Mark task activity as completed in this log")
+async def add_completed_activity(
+    *, db: DbSession, log_id: UUID, activity_in: DailyLogActivityCreate,
+    _: User = Depends(get_current_active_user),
+) -> Any:
+    """Link a task activity to this daily log, marking it as completed.
+    Task progress will be updated when the log is PM approved, not immediately."""
+    from app.models.task import TaskActivity
+    
+    # Verify log exists
+    log = await log_repo.get_by_id(db, log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Daily log not found")
+    
+    # Verify activity exists and belongs to the log's task
+    activity = await db.get(TaskActivity, activity_in.task_activity_id)
+    if not activity:
+        raise HTTPException(status_code=404, detail="Task activity not found")
+    
+    if activity.task_id != log.task_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Activity does not belong to this log's task"
+        )
+    
+    # Check if already linked
+    existing = await db.execute(
+        select(DailyLogActivity).where(
+            DailyLogActivity.log_id == log_id,
+            DailyLogActivity.task_activity_id == activity_in.task_activity_id
+        )
+    )
+    if existing.scalars().first():
+        raise HTTPException(status_code=400, detail="Activity already linked to this log")
+    
+    # Create link
+    link = DailyLogActivity(
+        log_id=log_id,
+        task_activity_id=activity_in.task_activity_id
+    )
+    db.add(link)
+    
+    # Mark activity as completed
+    activity.is_completed = True
+    db.add(activity)
+    
+    await db.commit()
+    await db.refresh(link)
+    
+    # DO NOT recalculate task progress here - it will be done when log is PM approved
+    logger.info(
+        "Activity %s marked complete in log %s (task progress will update on PM approval)",
+        activity_in.task_activity_id, log_id
+    )
+    
+    return link
+
+
+@logs_router.get("/daily-logs/{log_id}/completed-activities", response_model=List[DailyLogActivityResponse], summary="List activities completed in this log")
+async def list_completed_activities(
+    log_id: UUID, db: DbSession,
+    _: User = Depends(get_current_active_user),
+) -> Any:
+    """Get all task activities that were marked complete in this daily log."""
+    result = await db.execute(
+        select(DailyLogActivity).where(DailyLogActivity.log_id == log_id)
+    )
+    return list(result.scalars().all())
+
+
+@logs_router.delete("/daily-logs/{log_id}/completed-activities/{activity_id}", status_code=204, summary="Unlink activity from log")
+async def remove_completed_activity(
+    log_id: UUID, activity_id: UUID, db: DbSession,
+    _: User = Depends(get_current_active_user),
+) -> None:
+    """Remove the link between a log and an activity. This will mark the activity as incomplete.
+    Task progress will be updated when the log is PM approved, not immediately."""
+    from app.models.task import TaskActivity
+    
+    result = await db.execute(
+        select(DailyLogActivity).where(
+            DailyLogActivity.log_id == log_id,
+            DailyLogActivity.task_activity_id == activity_id
+        )
+    )
+    link = result.scalars().first()
+    if not link:
+        raise HTTPException(status_code=404, detail="Activity link not found")
+    
+    # Get activity to mark as incomplete
+    activity = await db.get(TaskActivity, activity_id)
+    if activity:
+        activity.is_completed = False
+        db.add(activity)
+    
+    await db.delete(link)
+    await db.commit()
+    
+    # DO NOT recalculate task progress here - it will be done when log is PM approved

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 from uuid import UUID
 from datetime import datetime
 from app.models.commons import TaskStatus
@@ -11,6 +11,7 @@ class TaskBase(BaseModel):
     duration_days: int | None = None
     end_date: datetime | None = None
     budget: float | None = 0.0
+    weight: float = 0.0  # Task weight as percentage (0-100), must sum to 100% across all project tasks
     assigned_to: UUID | None = None
 
 class TaskCreate(TaskBase):
@@ -26,6 +27,7 @@ class TaskUpdate(BaseModel):
     duration_days: int | None = None
     end_date: datetime | None = None
     budget: float | None = None
+    weight: float | None = None
     assigned_to: UUID | None = None
 
 class AssigneeBasic(BaseModel):
@@ -40,6 +42,12 @@ class TaskResponse(TaskBase):
     progress_percentage: float
     assignee: AssigneeBasic | None = None
     model_config = ConfigDict(from_attributes=True)
+    
+    @computed_field
+    @property
+    def allocated_budget(self) -> float | None:
+        """Alias for budget field to maintain frontend compatibility"""
+        return self.budget
 
 class TaskDependencyBase(BaseModel):
     depends_on_task_id: UUID
@@ -93,3 +101,19 @@ class TaskManpowerSummary(BaseModel):
     total_quantity_completed: float | None = None
     productivity_per_hour: float | None = None    # quantity_completed / total_hours
     by_trade: list[ManpowerByTrade]
+
+
+class TaskBudgetSummary(BaseModel):
+    """Budget allocation vs actual spending for a task.
+    Aggregates costs from all daily logs (labor + materials + equipment)."""
+    task_id: UUID
+    task_name: str
+    allocated_budget: float
+    spent_labor: float
+    spent_materials: float
+    spent_equipment: float
+    total_spent: float
+    remaining_budget: float
+    budget_utilization_pct: float  # (total_spent / allocated_budget) * 100
+    status: str  # "under_budget" | "on_budget" | "over_budget"
+    log_count: int  # number of logs contributing to costs
