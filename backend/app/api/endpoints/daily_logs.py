@@ -277,7 +277,19 @@ async def delete_daily_log(
     # Check if user is the creator
     if log.created_by_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only delete your own logs")
-    
+
+    # Reset is_completed on every task activity linked to this log so they
+    # reappear as available after the log is deleted.
+    from app.models.task import TaskActivity
+    linked = await db.execute(
+        select(DailyLogActivity).where(DailyLogActivity.log_id == log_id)
+    )
+    for link in linked.scalars().all():
+        activity = await db.get(TaskActivity, link.task_activity_id)
+        if activity:
+            activity.is_completed = False
+            db.add(activity)
+
     await db.delete(log)
     await db.commit()
 
@@ -515,10 +527,13 @@ async def add_completed_activity(
     if not activity:
         raise HTTPException(status_code=404, detail="Task activity not found")
     
-    if activity.task_id != log.task_id:
+    # Allow activities from any task that belongs to the same project
+    # (supports cross-task daily logs created from the UI)
+    activity_task = await db.get(Task, activity.task_id)
+    if not activity_task or activity_task.project_id != log.project_id:
         raise HTTPException(
             status_code=400,
-            detail="Activity does not belong to this log's task"
+            detail="Activity does not belong to a task in this project"
         )
     
     # Check if already linked

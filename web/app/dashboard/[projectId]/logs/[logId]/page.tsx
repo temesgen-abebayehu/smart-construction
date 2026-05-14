@@ -39,12 +39,16 @@ import {
   listEquipmentIdle,
   addEquipmentIdle,
   getTask,
+  listProjectTasks,
   deleteDailyLog,
+  listSuppliers,
 } from '@/lib/api'
-import type { LogDetailResponse, ProjectDetail, DailyLogPhoto, TaskListItem, TaskActivityItem } from '@/lib/api-types'
+import type { LogDetailResponse, ProjectDetail, DailyLogPhoto, TaskListItem, TaskActivityItem, SupplierItem } from '@/lib/api-types'
 import type { LogStatus } from '@/lib/domain'
 import { useProjectRole } from '@/lib/project-role-context'
-import { ArrowLeft, CheckCircle2, Clock3, FileText, Loader2, MapPin, Plus, Users, XCircle, Image as ImageIcon, Trash2, Upload, ListChecks, AlertCircle } from 'lucide-react'
+import { getApiBaseUrl } from '@/lib/api-client'
+import { getAccessToken } from '@/lib/auth-storage'
+import { ArrowLeft, CheckCircle2, Clock3, FileText, Loader2, MapPin, Pencil, Plus, Users, XCircle, Image as ImageIcon, Trash2, Upload, ListChecks, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface LogDetailPageProps {
@@ -91,7 +95,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
   const [materials, setMaterials] = useState<MaterialEntry[]>([])
   const [equipment, setEquipment] = useState<EquipmentEntry[]>([])
   const [photos, setPhotos] = useState<DailyLogPhoto[]>([])
-  const [availableActivities, setAvailableActivities] = useState<TaskActivityItem[]>([])
+  const [taskGroups, setTaskGroups] = useState<{ task: TaskListItem; activities: TaskActivityItem[] }[]>([])
   const [completedActivityIds, setCompletedActivityIds] = useState<Set<string>>(new Set())
   const [equipmentIdle, setEquipmentIdle] = useState<Map<string, EquipmentIdleEntry[]>>(new Map())
 
@@ -100,6 +104,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
   const [formData, setFormData] = useState<Record<string, string>>({})
   const [addingEntry, setAddingEntry] = useState(false)
   const [selectedEquipmentForIdle, setSelectedEquipmentForIdle] = useState<string | null>(null)
+  const [suppliers, setSuppliers] = useState<SupplierItem[]>([])
 
   // Photo upload
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
@@ -108,6 +113,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
   const loadData = async () => {
     setLoading(true)
     try {
+      listSuppliers(projectId, { limit: 100 }).then(setSuppliers).catch(() => { })
       const [proj, logData, laborData, materialData, equipData, photoData] = await Promise.all([
         getProject(projectId),
         getLog(logId),
@@ -123,22 +129,42 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
       setEquipment(equipData)
       setPhotos(photoData)
 
-      // Load task and activities if log has a task
-      if (logData.task_id) {
-        try {
-          const [taskData, activities, completedActivities] = await Promise.all([
-            getTask(logData.task_id),
-            listTaskActivities(logData.task_id),
-            listLogCompletedActivities(logId),
-          ])
-          setTask(taskData)
-          setAvailableActivities(activities)
-          setCompletedActivityIds(new Set(completedActivities.map(a => a.task_activity_id)))
-        } catch {
-          setTask(null)
-          setAvailableActivities([])
-          setCompletedActivityIds(new Set())
+      // Load completed activities, then find all tasks involved in this log
+      try {
+        const completedActivities = await listLogCompletedActivities(logId).catch(() => [])
+        const completedIds = new Set(completedActivities.map((a: any) => a.task_activity_id as string))
+        setCompletedActivityIds(completedIds)
+
+        // Load primary task for the sidebar info link
+        if (logData.task_id) {
+          getTask(logData.task_id).then(setTask).catch(() => { })
         }
+
+        // Load ALL project tasks and find those with completed activities in this log
+        if (completedIds.size > 0) {
+          const tasksRes = await listProjectTasks(projectId).catch(() => ({ data: [] }))
+          const allTasks: TaskListItem[] = Array.isArray(tasksRes) ? tasksRes : (tasksRes as any).data ?? []
+          const groups: { task: TaskListItem; activities: TaskActivityItem[] }[] = []
+          await Promise.all(
+            allTasks.map(async (t: TaskListItem) => {
+              const acts = await listTaskActivities(t.id).catch(() => [])
+              if (acts.some((a: TaskActivityItem) => completedIds.has(a.id))) {
+                groups.push({ task: t, activities: acts })
+              }
+            })
+          )
+          // Sort groups: primary task first
+          groups.sort((a, b) =>
+            a.task.id === logData.task_id ? -1 : b.task.id === logData.task_id ? 1 : 0
+          )
+          setTaskGroups(groups)
+        } else {
+          setTaskGroups([])
+        }
+      } catch {
+        setTask(null)
+        setTaskGroups([])
+        setCompletedActivityIds(new Set())
       }
 
       // Load equipment idle time for each equipment
@@ -185,17 +211,25 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
     setAddingEntry(true)
     try {
       if (addType === 'labor') {
+        const wc = Number(formData.worker_count) || 1
+        const hw = Number(formData.hours_worked) || 0
+        const hr = Number(formData.hourly_rate) || 0
+        const oh = Number(formData.overtime_hours) || 0
+        const or_ = Number(formData.overtime_rate) || (hr * 1.5)
+        const totalCost = (wc * hw * hr) + (wc * oh * or_)
         await addLogManpower(logId, {
           worker_type: formData.worker_type || 'general',
-          hours_worked: Number(formData.hours_worked) || 0,
-          cost: Number(formData.cost) || 0,
+          hours_worked: (hw + oh) * wc,
+          cost: totalCost,
         })
       } else if (addType === 'material') {
+        const unitCost = Number(formData.unit_cost) || Number(formData.cost) || 0
+        const qty = Number(formData.quantity) || 0
         await addLogMaterial(logId, {
           name: formData.name || '',
-          quantity: Number(formData.quantity) || 0,
+          quantity: qty,
           unit: formData.unit || 'pcs',
-          cost: Number(formData.cost) || 0,
+          cost: formData.unit_cost ? qty * unitCost : unitCost,
         })
       } else if (addType === 'equipment') {
         await addLogEquipment(logId, {
@@ -245,10 +279,10 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
       const formData = new FormData()
       formData.append('file', file)
 
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/daily-logs/${logId}/photos`, {
+      await fetch(`${getApiBaseUrl()}/daily-logs/${logId}/photos`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${getAccessToken() ?? ''}`,
         },
         body: formData,
       })
@@ -590,7 +624,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
           </Card>
 
           {/* Activity Completion */}
-          {task && availableActivities.length > 0 && (
+          {(taskGroups.length > 0 || completedActivityIds.size > 0) && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
@@ -601,52 +635,55 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                   {completedActivityIds.size} {completedActivityIds.size === 1 ? 'activity' : 'activities'} completed in this log
                 </p>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {availableActivities.map((activity) => {
-                  const isCompleted = completedActivityIds.has(activity.id)
-                  return (
-                    <div key={activity.id} className="flex items-center justify-between rounded-lg border p-2.5">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <button
-                          type="button"
-                          disabled={!canAddEntries}
-                          className={`grid h-5 w-5 shrink-0 place-items-center rounded border transition-colors ${isCompleted
-                            ? 'border-emerald-500 bg-emerald-500 text-white'
-                            : 'border-slate-300 hover:border-emerald-400'
-                            } ${!canAddEntries ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          onClick={async () => {
-                            if (!canAddEntries) return
-                            try {
-                              if (isCompleted) {
-                                await removeLogCompletedActivity(logId, activity.id)
-                                setCompletedActivityIds(prev => {
-                                  const next = new Set(prev)
-                                  next.delete(activity.id)
-                                  return next
-                                })
-                                toast.success('Activity unmarked')
-                              } else {
-                                await addLogCompletedActivity(logId, activity.id)
-                                setCompletedActivityIds(prev => new Set(prev).add(activity.id))
-                                toast.success('Activity marked complete')
-                              }
-                            } catch (e) {
-                              toast.error(e instanceof Error ? e.message : 'Failed to update')
-                            }
-                          }}
-                        >
-                          {isCompleted && <CheckCircle2 className="h-3 w-3" />}
-                        </button>
-                        <span className={`text-sm truncate ${isCompleted ? 'font-medium' : ''}`}>
-                          {activity.name}
-                        </span>
-                      </div>
-                      <Badge variant="outline" className="text-[10px] shrink-0">
-                        {activity.percentage}%
-                      </Badge>
-                    </div>
-                  )
-                })}
+              <CardContent className="space-y-4">
+                {taskGroups.map(({ task: grpTask, activities }) => (
+                  <div key={grpTask.id} className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {grpTask.title}
+                    </p>
+                    {activities.filter((a: TaskActivityItem) => completedActivityIds.has(a.id)).map((activity) => {
+                      const isCompleted = true
+                      return (
+                        <div key={activity.id} className="flex items-center justify-between rounded-lg border p-2.5">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <button
+                              type="button"
+                              disabled={!canAddEntries}
+                              className={`grid h-5 w-5 shrink-0 place-items-center rounded border transition-colors ${isCompleted
+                                ? 'border-emerald-500 bg-emerald-500 text-white'
+                                : 'border-slate-300 hover:border-emerald-400'
+                                } ${!canAddEntries ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              onClick={async () => {
+                                if (!canAddEntries) return
+                                try {
+                                  if (isCompleted) {
+                                    await removeLogCompletedActivity(logId, activity.id)
+                                    setCompletedActivityIds(prev => { const n = new Set(prev); n.delete(activity.id); return n })
+                                    toast.success('Activity unmarked')
+                                  } else {
+                                    await addLogCompletedActivity(logId, activity.id)
+                                    setCompletedActivityIds(prev => new Set(prev).add(activity.id))
+                                    toast.success('Activity marked complete')
+                                  }
+                                } catch (e) {
+                                  toast.error(e instanceof Error ? e.message : 'Failed to update')
+                                }
+                              }}
+                            >
+                              {isCompleted && <CheckCircle2 className="h-3 w-3" />}
+                            </button>
+                            <span className={`text-sm truncate ${isCompleted ? 'font-medium' : ''}`}>
+                              {activity.name}
+                            </span>
+                          </div>
+                          <Badge variant="outline" className="text-[10px] shrink-0">
+                            {activity.percentage}%
+                          </Badge>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
                 {canAddEntries && (
                   <p className="text-xs text-muted-foreground pt-2">
                     Mark activities completed today. Task progress will update when log is approved by PM.
@@ -720,8 +757,16 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
               <CardTitle className="text-base">Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
+              {canAddEntries && (
+                <Link href={`/dashboard/${projectId}/logs/${logId}/edit`}>
+                  <Button variant="outline" className="w-full gap-2">
+                    <Pencil className="h-4 w-4" />
+                    Edit Log
+                  </Button>
+                </Link>
+              )}
               {canSubmit && (
-                <Button className="w-full mt-4" disabled={actionLoading} onClick={() => handleAction(() => submitLog(logId))}>
+                <Button className="w-full mt-2" disabled={actionLoading} onClick={() => handleAction(() => submitLog(logId))}>
                   {log.status === 'rejected' ? 'Re-submit Log' : 'Submit for Review'}
                 </Button>
               )}
@@ -776,6 +821,9 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                   <p className="text-muted-foreground">
                     Labor: ETB {totalLaborCost.toLocaleString()} | Materials: ETB {totalMaterialCost.toLocaleString()} | Equipment: ETB {totalEquipmentCost.toLocaleString()}
                   </p>
+                  <p className="font-semibold text-foreground mt-1">
+                    Total: ETB {(totalLaborCost + totalMaterialCost + totalEquipmentCost).toLocaleString()}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -822,41 +870,78 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
             {addType === 'labor' && (
               <>
                 <div className="space-y-1.5">
-                  <Label>Worker Type *</Label>
+                  <Label>Labor Type *</Label>
                   <Input placeholder="e.g. Mason, Carpenter, Electrician" value={formData.worker_type ?? ''} onChange={(e) => setFormData(p => ({ ...p, worker_type: e.target.value }))} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label>Hours Worked *</Label>
-                    <Input type="number" min={0} step={0.5} placeholder="8" value={formData.hours_worked ?? ''} onChange={(e) => setFormData(p => ({ ...p, hours_worked: e.target.value }))} />
+                    <Label>Worker Count</Label>
+                    <Input type="number" min={1} placeholder="1" value={formData.worker_count ?? '1'} onChange={(e) => setFormData(p => ({ ...p, worker_count: e.target.value }))} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Cost (ETB) *</Label>
-                    <Input type="number" min={0} placeholder="2400" value={formData.cost ?? ''} onChange={(e) => setFormData(p => ({ ...p, cost: e.target.value }))} />
+                    <Label>Hourly Rate (ETB) *</Label>
+                    <Input type="number" min={0} step={0.01} placeholder="Rate/hr" value={formData.hourly_rate ?? ''} onChange={(e) => setFormData(p => ({ ...p, hourly_rate: e.target.value }))} />
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Regular Hours</Label>
+                    <Input type="number" min={0} step={0.5} placeholder="8" value={formData.hours_worked ?? '8'} onChange={(e) => setFormData(p => ({ ...p, hours_worked: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Overtime Hours</Label>
+                    <Input type="number" min={0} step={0.5} placeholder="0" value={formData.overtime_hours ?? '0'} onChange={(e) => setFormData(p => ({ ...p, overtime_hours: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Overtime Rate (ETB/hr, default 1.5×)</Label>
+                  <Input type="number" min={0} step={0.01} placeholder="Optional" value={formData.overtime_rate ?? ''} onChange={(e) => setFormData(p => ({ ...p, overtime_rate: e.target.value }))} />
+                </div>
+                {formData.worker_type && formData.hourly_rate && (
+                  <p className="text-right text-sm font-medium">
+                    Total: ETB {(((Number(formData.worker_count) || 1) * (Number(formData.hours_worked) || 0) * (Number(formData.hourly_rate) || 0)) + ((Number(formData.worker_count) || 1) * (Number(formData.overtime_hours) || 0) * ((Number(formData.overtime_rate)) || (Number(formData.hourly_rate) * 1.5)))).toLocaleString()}
+                  </p>
+                )}
               </>
             )}
             {addType === 'material' && (
               <>
+                {suppliers.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label>Supplier (Optional)</Label>
+                    <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={formData.supplier_id ?? ''} onChange={(e) => setFormData(p => ({ ...p, supplier_id: e.target.value }))}>
+                      <option value="">No supplier</option>
+                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div className="space-y-1.5">
-                  <Label>Material Name *</Label>
+                  <Label>Material Type *</Label>
                   <Input placeholder="e.g. Cement, Rebar, Sand" value={formData.name ?? ''} onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))} />
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-2">
                   <div className="space-y-1.5">
                     <Label>Quantity *</Label>
                     <Input type="number" min={0} placeholder="120" value={formData.quantity ?? ''} onChange={(e) => setFormData(p => ({ ...p, quantity: e.target.value }))} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Unit *</Label>
-                    <Input placeholder="bags, kg, m3" value={formData.unit ?? ''} onChange={(e) => setFormData(p => ({ ...p, unit: e.target.value }))} />
+                    <Label>Unit</Label>
+                    <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={formData.unit ?? 'bags'} onChange={(e) => setFormData(p => ({ ...p, unit: e.target.value }))}>
+                      {['bags', 'kg', 'ton', 'm3', 'm2', 'm', 'pcs', 'liters'].map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Cost (ETB) *</Label>
-                    <Input type="number" min={0} placeholder="54000" value={formData.cost ?? ''} onChange={(e) => setFormData(p => ({ ...p, cost: e.target.value }))} />
+                    <Label>Unit Cost (ETB) *</Label>
+                    <Input type="number" min={0} step={0.01} placeholder="450" value={formData.unit_cost ?? ''} onChange={(e) => setFormData(p => ({ ...p, unit_cost: e.target.value }))} />
                   </div>
                 </div>
+                <div className="space-y-1.5">
+                  <Label>Delivery Date</Label>
+                  <Input type="date" value={formData.delivery_date ?? new Date().toISOString().split('T')[0]} onChange={(e) => setFormData(p => ({ ...p, delivery_date: e.target.value }))} />
+                </div>
+                {formData.quantity && formData.unit_cost && (
+                  <p className="text-right text-sm font-medium">Total: ETB {((Number(formData.quantity) || 0) * (Number(formData.unit_cost) || 0)).toLocaleString()}</p>
+                )}
               </>
             )}
             {addType === 'equipment' && (

@@ -124,6 +124,7 @@ export interface TaskListItem {
   allocated_budget?: number | null
   spent_budget?: number | null
   weight?: number
+  activity_count?: number
   project_id: string
   assigned_to?: string | null
   assignee?: {

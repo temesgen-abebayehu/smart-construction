@@ -142,6 +142,8 @@ function normalizeTaskItem(raw: unknown): TaskListItem {
     duration_days: (r.duration_days as number | null | undefined) ?? null,
     allocated_budget: parseFiniteNumber(r.allocated_budget ?? r.budget),
     spent_budget: parseFiniteNumber(r.spent_budget),
+    weight: parseFiniteNumber(r.weight),
+    activity_count: parseFiniteNumber(r.activity_count, 0),
     project_id: String(r.project_id ?? ''),
     assigned_to: (r.assigned_to as string | null | undefined) ?? null,
     assignee: assigneeRaw ? {

@@ -2,18 +2,47 @@
 
 import { use, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { ArrowLeft, Loader2, Save } from 'lucide-react'
-import { getLog, updateDailyLog } from '@/lib/api'
-import type { LogDetailResponse } from '@/lib/api-types'
+import {
+    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
+    Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import {
+    getLog, updateDailyLog,
+    listLogManpower, listLogMaterials, listLogEquipment, listLogPhotos,
+    addLogManpower, addLogMaterial, addLogEquipment, deleteLogPhoto,
+    listLogCompletedActivities, addLogCompletedActivity, removeLogCompletedActivity,
+    listTaskActivities, getTask, listSuppliers,
+} from '@/lib/api'
+import { getApiBaseUrl } from '@/lib/api-client'
+import { getAccessToken } from '@/lib/auth-storage'
+import type { LogDetailResponse, DailyLogPhoto, TaskListItem, TaskActivityItem, SupplierItem } from '@/lib/api-types'
+import {
+    ArrowLeft, CheckCircle2, Image as ImageIcon, Loader2, Package, Plus, Save, Trash2, Truck, Upload, Users,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 interface EditLogPageProps {
     params: Promise<{ projectId: string; logId: string }>
+}
+
+type LaborEntry = { id: string; worker_type: string; hours_worked: number; cost: number }
+type MaterialEntry = { id: string; name: string; quantity: number; unit: string; cost: number }
+type EquipmentEntry = { id: string; name: string; hours_used: number; cost: number }
+
+const statusConfig: Record<string, { label: string; className: string }> = {
+    draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700' },
+    submitted: { label: 'Submitted', className: 'bg-amber-100 text-amber-700' },
+    consultant_approved: { label: 'Consultant Approved', className: 'bg-indigo-100 text-indigo-700' },
+    pm_approved: { label: 'Approved', className: 'bg-green-100 text-green-700' },
+    rejected: { label: 'Rejected', className: 'bg-red-100 text-red-700' },
 }
 
 export default function EditLogPage({ params }: EditLogPageProps) {
@@ -25,66 +54,169 @@ export default function EditLogPage({ params }: EditLogPageProps) {
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
 
-    useEffect(() => {
-        const loadLog = async () => {
-            setLoading(true)
+    const [labor, setLabor] = useState<LaborEntry[]>([])
+    const [materials, setMaterials] = useState<MaterialEntry[]>([])
+    const [equipment, setEquipment] = useState<EquipmentEntry[]>([])
+    const [photos, setPhotos] = useState<DailyLogPhoto[]>([])
+    const [suppliers, setSuppliers] = useState<SupplierItem[]>([])
+
+    const [task, setTask] = useState<TaskListItem | null>(null)
+    const [availableActivities, setAvailableActivities] = useState<TaskActivityItem[]>([])
+    const [completedActivityIds, setCompletedActivityIds] = useState<Set<string>>(new Set())
+
+    const [addType, setAddType] = useState<'labor' | 'material' | 'equipment' | null>(null)
+    const [addingEntry, setAddingEntry] = useState(false)
+
+    const [hrForm, setHrForm] = useState({ labor_type: '', worker_count: '1', hours_worked: '8', hourly_rate: '', overtime_hours: '0', overtime_rate: '' })
+    const [matForm, setMatForm] = useState({ supplier_id: '', material_type: '', quantity: '', unit: 'bags', unit_cost: '', delivery_date: new Date().toISOString().split('T')[0] })
+    const [eqForm, setEqForm] = useState({ type: '', operation_time: '', cost_per_unit: '', idle_hours: '0', idle_reason: '' })
+
+    const [uploadingPhoto, setUploadingPhoto] = useState(false)
+    const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null)
+
+    const loadAll = async () => {
+        setLoading(true)
+        try {
+            const [logData, laborData, matData, eqData, photoData] = await Promise.all([
+                getLog(logId),
+                listLogManpower(logId).catch(() => []),
+                listLogMaterials(logId).catch(() => []),
+                listLogEquipment(logId).catch(() => []),
+                listLogPhotos(logId).catch(() => []),
+            ])
+            setLog(logData)
+            setNotes(logData.notes || '')
+            setLabor(laborData)
+            setMaterials(matData)
+            setEquipment(eqData)
+            setPhotos(photoData)
+
             try {
-                const logData = await getLog(logId)
-                setLog(logData)
-                setNotes(logData.notes || '')
-            } catch (e) {
-                toast.error('Failed to load log')
-                router.back()
-            } finally {
-                setLoading(false)
+                const suppliersData = await listSuppliers(projectId, { limit: 100 })
+                setSuppliers(suppliersData)
+            } catch { setSuppliers([]) }
+
+            if (logData.task_id) {
+                try {
+                    const [taskData, acts, completedActs] = await Promise.all([
+                        getTask(logData.task_id),
+                        listTaskActivities(logData.task_id),
+                        listLogCompletedActivities(logId),
+                    ])
+                    setTask(taskData)
+                    setAvailableActivities(acts)
+                    setCompletedActivityIds(new Set((completedActs as any[]).map(a => a.task_activity_id)))
+                } catch { setTask(null); setAvailableActivities([]); setCompletedActivityIds(new Set()) }
             }
+        } catch {
+            toast.error('Failed to load log')
+            router.back()
+        } finally {
+            setLoading(false)
         }
-        loadLog()
-    }, [logId, router])
+    }
+
+    useEffect(() => { loadAll() }, [logId])
+
+    const calcHrCost = () => {
+        const wc = Number(hrForm.worker_count) || 0
+        const hw = Number(hrForm.hours_worked) || 0
+        const hr = Number(hrForm.hourly_rate) || 0
+        const oh = Number(hrForm.overtime_hours) || 0
+        const or_ = Number(hrForm.overtime_rate) || (hr * 1.5)
+        return (wc * hw * hr) + (wc * oh * or_)
+    }
+    const calcMatCost = () => (Number(matForm.quantity) || 0) * (Number(matForm.unit_cost) || 0)
+    const calcEqCost = () => (Number(eqForm.operation_time) || 0) * (Number(eqForm.cost_per_unit) || 0)
+
+    const handleAddEntry = async () => {
+        if (!addType) return
+        setAddingEntry(true)
+        try {
+            if (addType === 'labor') {
+                if (!hrForm.labor_type.trim() || !hrForm.hourly_rate) { toast.error('Labor type and hourly rate are required'); return }
+                await addLogManpower(logId, {
+                    worker_type: hrForm.labor_type.trim(),
+                    hours_worked: (Number(hrForm.hours_worked) + Number(hrForm.overtime_hours)) * (Number(hrForm.worker_count) || 1),
+                    cost: calcHrCost(),
+                })
+                setHrForm({ labor_type: '', worker_count: '1', hours_worked: '8', hourly_rate: '', overtime_hours: '0', overtime_rate: '' })
+            } else if (addType === 'material') {
+                if (!matForm.material_type.trim() || !matForm.quantity || !matForm.unit_cost) { toast.error('Material type, quantity and unit cost are required'); return }
+                await addLogMaterial(logId, {
+                    name: matForm.material_type.trim(),
+                    quantity: Number(matForm.quantity),
+                    unit: matForm.unit,
+                    cost: calcMatCost(),
+                })
+                setMatForm({ supplier_id: '', material_type: '', quantity: '', unit: 'bags', unit_cost: '', delivery_date: new Date().toISOString().split('T')[0] })
+            } else if (addType === 'equipment') {
+                if (!eqForm.type.trim() || !eqForm.operation_time || !eqForm.cost_per_unit) { toast.error('Equipment type, operation time and cost are required'); return }
+                await addLogEquipment(logId, {
+                    name: eqForm.type.trim(),
+                    hours_used: Number(eqForm.operation_time),
+                    cost: calcEqCost(),
+                })
+                setEqForm({ type: '', operation_time: '', cost_per_unit: '', idle_hours: '0', idle_reason: '' })
+            }
+            setAddType(null)
+            await loadAll()
+            toast.success('Entry added')
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'Failed to add entry')
+        } finally {
+            setAddingEntry(false)
+        }
+    }
+
+    const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) { toast.error('Invalid file type'); return }
+        if (file.size > 10 * 1024 * 1024) { toast.error('File too large. Max 10 MB'); return }
+        setUploadingPhoto(true)
+        try {
+            const fd = new FormData()
+            fd.append('file', file)
+            await fetch(`${getApiBaseUrl()}/daily-logs/${logId}/photos`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
+                body: fd,
+            })
+            await loadAll()
+            toast.success('Photo uploaded')
+        } catch { toast.error('Failed to upload photo') }
+        finally { setUploadingPhoto(false); e.target.value = '' }
+    }
+
+    const handlePhotoDelete = async (photoId: string) => {
+        if (!confirm('Delete this photo?')) return
+        setDeletingPhotoId(photoId)
+        try { await deleteLogPhoto(logId, photoId); await loadAll(); toast.success('Photo deleted') }
+        catch { toast.error('Failed to delete photo') }
+        finally { setDeletingPhotoId(null) }
+    }
 
     const handleSave = async () => {
         if (!log) return
-
-        // Only allow editing draft or rejected logs
-        if (log.status !== 'draft' && log.status !== 'rejected') {
-            toast.error('Only draft or rejected logs can be edited')
-            return
-        }
-
         setSaving(true)
         try {
-            await updateDailyLog(logId, {
-                notes: notes.trim() || undefined,
-            })
+            await updateDailyLog(logId, { notes: notes.trim() || undefined })
             toast.success('Log updated successfully')
             router.push(`/dashboard/${projectId}/logs/${logId}`)
         } catch (e) {
             toast.error(e instanceof Error ? e.message : 'Failed to update log')
-        } finally {
-            setSaving(false)
-        }
+        } finally { setSaving(false) }
     }
 
-    if (loading) {
-        return (
-            <div className="flex justify-center py-24">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-        )
-    }
+    if (loading) return <div className="flex justify-center py-24"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+    if (!log) return null
 
-    if (!log) {
-        return null
-    }
-
-    // Check if log can be edited
     if (log.status !== 'draft' && log.status !== 'rejected') {
         return (
             <div className="space-y-6">
                 <div className="flex items-center gap-4">
-                    <Button variant="ghost" size="icon" onClick={() => router.back()}>
-                        <ArrowLeft className="h-5 w-5" />
-                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => router.back()}><ArrowLeft className="h-5 w-5" /></Button>
                     <div>
                         <h1 className="text-2xl font-bold">Cannot Edit Log</h1>
                         <p className="text-sm text-muted-foreground">Only draft or rejected logs can be edited</p>
@@ -94,90 +226,340 @@ export default function EditLogPage({ params }: EditLogPageProps) {
         )
     }
 
+    const totalLaborCost = labor.reduce((s, l) => s + l.cost, 0)
+    const totalMaterialCost = materials.reduce((s, m) => s + m.cost, 0)
+    const totalEquipmentCost = equipment.reduce((s, e) => s + e.cost, 0)
+
     return (
         <div className="space-y-6 pb-12">
-            <div className="flex items-center gap-4">
-                <Button variant="ghost" size="icon" onClick={() => router.back()}>
-                    <ArrowLeft className="h-5 w-5" />
-                </Button>
-                <div>
-                    <h1 className="text-2xl font-bold">Edit Daily Log</h1>
-                    <p className="text-sm text-muted-foreground">
-                        Status: <span className="font-medium capitalize">{log.status}</span>
-                        {log.rejection_reason && ` - ${log.rejection_reason}`}
-                    </p>
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <Button variant="ghost" size="icon" onClick={() => router.back()}><ArrowLeft className="h-5 w-5" /></Button>
+                    <div>
+                        <h1 className="text-2xl font-bold">Edit Daily Log</h1>
+                        <p className="text-sm text-muted-foreground">
+                            {new Date(log.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                    </div>
                 </div>
+                <Badge className={statusConfig[log.status]?.className ?? ''}>{statusConfig[log.status]?.label ?? log.status}</Badge>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-                <div className="space-y-6">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Log Details</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
-                                <Label>Notes / Remarks</Label>
-                                <Textarea
-                                    placeholder="Additional notes, issues, or observations..."
-                                    value={notes}
-                                    onChange={(e) => setNotes(e.target.value)}
-                                    rows={5}
-                                />
-                            </div>
+            {log.status === 'rejected' && log.rejection_reason && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/20 p-3 text-sm text-red-700 dark:text-red-400">
+                    <strong>Rejection reason:</strong> {log.rejection_reason}
+                </div>
+            )}
 
-                            <div className="space-y-2">
+            <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+                <div className="space-y-6">
+
+                    {/* Notes */}
+                    <Card>
+                        <CardHeader><CardTitle className="text-base">Notes &amp; Weather</CardTitle></CardHeader>
+                        <CardContent className="space-y-3">
+                            <div className="space-y-1.5">
+                                <Label>Notes / Remarks</Label>
+                                <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} placeholder="Additional notes, issues, or observations..." />
+                            </div>
+                            <div className="space-y-1.5">
                                 <Label>Weather</Label>
                                 <Input value={log.weather || 'N/A'} disabled />
                             </div>
-
-                            <div className="space-y-2">
-                                <Label>Date</Label>
-                                <Input value={new Date(log.date).toLocaleDateString()} disabled />
-                            </div>
                         </CardContent>
                     </Card>
 
+                    {/* Human Resources */}
                     <Card>
-                        <CardHeader>
-                            <CardTitle>Note</CardTitle>
+                        <CardHeader className="flex flex-row items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2"><Users className="h-4 w-4" />Human Resources ({labor.length})</CardTitle>
+                            <Button variant="outline" size="sm" className="gap-1" onClick={() => setAddType('labor')}><Plus className="h-3.5 w-3.5" />Add</Button>
                         </CardHeader>
                         <CardContent>
-                            <p className="text-sm text-muted-foreground">
-                                Currently, only notes can be edited. To modify human resources, materials, or equipment,
-                                please contact your project manager or create a new log.
-                            </p>
+                            {labor.length === 0 ? <p className="text-sm text-muted-foreground">No labor records.</p> : (
+                                <div className="space-y-2">
+                                    {labor.map((l, i) => (
+                                        <div key={i} className="rounded border p-3 text-sm space-y-0.5">
+                                            <div className="flex justify-between"><span className="font-medium capitalize">{l.worker_type}</span><span className="font-medium">ETB {l.cost.toLocaleString()}</span></div>
+                                            <p className="text-xs text-muted-foreground">Hours worked: {l.hours_worked}h</p>
+                                        </div>
+                                    ))}
+                                    <p className="text-right text-sm font-medium pt-2 border-t">Total: ETB {totalLaborCost.toLocaleString()}</p>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
+
+                    {/* Materials */}
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4" />Materials ({materials.length})</CardTitle>
+                            <Button variant="outline" size="sm" className="gap-1" onClick={() => setAddType('material')}><Plus className="h-3.5 w-3.5" />Add</Button>
+                        </CardHeader>
+                        <CardContent>
+                            {materials.length === 0 ? <p className="text-sm text-muted-foreground">No materials recorded.</p> : (
+                                <div className="space-y-2">
+                                    {materials.map((m, i) => (
+                                        <div key={i} className="rounded border p-3 text-sm space-y-0.5">
+                                            <div className="flex justify-between"><span className="font-medium">{m.name}</span><span className="font-medium">ETB {m.cost.toLocaleString()}</span></div>
+                                            <p className="text-xs text-muted-foreground">{m.quantity} {m.unit}</p>
+                                        </div>
+                                    ))}
+                                    <p className="text-right text-sm font-medium pt-2 border-t">Total: ETB {totalMaterialCost.toLocaleString()}</p>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Equipment */}
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2"><Truck className="h-4 w-4" />Equipment ({equipment.length})</CardTitle>
+                            <Button variant="outline" size="sm" className="gap-1" onClick={() => setAddType('equipment')}><Plus className="h-3.5 w-3.5" />Add</Button>
+                        </CardHeader>
+                        <CardContent>
+                            {equipment.length === 0 ? <p className="text-sm text-muted-foreground">No equipment recorded.</p> : (
+                                <div className="space-y-2">
+                                    {equipment.map((e, i) => (
+                                        <div key={i} className="rounded border p-3 text-sm space-y-0.5">
+                                            <div className="flex justify-between"><span className="font-medium">{e.name}</span><span className="font-medium">ETB {e.cost.toLocaleString()}</span></div>
+                                            <p className="text-xs text-muted-foreground">Hours used: {e.hours_used}h</p>
+                                        </div>
+                                    ))}
+                                    <p className="text-right text-sm font-medium pt-2 border-t">Total: ETB {totalEquipmentCost.toLocaleString()}</p>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Photos */}
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2"><ImageIcon className="h-4 w-4" />Photos ({photos.length})</CardTitle>
+                            <div>
+                                <input type="file" accept="image/*" onChange={handlePhotoUpload} disabled={uploadingPhoto} className="hidden" id="edit-photo-upload" />
+                                <label htmlFor="edit-photo-upload">
+                                    <Button variant="outline" size="sm" className="gap-1" disabled={uploadingPhoto} asChild>
+                                        <span>
+                                            {uploadingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                                            {uploadingPhoto ? 'Uploading…' : 'Upload'}
+                                        </span>
+                                    </Button>
+                                </label>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            {photos.length === 0 ? <p className="text-sm text-muted-foreground">No photos attached.</p> : (
+                                <div className="grid grid-cols-2 gap-3">
+                                    {photos.map((photo) => (
+                                        <div key={photo.id} className="relative group rounded-lg overflow-hidden border">
+                                            <img src={photo.url_path} alt={photo.original_filename || 'Log photo'} className="w-full h-32 object-cover" />
+                                            <Button
+                                                variant="destructive" size="icon"
+                                                className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                onClick={() => handlePhotoDelete(photo.id)}
+                                                disabled={deletingPhotoId === photo.id}
+                                            >
+                                                {deletingPhotoId === photo.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                            </Button>
+                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
+                                                <p className="text-xs text-white truncate">{photo.original_filename || 'Photo'}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Activities grouped by task */}
+                    {task && availableActivities.length > 0 && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="text-base flex items-center gap-2"><CheckCircle2 className="h-4 w-4" />Activities</CardTitle>
+                                <p className="text-sm text-muted-foreground">{completedActivityIds.size} completed in this log</p>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{task.title}</p>
+                                <div className="space-y-1">
+                                    {availableActivities.map((activity) => {
+                                        const isCompleted = completedActivityIds.has(activity.id)
+                                        return (
+                                            <div key={activity.id} className="flex items-center justify-between rounded-lg border p-2.5">
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <button
+                                                        type="button"
+                                                        className={`grid h-5 w-5 shrink-0 place-items-center rounded border transition-colors ${isCompleted ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 hover:border-emerald-400'}`}
+                                                        onClick={async () => {
+                                                            try {
+                                                                if (isCompleted) {
+                                                                    await removeLogCompletedActivity(logId, activity.id)
+                                                                    setCompletedActivityIds(prev => { const n = new Set(prev); n.delete(activity.id); return n })
+                                                                    toast.success('Activity unmarked')
+                                                                } else {
+                                                                    await addLogCompletedActivity(logId, activity.id)
+                                                                    setCompletedActivityIds(prev => new Set(prev).add(activity.id))
+                                                                    toast.success('Activity marked complete')
+                                                                }
+                                                            } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to update') }
+                                                        }}
+                                                    >
+                                                        {isCompleted && <CheckCircle2 className="h-3 w-3" />}
+                                                    </button>
+                                                    <span className={`text-sm truncate ${isCompleted ? 'font-medium' : ''}`}>{activity.name}</span>
+                                                </div>
+                                                <Badge variant="outline" className="text-[10px] shrink-0">{activity.percentage}%</Badge>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
                 </div>
 
                 {/* Sidebar */}
                 <div className="space-y-4">
                     <Card>
-                        <CardHeader>
-                            <CardTitle className="text-base">Actions</CardTitle>
-                        </CardHeader>
+                        <CardHeader><CardTitle className="text-base">Save Changes</CardTitle></CardHeader>
                         <CardContent className="space-y-2">
-                            <Button
-                                onClick={handleSave}
-                                disabled={saving}
-                                className="w-full"
-                            >
-                                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                                Save Changes
+                            <Button onClick={handleSave} disabled={saving} className="w-full gap-2">
+                                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                Save &amp; Return
                             </Button>
-                            <Button
-                                variant="outline"
-                                onClick={() => router.back()}
-                                disabled={saving}
-                                className="w-full"
-                            >
-                                Cancel
-                            </Button>
+                            <Button variant="outline" onClick={() => router.back()} disabled={saving} className="w-full">Cancel</Button>
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader><CardTitle className="text-base">Log Info</CardTitle></CardHeader>
+                        <CardContent className="space-y-3 text-sm">
+                            <div><p className="text-xs text-muted-foreground">Date</p><p className="font-medium">{new Date(log.date).toLocaleDateString()}</p></div>
+                            <div><p className="text-xs text-muted-foreground">Weather</p><p className="font-medium">{log.weather || 'N/A'}</p></div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">Cost Summary</p>
+                                <p className="text-xs">Labor: ETB {totalLaborCost.toLocaleString()}</p>
+                                <p className="text-xs">Materials: ETB {totalMaterialCost.toLocaleString()}</p>
+                                <p className="text-xs">Equipment: ETB {totalEquipmentCost.toLocaleString()}</p>
+                                <p className="mt-1 font-semibold">Total: ETB {(totalLaborCost + totalMaterialCost + totalEquipmentCost).toLocaleString()}</p>
+                            </div>
                         </CardContent>
                     </Card>
                 </div>
             </div>
+
+            {/* Add Entry Dialog */}
+            <Dialog open={!!addType} onOpenChange={(open) => { if (!open) setAddType(null) }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {addType === 'labor' && 'Add Human Resource'}
+                            {addType === 'material' && 'Add Material'}
+                            {addType === 'equipment' && 'Add Equipment'}
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="space-y-3 py-2">
+                        {addType === 'labor' && (
+                            <>
+                                <div className="space-y-1.5">
+                                    <Label>Labor Type *</Label>
+                                    <Input placeholder="e.g. Mason, Carpenter, Laborer" value={hrForm.labor_type} onChange={(e) => setHrForm(p => ({ ...p, labor_type: e.target.value }))} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5"><Label>Worker Count</Label><Input type="number" min="1" value={hrForm.worker_count} onChange={(e) => setHrForm(p => ({ ...p, worker_count: e.target.value }))} /></div>
+                                    <div className="space-y-1.5"><Label>Hourly Rate (ETB) *</Label><Input type="number" step="0.01" placeholder="Rate/hr" value={hrForm.hourly_rate} onChange={(e) => setHrForm(p => ({ ...p, hourly_rate: e.target.value }))} /></div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5"><Label>Regular Hours</Label><Input type="number" step="0.5" value={hrForm.hours_worked} onChange={(e) => setHrForm(p => ({ ...p, hours_worked: e.target.value }))} /></div>
+                                    <div className="space-y-1.5"><Label>Overtime Hours</Label><Input type="number" step="0.5" value={hrForm.overtime_hours} onChange={(e) => setHrForm(p => ({ ...p, overtime_hours: e.target.value }))} /></div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label>Overtime Rate (ETB/hr, default 1.5×)</Label>
+                                    <Input type="number" step="0.01" placeholder="Optional" value={hrForm.overtime_rate} onChange={(e) => setHrForm(p => ({ ...p, overtime_rate: e.target.value }))} />
+                                </div>
+                                {hrForm.labor_type && hrForm.hourly_rate && (
+                                    <p className="text-right text-sm font-medium">Total: ETB {calcHrCost().toLocaleString()}</p>
+                                )}
+                            </>
+                        )}
+
+                        {addType === 'material' && (
+                            <>
+                                {suppliers.length > 0 && (
+                                    <div className="space-y-1.5">
+                                        <Label>Supplier (Optional)</Label>
+                                        <Select value={matForm.supplier_id || 'none'} onValueChange={(v) => setMatForm(p => ({ ...p, supplier_id: v === 'none' ? '' : v }))}>
+                                            <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="none">No supplier</SelectItem>
+                                                {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
+                                <div className="space-y-1.5">
+                                    <Label>Material Type *</Label>
+                                    <Input placeholder="e.g. Cement, Rebar, Sand" value={matForm.material_type} onChange={(e) => setMatForm(p => ({ ...p, material_type: e.target.value }))} />
+                                </div>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <div className="space-y-1.5">
+                                        <Label>Quantity *</Label>
+                                        <Input type="number" min="0" value={matForm.quantity} onChange={(e) => setMatForm(p => ({ ...p, quantity: e.target.value }))} />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>Unit</Label>
+                                        <Select value={matForm.unit} onValueChange={(v) => setMatForm(p => ({ ...p, unit: v }))}>
+                                            <SelectTrigger><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                {['bags', 'kg', 'ton', 'm3', 'm2', 'm', 'pcs', 'liters'].map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>Unit Cost (ETB) *</Label>
+                                        <Input type="number" min="0" step="0.01" value={matForm.unit_cost} onChange={(e) => setMatForm(p => ({ ...p, unit_cost: e.target.value }))} />
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label>Delivery Date</Label>
+                                    <Input type="date" value={matForm.delivery_date} onChange={(e) => setMatForm(p => ({ ...p, delivery_date: e.target.value }))} />
+                                </div>
+                                {matForm.quantity && matForm.unit_cost && (
+                                    <p className="text-right text-sm font-medium">Total: ETB {calcMatCost().toLocaleString()}</p>
+                                )}
+                            </>
+                        )}
+
+                        {addType === 'equipment' && (
+                            <>
+                                <div className="space-y-1.5">
+                                    <Label>Equipment Type *</Label>
+                                    <Input placeholder="e.g. Excavator, Compactor, Crane" value={eqForm.type} onChange={(e) => setEqForm(p => ({ ...p, type: e.target.value }))} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5"><Label>Operation Time (hrs) *</Label><Input type="number" min="0" step="0.5" value={eqForm.operation_time} onChange={(e) => setEqForm(p => ({ ...p, operation_time: e.target.value }))} /></div>
+                                    <div className="space-y-1.5"><Label>Cost/hr (ETB) *</Label><Input type="number" min="0" step="0.01" value={eqForm.cost_per_unit} onChange={(e) => setEqForm(p => ({ ...p, cost_per_unit: e.target.value }))} /></div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5"><Label>Idle Hours</Label><Input type="number" min="0" step="0.5" value={eqForm.idle_hours} onChange={(e) => setEqForm(p => ({ ...p, idle_hours: e.target.value }))} /></div>
+                                    <div className="space-y-1.5"><Label>Idle Reason</Label><Input placeholder="Reason for idle" value={eqForm.idle_reason} onChange={(e) => setEqForm(p => ({ ...p, idle_reason: e.target.value }))} /></div>
+                                </div>
+                                {eqForm.operation_time && eqForm.cost_per_unit && (
+                                    <p className="text-right text-sm font-medium">Total: ETB {calcEqCost().toLocaleString()}</p>
+                                )}
+                            </>
+                        )}
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setAddType(null)}>Cancel</Button>
+                        <Button onClick={handleAddEntry} disabled={addingEntry}>
+                            {addingEntry && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Add
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

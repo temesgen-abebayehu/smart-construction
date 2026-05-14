@@ -560,12 +560,12 @@ export default function TasksPage({ params }: TasksPageProps) {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="space-y-2 p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Task Weight</p>
-            <p className="text-4xl font-semibold leading-none">{totalUsedWeight.toFixed(0)}%</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Scope Coverage</p>
+            <p className="text-4xl font-semibold leading-none">{totalUsedWeight.toFixed(1)}<span className="text-lg text-muted-foreground">%</span></p>
             <div className="space-y-1">
               <Progress value={totalUsedWeight} className="h-2" />
               <p className="text-xs text-muted-foreground">
-                {remainingWeight.toFixed(1)}% remaining
+                {remainingWeight.toFixed(1)}% of project scope not yet in a task
               </p>
             </div>
           </CardContent>
@@ -645,14 +645,16 @@ export default function TasksPage({ params }: TasksPageProps) {
                 <TableHead>Assignee</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Duration</TableHead>
-                <TableHead>Progress</TableHead>
+                <TableHead>Completion</TableHead>
+                <TableHead>Weight (%)</TableHead>
+                <TableHead>Activities</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {pageTasks.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
                     No tasks found for current filter.
                   </TableCell>
                 </TableRow>
@@ -765,6 +767,18 @@ export default function TasksPage({ params }: TasksPageProps) {
                             className={`h-1.5 ${task.status === 'completed' ? '[&>div]:bg-emerald-500' : ''}`}
                           />
                         </div>
+                      </TableCell>
+
+                      <TableCell>
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                          {(task.weight ?? 0).toFixed(1)}%
+                        </span>
+                      </TableCell>
+
+                      <TableCell>
+                        <span className="inline-flex items-center gap-1 text-sm">
+                          {task.activity_count ?? 0}
+                        </span>
                       </TableCell>
 
                       <TableCell>

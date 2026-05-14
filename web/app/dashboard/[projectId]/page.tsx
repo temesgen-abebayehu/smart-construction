@@ -151,6 +151,15 @@ export default function DashboardPage({ params }: DashboardPageProps) {
     ['submitted', 'consultant_approved'].includes(log.status),
   ).length
 
+  // Calculate project completion live from tasks (avoids stale backend value)
+  // Formula: Σ(task.progress_percentage / 100 * task.weight)
+  // A task with weight=1.9 that is 100% done contributes 1.9 to the total
+  const liveProjectCompletion = tasks.reduce(
+    (sum, t) => sum + (t.progress_percentage || 0) / 100.0 * (t.weight || 0),
+    0
+  )
+  const totalScopeAllocated = tasks.reduce((sum, t) => sum + (t.weight || 0), 0)
+
   const riskLevel = prediction?.risk_level ?? dashboardSummary?.delay_risk_status ?? 'low'
   const riskLevelScore = riskLevel === 'high' ? 75 : riskLevel === 'medium' ? 55 : 35
 
@@ -196,7 +205,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
         <Card className="shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Project Status</CardTitle>
-            <CardDescription>Execution health snapshot</CardDescription>
+            <CardDescription>Task counts &amp; weighted completion</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-3 gap-2">
@@ -214,14 +223,27 @@ export default function DashboardPage({ params }: DashboardPageProps) {
               </div>
             </div>
 
-            <div>
-              <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-                <span>Overall Progress</span>
-                <span className="font-medium text-foreground">
-                  {(project.overall_progress_pct || 0).toFixed(0)}%
-                </span>
+            <div className="space-y-3">
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Physical Completion</span>
+                  <span className="font-bold text-foreground">{liveProjectCompletion.toFixed(1)}%</span>
+                </div>
+                <Progress value={liveProjectCompletion} className="h-2" />
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  Work done out of 100% total project scope
+                </p>
               </div>
-              <Progress value={project.overall_progress_pct || 0} className="h-2" />
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Scope Defined</span>
+                  <span className="font-bold text-foreground">{totalScopeAllocated.toFixed(1)}%</span>
+                </div>
+                <Progress value={totalScopeAllocated} className="h-2 opacity-50" />
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  % of project scope broken into tasks
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>

@@ -2,9 +2,8 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
-from sqlalchemy import select
-from sqlalchemy import select, func
-from app.models.task import Task
+from sqlalchemy import select, func, or_
+from app.models.task import Task, TaskDependency
 from app.models.commons import TaskStatus
 from app.models.project import Project, ProjectMember, ProjectInvitation, Client
 from app.models.commons import ProjectRole
@@ -120,80 +119,99 @@ class ProjectService:
 
     @staticmethod
     async def delete_project(db: AsyncSession, project_id: UUID) -> bool:
-        """Delete a project and all its related data (cascade delete)."""
-        from app.models.log import DailyLog
-        from app.models.system import BudgetItem, AuditLog
-        from app.models.project import Contractor, Supplier
+        """Delete a project and all its related data using raw SQL.
+
+        Raw SQL is used throughout to avoid two classes of SQLAlchemy async bugs:
+        1. try/except swallowing a failed query leaves the PostgreSQL transaction in
+           an aborted state — every subsequent statement then raises
+           InFailedSQLTransactionError even though Python saw no error.
+        2. db.delete(instance) triggers ORM cascade which lazy-loads relationships;
+           in async SQLAlchemy that requires a live greenlet context that is not
+           always available, causing MissingGreenlet crashes.
+        """
         from sqlalchemy import text
-        
+
         project = await project_repo.get_by_id(db, project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        
-        # Manually delete related records to avoid foreign key violations
-        # The order matters: delete children before parents
-        
-        # 1. Delete daily logs (which will cascade to manpower, materials, equipment, photos)
-        logs_result = await db.execute(select(DailyLog).where(DailyLog.project_id == project_id))
-        logs = logs_result.scalars().all()
-        for log in logs:
-            await db.delete(log)
-        
-        # 2. Delete tasks (which will cascade to task_activities and task_dependencies)
-        tasks_result = await db.execute(select(Task).where(Task.project_id == project_id))
-        tasks = tasks_result.scalars().all()
-        for task in tasks:
-            await db.delete(task)
-        
-        # 3. Delete budget items
+
+        pid = project_id  # UUID — asyncpg accepts it natively as a parameter
+
+        # ── 1. Daily-log sub-entities (deepest children first) ──────────────
+        await db.execute(
+            text("DELETE FROM daily_log_activities WHERE log_id IN (SELECT id FROM daily_logs WHERE project_id = :pid)"),
+            {"pid": pid},
+        )
+        await db.execute(
+            text("DELETE FROM daily_log_photos WHERE log_id IN (SELECT id FROM daily_logs WHERE project_id = :pid)"),
+            {"pid": pid},
+        )
+        await db.execute(
+            text(
+                "DELETE FROM equipment_idle WHERE equipment_id IN ("
+                "  SELECT e.id FROM equipment e"
+                "  JOIN daily_logs dl ON e.log_id = dl.id"
+                "  WHERE dl.project_id = :pid"
+                ")"
+            ),
+            {"pid": pid},
+        )
+        await db.execute(
+            text("DELETE FROM equipment WHERE log_id IN (SELECT id FROM daily_logs WHERE project_id = :pid)"),
+            {"pid": pid},
+        )
+        await db.execute(
+            text("DELETE FROM materials WHERE log_id IN (SELECT id FROM daily_logs WHERE project_id = :pid)"),
+            {"pid": pid},
+        )
+        await db.execute(
+            text("DELETE FROM manpower WHERE log_id IN (SELECT id FROM daily_logs WHERE project_id = :pid)"),
+            {"pid": pid},
+        )
+        await db.execute(
+            text("DELETE FROM daily_logs WHERE project_id = :pid"),
+            {"pid": pid},
+        )
+
+        # ── 2. Task sub-entities ─────────────────────────────────────────────
+        await db.execute(
+            text(
+                "DELETE FROM task_dependencies WHERE"
+                "  task_id IN (SELECT id FROM tasks WHERE project_id = :pid)"
+                "  OR depends_on_task_id IN (SELECT id FROM tasks WHERE project_id = :pid)"
+            ),
+            {"pid": pid},
+        )
+        await db.execute(
+            text("DELETE FROM task_activities WHERE task_id IN (SELECT id FROM tasks WHERE project_id = :pid)"),
+            {"pid": pid},
+        )
+        await db.execute(
+            text("DELETE FROM tasks WHERE project_id = :pid"),
+            {"pid": pid},
+        )
+
+        # ── 3. Other project-level entities ─────────────────────────────────
+        await db.execute(text("DELETE FROM budget_items WHERE project_id = :pid"), {"pid": pid})
+        await db.execute(text("DELETE FROM clients WHERE project_id = :pid"), {"pid": pid})
+        await db.execute(text("DELETE FROM suppliers WHERE project_id = :pid"), {"pid": pid})
+        await db.execute(text("DELETE FROM audit_logs WHERE project_id = :pid"), {"pid": pid})
+        await db.execute(text("DELETE FROM project_progress_snapshots WHERE project_id = :pid"), {"pid": pid})
+        await db.execute(text("DELETE FROM project_invitations WHERE project_id = :pid"), {"pid": pid})
+        await db.execute(text("DELETE FROM project_members WHERE project_id = :pid"), {"pid": pid})
+
+        # ── 4. risk_predictions — table may not exist in all environments ────
         try:
-            items_result = await db.execute(select(BudgetItem).where(BudgetItem.project_id == project_id))
-            items = items_result.scalars().all()
-            for item in items:
-                await db.delete(item)
-        except Exception:
-            # BudgetItem might not have any records
-            pass
-        
-        # 4. Delete clients
-        try:
-            clients_result = await db.execute(select(Client).where(Client.project_id == project_id))
-            clients = clients_result.scalars().all()
-            for client in clients:
-                await db.delete(client)
+            async with db.begin_nested():
+                await db.execute(
+                    text("DELETE FROM risk_predictions WHERE project_id = :pid"),
+                    {"pid": pid},
+                )
         except Exception:
             pass
-        
-        # 5. Delete suppliers
-        try:
-            suppliers_result = await db.execute(select(Supplier).where(Supplier.project_id == project_id))
-            suppliers = suppliers_result.scalars().all()
-            for supplier in suppliers:
-                await db.delete(supplier)
-        except Exception:
-            pass
-        
-        # 6. Delete audit logs
-        try:
-            audit_result = await db.execute(select(AuditLog).where(AuditLog.project_id == project_id))
-            audits = audit_result.scalars().all()
-            for audit in audits:
-                await db.delete(audit)
-        except Exception:
-            pass
-        
-        # 7. Delete risk_predictions (if table exists)
-        try:
-            await db.execute(text("DELETE FROM risk_predictions WHERE project_id = :project_id"), {"project_id": project_id})
-        except Exception:
-            # Table might not exist or no records
-            pass
-        
-        # 8. Project members and invitations are already set to cascade in the model
-        # 9. Progress snapshots are already set to cascade in the model
-        
-        # 10. Finally delete the project itself
-        await db.delete(project)
+
+        # ── 5. Delete the project row itself ─────────────────────────────────
+        await db.execute(text("DELETE FROM projects WHERE id = :pid"), {"pid": pid})
         await db.commit()
         return True
 

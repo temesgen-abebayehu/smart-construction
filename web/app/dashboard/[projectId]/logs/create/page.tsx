@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/select'
 import { ArrowLeft, Loader2, Plus, Trash2, Upload, X } from 'lucide-react'
 import { createDailyLog, listProjectTasks, listTaskActivities, addLogManpower, addLogMaterial, addLogEquipment, addLogCompletedActivity, getWeather, listSuppliers } from '@/lib/api'
+import { getApiBaseUrl } from '@/lib/api-client'
+import { getAccessToken } from '@/lib/auth-storage'
 import type { TaskListItem, TaskActivityItem, SupplierItem } from '@/lib/api-types'
 import { toast } from 'sonner'
 import { useAuth } from '@/lib/auth-context'
@@ -358,10 +360,10 @@ export default function CreateLogPage({ params }: CreateLogPageProps) {
                     const formData = new FormData()
                     formData.append('file', photo)
 
-                    await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/daily-logs/${logId}/photos`, {
+                    await fetch(`${getApiBaseUrl()}/daily-logs/${logId}/photos`, {
                         method: 'POST',
                         headers: {
-                            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                            'Authorization': `Bearer ${getAccessToken() ?? ''}`,
                         },
                         body: formData,
                     })
