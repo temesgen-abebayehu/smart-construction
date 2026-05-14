@@ -29,4 +29,6 @@ uploads/
 docs/
 
 # ML model artifacts (large files; downloaded by build.sh from GitHub Releases)
+ml/*.pkl
 ml/rf_classifier.pkl
+ml/imputer.pkl

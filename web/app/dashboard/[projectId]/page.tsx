@@ -34,7 +34,6 @@ import {
   Settings,
   ChevronDown,
   DollarSign,
-  FileText,
   LayoutDashboard,
 } from 'lucide-react'
 import { useProjectRole } from '@/lib/project-role-context'
@@ -43,6 +42,8 @@ import { CurrencyPicker } from '@/components/currency-picker'
 import { getPrediction, getProject, getProjectDashboard, getWeather, listProjectLogs, listProjectTasks } from '@/lib/api'
 import type { LogListItem, PredictionResponse, ProjectDetail, TaskListItem, WeatherResponse } from '@/lib/api-types'
 import { WeatherForecastCard } from '@/components/weather-forecast-card'
+import { RiskProbabilityBar } from '@/components/risk-probability-bar'
+import { ParameterHealthTable } from '@/components/parameter-health-table'
 
 interface DashboardPageProps {
   params: Promise<{ projectId: string }>
@@ -85,23 +86,33 @@ export default function DashboardPage({ params }: DashboardPageProps) {
       ; (async () => {
         setLoading(true)
         try {
-          const [proj, taskRes, logRes, pred, dashboard, wthr] = await Promise.all([
+          // Only fetch prediction for Project Managers to speed up load
+          const promises = [
             getProject(projectId),
             listProjectTasks(projectId, { limit: 100 }),
             listProjectLogs(projectId, { limit: 100 }),
-            getPrediction(projectId).catch(() => null),
             getProjectDashboard(projectId).catch(() => null),
             getWeather(projectId).catch(() => null),
-          ])
+          ]
+
+          // Add prediction only for PMs
+          if (userRole === 'project_manager') {
+            promises.push(getPrediction(projectId).catch(() => null))
+          }
+
+          const results = await Promise.all(promises)
+
           if (cancelled) return
-          setProject(proj)
-          setTasks(taskRes.data ?? [])
-          setLogs(logRes.data ?? [])
-          setPrediction(pred)
-          setDashboardSummary(dashboard)
-          setWeather(wthr)
-        } catch (error) {
-          console.error('Dashboard loading error:', error)
+          setProject(results[0])
+          setTasks(results[1].data ?? [])
+          setLogs(results[2].data ?? [])
+          setDashboardSummary(results[3])
+          setWeather(results[4])
+
+          if (userRole === 'project_manager') {
+            setPrediction(results[5] || null)
+          }
+        } catch {
           if (!cancelled) {
             setProject(null)
             setTasks([])
@@ -114,7 +125,7 @@ export default function DashboardPage({ params }: DashboardPageProps) {
     return () => {
       cancelled = true
     }
-  }, [projectId])
+  }, [projectId, userRole])
 
   if (loading || !project) {
     return (
@@ -390,15 +401,6 @@ export default function DashboardPage({ params }: DashboardPageProps) {
                   </div>
                 </div>
 
-                {/* Analysis Source */}
-                <div className="rounded-lg border bg-muted/30 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm font-semibold">Analysis Source</p>
-                  </div>
-                  <p className="text-sm capitalize">{prediction.source}</p>
-                </div>
-
                 {/* Reason */}
                 <div className="rounded-lg border bg-muted/30 p-4">
                   <div className="flex items-center gap-2 mb-2">
@@ -417,21 +419,21 @@ export default function DashboardPage({ params }: DashboardPageProps) {
                   <p className="text-sm text-muted-foreground">{prediction.recommendation}</p>
                 </div>
 
-                {/* Key Factors */}
-                {prediction.factors && Object.keys(prediction.factors).length > 0 && (
+                {/* Risk Probability Distribution */}
+                {prediction.factors?.ml_probabilities && (
+                  <div className="rounded-lg border bg-muted/30 p-4">
+                    <RiskProbabilityBar probabilities={prediction.factors.ml_probabilities as any} />
+                  </div>
+                )}
+
+                {/* Parameter Health Table */}
+                {prediction.factors?.ml_features && (
                   <div className="rounded-lg border bg-muted/30 p-4">
                     <div className="flex items-center gap-2 mb-3">
                       <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
-                      <p className="text-sm font-semibold">Contributing Factors</p>
+                      <p className="text-sm font-semibold">Parameter Health Analysis</p>
                     </div>
-                    <div className="space-y-2">
-                      {Object.entries(prediction.factors).map(([key, val]) => (
-                        <div key={key} className="flex items-center justify-between text-sm p-2 rounded bg-background">
-                          <span className="capitalize font-medium">{key.replace(/_/g, ' ')}</span>
-                          <span className="text-muted-foreground">{String(val)}</span>
-                        </div>
-                      ))}
-                    </div>
+                    <ParameterHealthTable features={prediction.factors.ml_features as any} />
                   </div>
                 )}
               </div>
