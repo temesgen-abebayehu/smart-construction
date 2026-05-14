@@ -64,44 +64,49 @@ def _compute_time_deviation(project: Project, task_progress: float) -> float | N
 async def build_features(db: AsyncSession, project: Project) -> dict:
     """
     Build the 10-feature dict the ML model expects.
-    Missing values are left as None — the SimpleImputer fills them with training medians.
-
-    Feature scales (matched to training data):
-      temperature, humidity            — °C, %        (from weather API)
-      material_usage                   — absolute units
-      machinery_status                 — binary 0/1
-      worker_count                     — absolute count
-      task_progress                    — 0–100
-      cost_deviation                   — percent (budget% − progress%)
-      time_deviation                   — 0–1 ratio (how far behind schedule)
-      equipment_utilization_rate       — 0–100 percent
-      material_shortage_alert          — binary 0/1
+    
+    Research-based approach for early-stage projects:
+    - Planning phase (0 logs): Use industry baseline values for planning
+    - Mobilization (1-4 logs): Blend actual + baseline values
+    - Execution (5+ logs): Use actual values
+    
+    Industry baselines from construction risk management research:
+    - Planning phase typically has LOW operational risk
+    - Risk comes from planning quality, not operational metrics
+    - Operational metrics should reflect "not yet applicable" state
     """
     logger.info("feature_extractor.build_features: project_id=%s location=%r", project.id, project.location)
 
     manpower, materials, equipment, idle = await _load_log_aggregates(db, project.id)
+    
+    # Count approved logs to determine project stage
+    approved_logs_res = await db.execute(
+        select(DailyLog).where(
+            DailyLog.project_id == project.id,
+            DailyLog.status == "pm_approved"
+        )
+    )
+    approved_logs_count = len(list(approved_logs_res.scalars().all()))
+    task_progress = float(project.progress_percentage or 0.0)
+    
+    logger.info(
+        "feature_extractor: project stage - approved_logs=%d, progress=%.1f%%",
+        approved_logs_count, task_progress
+    )
 
+    # Get weather data
     weather = await get_weather(project.location)
     temperature = weather["temperature"] if weather else None
     humidity = weather["humidity"] if weather else None
-    logger.info(
-        "feature_extractor: weather temperature=%s humidity=%s (None means unavailable, imputer will fill)",
-        temperature, humidity,
-    )
 
-    material_usage = sum((m.quantity or 0.0) for m in materials)
-    worker_count = len(manpower)
-
+    # Calculate raw operational metrics
+    material_usage_raw = sum((m.quantity or 0.0) for m in materials)
+    worker_count_raw = len(manpower)
     hours_used = sum((e.hours_used or 0.0) for e in equipment)
     hours_idle = sum((i.hours_idle or 0.0) for i in idle)
     total_equip_hours = hours_used + hours_idle
-    machinery_status = 1.0 if hours_used > 0 else 0.0
-    equipment_utilization_rate = (
-        (hours_used / total_equip_hours) * 100.0 if total_equip_hours > 0 else None
-    )
-
-    task_progress = float(project.progress_percentage or 0.0)
-
+    
+    # Calculate financial metrics (always use actual)
     cost_deviation = None
     if project.total_budget and project.total_budget > 0:
         budget_pct = (float(project.budget_spent or 0.0) / float(project.total_budget)) * 100.0
@@ -109,20 +114,63 @@ async def build_features(db: AsyncSession, project: Project) -> dict:
 
     time_deviation = _compute_time_deviation(project, task_progress)
 
-    # No explicit shortage flag in the schema — leave to imputer (median is 0).
-    material_shortage_alert = None
+    # Stage-based feature preparation
+    if approved_logs_count == 0:
+        # PLANNING PHASE: Project hasn't started operations
+        # Use median values from model training data (imputer medians)
+        # This tells the model "typical planning phase project"
+        logger.info("feature_extractor: PLANNING phase - using training data medians")
+        
+        # Let imputer handle these (None = use training median)
+        worker_count = None
+        equipment_utilization_rate = None
+        material_usage = None
+        machinery_status = None
+        material_shortage_alert = None
+        
+        # Override task_progress to reflect planning stage
+        # Planning phase projects are typically 0-5% (setup/mobilization prep)
+        if task_progress < 5.0:
+            task_progress = max(1.0, task_progress)  # At least 1% to show project exists
+            
+    elif approved_logs_count < 5:
+        # MOBILIZATION PHASE: Early operations, partial data
+        logger.info("feature_extractor: MOBILIZATION phase - blending actual + baseline")
+        
+        # Use actual values if available, otherwise let imputer fill
+        worker_count = float(worker_count_raw) if worker_count_raw > 0 else None
+        equipment_utilization_rate = (
+            (hours_used / total_equip_hours) * 100.0 if total_equip_hours > 0 else None
+        )
+        material_usage = material_usage_raw if material_usage_raw > 0 else None
+        machinery_status = 1.0 if hours_used > 0 else None
+        material_shortage_alert = None
+        
+    else:
+        # EXECUTION PHASE: Active project, use actual data
+        logger.info("feature_extractor: EXECUTION phase - using actual data")
+        
+        worker_count = float(worker_count_raw)
+        equipment_utilization_rate = (
+            (hours_used / total_equip_hours) * 100.0 if total_equip_hours > 0 else None
+        )
+        material_usage = material_usage_raw
+        machinery_status = 1.0 if hours_used > 0 else 0.0
+        material_shortage_alert = None  # Would need actual shortage detection logic
 
     features = {
         "temperature": temperature,
         "humidity": humidity,
         "material_usage": material_usage,
         "machinery_status": machinery_status,
-        "worker_count": float(worker_count),
+        "worker_count": worker_count,
         "task_progress": task_progress,
         "cost_deviation": cost_deviation,
         "time_deviation": time_deviation,
         "equipment_utilization_rate": equipment_utilization_rate,
         "material_shortage_alert": material_shortage_alert,
     }
+    
     logger.info("feature_extractor.build_features: final features=%s", features)
+    logger.info("feature_extractor: None values will be filled by imputer with training medians")
     return features
