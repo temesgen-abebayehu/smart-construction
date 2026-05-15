@@ -212,7 +212,11 @@ export interface ManpowerItem {
   id: string
   log_id: string
   worker_type: string
+  number_of_workers: number
   hours_worked: number
+  overtime_hours: number
+  hourly_rate: number
+  overtime_rate: number
   cost: number
 }
 
@@ -220,17 +224,26 @@ export interface MaterialItem {
   id: string
   log_id: string
   name: string
+  supplier_id?: string | null
+  supplier_name?: string | null
   quantity: number
   unit: string
+  unit_cost: number
   cost: number
+  delivery_date?: string | null
 }
 
 export interface EquipmentItem {
   id: string
   log_id: string
   name: string
+  quantity: number
+  start_date?: string | null
   hours_used: number
+  unit_cost: number
   cost: number
+  idle_hours: number
+  idle_reason?: string | null
 }
 
 export interface EquipmentIdleItem {
@@ -388,8 +401,10 @@ export interface SupplierItem {
 export interface ReportManpowerGroup {
   worker_type: string
   total_workers: number
-  total_hours: number
+  regular_hours: number
+  overtime_hours: number
   hourly_rate: number
+  overtime_rate: number
   total_cost: number
 }
 
@@ -410,8 +425,8 @@ export interface ReportResponse {
     technical: ReportManpowerGroup[]
     labor: ReportManpowerGroup[]
   }
-  materials: { name: string; supplier: string | null; quantity: number; unit: string; unit_cost: number; cost: number }[]
-  equipment: { name: string; start_date: string | null; hours_used: number; unit_cost: number; hours_idle: number; idle_reasons: string; cost: number }[]
+  materials: { name: string; supplier_name: string | null; supplier_role: string | null; quantity: number; unit: string; unit_cost: number; delivery_date: string | null; cost: number }[]
+  equipment: { name: string; quantity: number; start_date: string | null; hours_used: number; unit_cost: number; hours_idle: number; idle_reasons: string; cost: number }[]
   tasks: { id: string; name: string; weight: number; status: string; progress_percentage: number; activities_total: number; activities_completed: number; start_date: string | null; end_date: string | null }[]
   tasks_total: number
   tasks_completed: number

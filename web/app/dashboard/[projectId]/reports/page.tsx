@@ -111,40 +111,40 @@ export default function ReportsPage({ params }: ReportsPageProps) {
     rows.push([])
 
     rows.push(['=== MANPOWER ==='])
-    rows.push(['Worker Type', 'No. of Workers', 'Hours Worked', 'Hourly Rate', 'Cost'])
+    rows.push(['Worker Type', 'No. of Workers', 'Regular Hours', 'Overtime Hours', 'Hourly Rate', 'Overtime Rate', 'Cost'])
     const mpSections = [
       { label: 'Staff', data: report.manpower?.staff || [] },
       { label: 'Technical', data: report.manpower?.technical || [] },
       { label: 'Labor', data: report.manpower?.labor || [] },
     ]
-    let totalMpWorkers = 0, totalMpHours = 0, totalMpCost = 0
+    let totalMpWorkers = 0, totalRegHours = 0, totalOtHours = 0, totalMpCost = 0
     mpSections.forEach(s => {
       s.data.forEach(m => {
-        rows.push([m.worker_type, String(m.total_workers), String(m.total_hours), String(m.hourly_rate), String(m.total_cost)])
-        totalMpWorkers += m.total_workers; totalMpHours += m.total_hours; totalMpCost += m.total_cost
+        rows.push([m.worker_type, String(m.total_workers), String(m.regular_hours), String(m.overtime_hours), String(m.hourly_rate), String(m.overtime_rate), String(m.total_cost)])
+        totalMpWorkers += m.total_workers; totalRegHours += m.regular_hours; totalOtHours += m.overtime_hours; totalMpCost += m.total_cost
       })
     })
-    rows.push(['TOTAL', String(totalMpWorkers), String(totalMpHours), '', String(totalMpCost)])
+    rows.push(['TOTAL', String(totalMpWorkers), String(totalRegHours), String(totalOtHours), '', '', String(totalMpCost)])
     rows.push([])
 
     rows.push(['=== MATERIALS ==='])
-    rows.push(['Material Type', 'Supplier', 'Quantity', 'Unit', 'Unit Cost', 'Total Cost'])
+    rows.push(['Material Type', 'Supplier', 'Supplier Role', 'Quantity', 'Unit', 'Unit Cost', 'Delivery Date', 'Total Cost'])
     let totalMatCost = 0
       ; (report.materials || []).forEach(m => {
-        rows.push([m.name, m.supplier || '—', String(m.quantity), m.unit, String(m.unit_cost), String(m.cost)])
+        rows.push([m.name, m.supplier_name || '—', m.supplier_role || '—', String(m.quantity), m.unit, String(m.unit_cost), m.delivery_date || '—', String(m.cost)])
         totalMatCost += m.cost
       })
-    rows.push(['TOTAL', '', '', '', '', String(totalMatCost)])
+    rows.push(['TOTAL', '', '', '', '', '', '', String(totalMatCost)])
     rows.push([])
 
     rows.push(['=== EQUIPMENT ==='])
-    rows.push(['Equipment Type', 'Start Date', 'Hours / Trip', 'Unit Cost', 'Idle Hours', 'Idle Reason', 'Total Cost'])
+    rows.push(['Equipment Type', 'Quantity', 'Start Date', 'Hours / Trip', 'Unit Cost', 'Idle Hours', 'Idle Reason', 'Total Cost'])
     let totalEqCost = 0
       ; (report.equipment || []).forEach(e => {
-        rows.push([e.name, e.start_date || '—', String(e.hours_used), String(e.unit_cost), String(e.hours_idle), e.idle_reasons, String(e.cost)])
+        rows.push([e.name, String(e.quantity), e.start_date || '—', String(e.hours_used), String(e.unit_cost), String(e.hours_idle), e.idle_reasons, String(e.cost)])
         totalEqCost += e.cost
       })
-    rows.push(['TOTAL', '', '', '', '', '', String(totalEqCost)])
+    rows.push(['TOTAL', '', '', '', '', '', '', String(totalEqCost)])
     rows.push([])
 
     rows.push(['=== TASKS ==='])
@@ -184,7 +184,8 @@ export default function ReportsPage({ params }: ReportsPageProps) {
       ...(report.manpower?.labor || []),
     ]
     const totalMpWorkers = allMp.reduce((s, m) => s + m.total_workers, 0)
-    const totalMpHours = allMp.reduce((s, m) => s + m.total_hours, 0)
+    const totalRegHours = allMp.reduce((s, m) => s + m.regular_hours, 0)
+    const totalOtHours = allMp.reduce((s, m) => s + m.overtime_hours, 0)
     const totalMpCost = allMp.reduce((s, m) => s + m.total_cost, 0)
     const totalMatCost = (report.materials || []).reduce((s, m) => s + m.cost, 0)
     const totalEqHours = (report.equipment || []).reduce((s, e) => s + e.hours_used, 0)
@@ -250,40 +251,41 @@ export default function ReportsPage({ params }: ReportsPageProps) {
 
   <h2>Manpower</h2>
   <table>
-    <thead><tr><th>Worker Type</th><th>No. of Workers</th><th>Hours Worked</th><th>Hourly Rate</th><th>Cost</th></tr></thead>
+    <thead><tr><th>Worker Type</th><th>No. of Workers</th><th>Regular Hours</th><th>Overtime Hours</th><th>Hourly Rate</th><th>Overtime Rate</th><th>Cost</th></tr></thead>
     <tbody>
       ${mpSections.flatMap(s => s.data.map(m => `
       <tr>
         <td>${m.worker_type}</td><td>${m.total_workers}</td>
-        <td>${m.total_hours.toLocaleString()}</td><td>${fmt(m.hourly_rate)}</td><td>${fmt(m.total_cost)}</td>
+        <td>${m.regular_hours.toLocaleString()}</td><td>${m.overtime_hours.toLocaleString()}</td>
+        <td>${fmt(m.hourly_rate)}</td><td>${fmt(m.overtime_rate)}</td><td>${fmt(m.total_cost)}</td>
       </tr>`)).join('')}
-      <tr class="total-row"><td>Total</td><td>${totalMpWorkers}</td><td>${totalMpHours.toLocaleString()}</td><td></td><td>${fmt(totalMpCost)}</td></tr>
+      <tr class="total-row"><td>Total</td><td>${totalMpWorkers}</td><td>${totalRegHours.toLocaleString()}</td><td>${totalOtHours.toLocaleString()}</td><td></td><td></td><td>${fmt(totalMpCost)}</td></tr>
     </tbody>
   </table>
 
   <h2>Materials</h2>
   <table>
-    <thead><tr><th>Material Type</th><th>Supplier</th><th>Quantity</th><th>Unit</th><th>Unit Cost</th><th>Total Cost</th></tr></thead>
+    <thead><tr><th>Material Type</th><th>Supplier</th><th>Supplier Role</th><th>Quantity</th><th>Unit</th><th>Unit Cost</th><th>Delivery Date</th><th>Total Cost</th></tr></thead>
     <tbody>
       ${(report.materials || []).map(m => `
       <tr>
-        <td>${m.name}</td><td>${m.supplier || '—'}</td><td>${m.quantity.toLocaleString()}</td>
-        <td>${m.unit || '—'}</td><td>${fmt(m.unit_cost)}</td><td>${fmt(m.cost)}</td>
+        <td>${m.name}</td><td>${m.supplier_name || '—'}</td><td>${m.supplier_role || '—'}</td><td>${m.quantity.toLocaleString()}</td>
+        <td>${m.unit || '—'}</td><td>${fmt(m.unit_cost)}</td><td>${m.delivery_date || '—'}</td><td>${fmt(m.cost)}</td>
       </tr>`).join('')}
-      <tr class="total-row"><td colspan="5">Total</td><td>${fmt(totalMatCost)}</td></tr>
+      <tr class="total-row"><td colspan="7">Total</td><td>${fmt(totalMatCost)}</td></tr>
     </tbody>
   </table>
 
   <h2>Equipment</h2>
   <table>
-    <thead><tr><th>Equipment Type</th><th>Start Date</th><th>Hours / Trip</th><th>Unit Cost</th><th>Idle Hours</th><th>Idle Reason</th><th>Total Cost</th></tr></thead>
+    <thead><tr><th>Equipment Type</th><th>Quantity</th><th>Start Date</th><th>Hours / Trip</th><th>Unit Cost</th><th>Idle Hours</th><th>Idle Reason</th><th>Total Cost</th></tr></thead>
     <tbody>
       ${(report.equipment || []).map(e => `
       <tr>
-        <td>${e.name}</td><td>${e.start_date || '—'}</td><td>${e.hours_used.toLocaleString()}</td>
+        <td>${e.name}</td><td>${e.quantity}</td><td>${e.start_date || '—'}</td><td>${e.hours_used.toLocaleString()}</td>
         <td>${fmt(e.unit_cost)}</td><td>${e.hours_idle.toLocaleString()}</td><td>${e.idle_reasons}</td><td>${fmt(e.cost)}</td>
       </tr>`).join('')}
-      <tr class="total-row"><td colspan="2">Total</td><td>${totalEqHours.toLocaleString()}</td><td></td><td></td><td></td><td>${fmt(totalEqCost)}</td></tr>
+      <tr class="total-row"><td colspan="3">Total</td><td>${totalEqHours.toLocaleString()}</td><td></td><td></td><td></td><td>${fmt(totalEqCost)}</td></tr>
     </tbody>
   </table>
 

@@ -15,6 +15,7 @@ from app.models.user import User
 from app.models.project import Project
 from app.models.task import Task, TaskActivity
 from app.models.log import DailyLog, Manpower, Material, Equipment, EquipmentIdle, DailyLogActivity as DailyLogActivityModel
+from app.models.project import Supplier
 from app.repositories.project import ProjectRepository
 
 logger = logging.getLogger(__name__)
@@ -34,8 +35,10 @@ REPORT_ROLES = [
 class ManpowerReportEntry(BaseModel):
     worker_type: str
     total_workers: int
-    total_hours: float
+    regular_hours: float
+    overtime_hours: float
     hourly_rate: float
+    overtime_rate: float
     total_cost: float
 
 class ManpowerReportSection(BaseModel):
@@ -45,14 +48,17 @@ class ManpowerReportSection(BaseModel):
 
 class MaterialReportEntry(BaseModel):
     name: str
-    supplier: str | None
+    supplier_name: str | None
+    supplier_role: str | None
     quantity: float
     unit: str
     unit_cost: float
     cost: float
+    delivery_date: str | None
 
 class EquipmentReportEntry(BaseModel):
     name: str
+    quantity: int
     start_date: str | None
     hours_used: float
     unit_cost: float
@@ -197,23 +203,35 @@ async def generate_report(
         mp_res = await db.execute(select(Manpower).where(Manpower.log_id.in_(log_ids)))
         manpower_rows = list(mp_res.scalars().all())
 
-    # Aggregate by worker_type
-    mp_agg: dict[str, dict] = defaultdict(lambda: {"workers": 0, "hours": 0.0, "cost": 0.0})
+    # Aggregate by worker_type - separate regular and overtime hours
+    mp_agg: dict[str, dict] = defaultdict(lambda: {"workers": 0, "regular_hours": 0.0, "overtime_hours": 0.0, "cost": 0.0, "hourly_rate": 0.0, "overtime_rate": 0.0})
     for mp in manpower_rows:
         wt = mp.worker_type or "unspecified"
         mp_agg[wt]["workers"] += int(mp.number_of_workers or 1)
-        mp_agg[wt]["hours"] += float(mp.hours_worked or 0.0)
+        mp_agg[wt]["regular_hours"] += float(mp.hours_worked or 0.0)
+        mp_agg[wt]["overtime_hours"] += float(mp.overtime_hours or 0.0)
         mp_agg[wt]["cost"] += float(mp.cost or 0.0)
+        # Store rates for averaging (weighted by workers)
+        mp_agg[wt]["hourly_rate"] += float(mp.hourly_rate or 0.0) * int(mp.number_of_workers or 1)
+        mp_agg[wt]["overtime_rate"] += float(mp.overtime_rate or 0.0) * int(mp.number_of_workers or 1)
 
     # Classify into staff / technical / labor
     staff_entries, tech_entries, labor_entries = [], [], []
     for wt, data in mp_agg.items():
-        hrs = data["hours"]
+        workers = data["workers"]
+        reg_hrs = data["regular_hours"]
+        ot_hrs = data["overtime_hours"]
+        # Calculate average rates
+        avg_hourly = round(data["hourly_rate"] / workers, 2) if workers > 0 else 0.0
+        avg_overtime = round(data["overtime_rate"] / workers, 2) if workers > 0 else 0.0
+        
         entry = ManpowerReportEntry(
             worker_type=wt,
-            total_workers=data["workers"],
-            total_hours=round(hrs, 2),
-            hourly_rate=round(data["cost"] / hrs, 2) if hrs > 0 else 0.0,
+            total_workers=workers,
+            regular_hours=round(reg_hrs, 2),
+            overtime_hours=round(ot_hrs, 2),
+            hourly_rate=avg_hourly,
+            overtime_rate=avg_overtime,
             total_cost=round(data["cost"], 2),
         )
         category = _classify_manpower(wt)
@@ -230,25 +248,41 @@ async def generate_report(
         mat_res = await db.execute(select(Material).where(Material.log_id.in_(log_ids)))
         material_rows = list(mat_res.scalars().all())
 
-    mat_agg: dict[str, dict] = defaultdict(lambda: {"qty": 0.0, "cost": 0.0, "unit": "", "supplier": None})
+    # Fetch all unique supplier IDs from materials
+    supplier_ids = list({m.supplier_id for m in material_rows if m.supplier_id})
+    suppliers_map: dict[str, Supplier] = {}
+    if supplier_ids:
+        supp_res = await db.execute(select(Supplier).where(Supplier.id.in_(supplier_ids)))
+        suppliers_map = {str(s.id): s for s in supp_res.scalars().all()}
+
+    mat_agg: dict[str, dict] = defaultdict(lambda: {"qty": 0.0, "cost": 0.0, "unit": "", "supplier_id": None, "delivery_dates": []})
     for m in material_rows:
         key = m.name or "unspecified"
         mat_agg[key]["qty"] += float(m.quantity or 0.0)
         mat_agg[key]["cost"] += float(m.cost or 0.0)
         mat_agg[key]["unit"] = m.unit or mat_agg[key]["unit"]
-        mat_agg[key]["supplier"] = mat_agg[key]["supplier"] or m.supplier_name
+        mat_agg[key]["supplier_id"] = mat_agg[key]["supplier_id"] or m.supplier_id
+        if m.delivery_date:
+            mat_agg[key]["delivery_dates"].append(m.delivery_date)
 
-    materials = [
-        MaterialReportEntry(
+    materials = []
+    for name, d in sorted(mat_agg.items(), key=lambda x: x[1]["cost"], reverse=True):
+        supplier = suppliers_map.get(str(d["supplier_id"])) if d["supplier_id"] else None
+        # Get earliest delivery date if any
+        earliest_delivery = None
+        if d["delivery_dates"]:
+            earliest_delivery = min(d["delivery_dates"]).date().isoformat()
+        
+        materials.append(MaterialReportEntry(
             name=name,
-            supplier=d["supplier"],
+            supplier_name=supplier.name if supplier else None,
+            supplier_role=supplier.role if supplier else None,
             quantity=round(d["qty"], 2),
             unit=d["unit"],
             unit_cost=round(d["cost"] / d["qty"], 2) if d["qty"] > 0 else 0.0,
             cost=round(d["cost"], 2),
-        )
-        for name, d in sorted(mat_agg.items(), key=lambda x: x[1]["cost"], reverse=True)
-    ]
+            delivery_date=earliest_delivery,
+        ))
 
     # ── Equipment aggregation ──
     equip_rows: list[Equipment] = []
@@ -273,13 +307,18 @@ async def generate_report(
             idle_reasons_by_equip[i.equipment_id].append(i.reason)
 
     eq_agg: dict[str, dict] = defaultdict(
-        lambda: {"hours": 0.0, "idle": 0.0, "cost": 0.0, "start_date": None, "reasons": []}
+        lambda: {"quantity": 0, "hours": 0.0, "idle": 0.0, "cost": 0.0, "start_date": None, "reasons": []}
     )
     for e in equip_rows:
         name = e.name or "unspecified"
+        eq_agg[name]["quantity"] += int(e.quantity or 1)
         eq_agg[name]["hours"] += float(e.hours_used or 0.0)
-        eq_agg[name]["idle"] += idle_by_equip.get(e.id, 0.0)
+        # Add idle hours from both the equipment record and the idle table
+        eq_agg[name]["idle"] += float(e.idle_hours or 0.0) + idle_by_equip.get(e.id, 0.0)
         eq_agg[name]["cost"] += float(e.cost or 0.0)
+        # Collect idle reasons from both sources
+        if e.idle_reason:
+            eq_agg[name]["reasons"].append(e.idle_reason)
         eq_agg[name]["reasons"] += idle_reasons_by_equip.get(e.id, [])
         log_date = log_date_map.get(e.log_id)
         if log_date and (eq_agg[name]["start_date"] is None or log_date < eq_agg[name]["start_date"]):
@@ -288,6 +327,7 @@ async def generate_report(
     equipment_entries = [
         EquipmentReportEntry(
             name=name,
+            quantity=d["quantity"],
             start_date=d["start_date"],
             hours_used=round(d["hours"], 2),
             unit_cost=round(d["cost"] / d["hours"], 2) if d["hours"] > 0 else 0.0,

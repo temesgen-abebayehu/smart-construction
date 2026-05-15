@@ -34,6 +34,9 @@ class Manpower(Base):
     worker_type = Column(String(100))
     number_of_workers = Column(Integer, default=1)
     hours_worked = Column(Float, default=0.0)
+    overtime_hours = Column(Float, default=0.0)
+    hourly_rate = Column(Float, default=0.0)
+    overtime_rate = Column(Float, default=0.0)
     cost = Column(Float, default=0.0)
     log = relationship("DailyLog", back_populates="manpower")
 
@@ -42,10 +45,13 @@ class Material(Base):
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     log_id = Column(SQL_UUID(as_uuid=True), ForeignKey("daily_logs.id"), nullable=False)
     name = Column(String(255))
+    supplier_id = Column(SQL_UUID(as_uuid=True), ForeignKey("suppliers.id"), nullable=True)
     supplier_name = Column(String(255), nullable=True)
     quantity = Column(Float, default=0.0)
     unit = Column(String(50))
+    unit_cost = Column(Float, default=0.0)
     cost = Column(Float, default=0.0)
+    delivery_date = Column(DateTime(timezone=True), nullable=True)
     log = relationship("DailyLog", back_populates="materials")
 
 class Equipment(Base):
@@ -53,8 +59,13 @@ class Equipment(Base):
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     log_id = Column(SQL_UUID(as_uuid=True), ForeignKey("daily_logs.id"), nullable=False)
     name = Column(String(255))
+    quantity = Column(Integer, default=1)
+    start_date = Column(DateTime(timezone=True), nullable=True)
     hours_used = Column(Float, default=0.0)
+    unit_cost = Column(Float, default=0.0)
     cost = Column(Float, default=0.0)
+    idle_hours = Column(Float, default=0.0)
+    idle_reason = Column(Text, nullable=True)
     log = relationship("DailyLog", back_populates="equipment")
     idle_times = relationship("EquipmentIdle", cascade="all, delete-orphan")
 
