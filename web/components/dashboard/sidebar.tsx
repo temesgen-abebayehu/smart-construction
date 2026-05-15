@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
-  Building2,
   LayoutDashboard,
   ListTodo,
   ClipboardList,
@@ -24,6 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/lib/auth-context'
+import { SiteLogo } from '@/components/site-logo'
 import { roleLabels, type ProjectRole } from '@/lib/domain'
 import { useState } from 'react'
 
@@ -120,12 +120,11 @@ export function DashboardSidebar({ projectId, projectName, userRole }: SidebarPr
       <div className="h-16 flex items-center justify-between px-4 border-b border-sidebar-border/60">
         {!collapsed && (
           <Link href="/" className="flex items-center gap-2">
-            <Building2 className="h-6 w-6 text-sidebar-primary" />
-            <span className="font-bold text-lg">ConstructPro</span>
+            <SiteLogo imageClassName="h-10 w-10" textClassName="text-lg" />
           </Link>
         )}
         {collapsed && (
-          <Building2 className="h-6 w-6 text-sidebar-primary mx-auto" />
+          <SiteLogo showText={false} imageClassName="h-10 w-10 mx-auto" />
         )}
         <Button
           variant="ghost"

@@ -1,5 +1,5 @@
-import { Building2 } from 'lucide-react'
 import { FooterBar } from '@/components/shared/footer-bar'
+import { SiteLogo } from '@/components/site-logo'
 
 export function FooterLarge() {
   return (
@@ -7,10 +7,7 @@ export function FooterLarge() {
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid gap-8 md:grid-cols-4">
           <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Building2 className="h-8 w-8" />
-              <span className="font-bold text-xl">ConstructPro</span>
-            </div>
+            <SiteLogo showText={false} className="justify-start" imageClassName="h-25 w-25" size={80} />
             <p className="text-sm text-primary-foreground/70 max-w-xs">
               Streamlining construction project management with smart tools and AI-powered insights.
             </p>
