@@ -135,16 +135,20 @@ export default function EditLogPage({ params }: EditLogPageProps) {
         try {
             if (addType === 'labor') {
                 if (!hrForm.labor_type.trim() || !hrForm.hourly_rate) { toast.error('Labor type and hourly rate are required'); return }
+                const workerCount = Number(hrForm.worker_count) || 1
                 await addLogManpower(logId, {
                     worker_type: hrForm.labor_type.trim(),
-                    hours_worked: (Number(hrForm.hours_worked) + Number(hrForm.overtime_hours)) * (Number(hrForm.worker_count) || 1),
+                    number_of_workers: workerCount,
+                    hours_worked: (Number(hrForm.hours_worked) + Number(hrForm.overtime_hours)) * workerCount,
                     cost: calcHrCost(),
                 })
                 setHrForm({ labor_type: '', worker_count: '1', hours_worked: '8', hourly_rate: '', overtime_hours: '0', overtime_rate: '' })
             } else if (addType === 'material') {
                 if (!matForm.material_type.trim() || !matForm.quantity || !matForm.unit_cost) { toast.error('Material type, quantity and unit cost are required'); return }
+                const supplierObj = matForm.supplier_id ? suppliers.find(s => s.id === matForm.supplier_id) : null
                 await addLogMaterial(logId, {
                     name: matForm.material_type.trim(),
+                    supplier_name: supplierObj?.name || undefined,
                     quantity: Number(matForm.quantity),
                     unit: matForm.unit,
                     cost: calcMatCost(),

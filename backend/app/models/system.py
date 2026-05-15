@@ -13,6 +13,18 @@ class BudgetItem(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
 
+class BudgetPayment(Base):
+    __tablename__ = "budget_payments"
+    id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    project_id = Column(SQL_UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False, index=True)
+    payment_amount = Column(Float, nullable=False)
+    payment_date = Column(String(20), nullable=False)
+    reference = Column(String(255), nullable=True)
+    notes = Column(Text, nullable=True)
+    recorded_by = Column(SQL_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id = Column(SQL_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.commons import TaskStatus
 from app.models.log import DailyLog, Equipment, EquipmentIdle, Manpower, Material
 from app.models.project import Project, ProjectProgressSnapshot
-from app.models.system import AuditLog, BudgetItem
+from app.models.system import AuditLog, BudgetItem, BudgetPayment
 from app.models.task import Task
 from app.models.user import User
 from app.schemas.report import (
@@ -215,7 +215,7 @@ async def _executive_summary(
 
 async def _budget_snapshot(db: AsyncSession, project: Project) -> BudgetSnapshot:
     received = (await db.execute(
-        select(func.coalesce(func.sum(BudgetItem.amount), 0.0)).where(BudgetItem.project_id == project.id)
+        select(func.coalesce(func.sum(BudgetPayment.payment_amount), 0.0)).where(BudgetPayment.project_id == project.id)
     )).scalar() or 0.0
     total = float(project.total_budget or 0.0)
     spent = float(project.budget_spent or 0.0)
@@ -521,14 +521,14 @@ async def _financial_section(db: AsyncSession, project: Project, period_info: Re
     cum_equip = await _fetch_equipment(db, [l.id for l in all_logs])
 
     period_incoming = (await db.execute(
-        select(func.coalesce(func.sum(BudgetItem.amount), 0.0))
-        .where(BudgetItem.project_id == project.id)
-        .where(BudgetItem.created_at >= start_utc)
-        .where(BudgetItem.created_at <= end_utc)
+        select(func.coalesce(func.sum(BudgetPayment.payment_amount), 0.0))
+        .where(BudgetPayment.project_id == project.id)
+        .where(BudgetPayment.created_at >= start_utc)
+        .where(BudgetPayment.created_at <= end_utc)
     )).scalar() or 0.0
     cum_incoming = (await db.execute(
-        select(func.coalesce(func.sum(BudgetItem.amount), 0.0))
-        .where(BudgetItem.project_id == project.id)
+        select(func.coalesce(func.sum(BudgetPayment.payment_amount), 0.0))
+        .where(BudgetPayment.project_id == project.id)
     )).scalar() or 0.0
 
     days = max(1, (period_info.end.date() - period_info.start.date()).days + 1)
@@ -635,7 +635,7 @@ async def _approval_info(project: Project) -> ApprovalInfo:
 async def _project_header(project: Project) -> ProjectHeader:
     return ProjectHeader(
         name=project.name,
-        client_name=project.client.name if project.client else None,
+        client_name=project.clients[0].name if project.clients else None,
         location=project.location,
         owner_name=project.owner.full_name if project.owner else None,
         status=project.status,

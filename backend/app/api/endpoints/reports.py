@@ -13,8 +13,8 @@ from app.api.dependencies import DbSession, get_current_active_user, require_pro
 from app.models.commons import ProjectRole
 from app.models.user import User
 from app.models.project import Project
-from app.models.task import Task
-from app.models.log import DailyLog, Manpower, Material, Equipment, EquipmentIdle
+from app.models.task import Task, TaskActivity
+from app.models.log import DailyLog, Manpower, Material, Equipment, EquipmentIdle, DailyLogActivity as DailyLogActivityModel
 from app.repositories.project import ProjectRepository
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ class ManpowerReportEntry(BaseModel):
     worker_type: str
     total_workers: int
     total_hours: float
+    hourly_rate: float
     total_cost: float
 
 class ManpowerReportSection(BaseModel):
@@ -44,24 +45,50 @@ class ManpowerReportSection(BaseModel):
 
 class MaterialReportEntry(BaseModel):
     name: str
+    supplier: str | None
     quantity: float
     unit: str
+    unit_cost: float
     cost: float
 
 class EquipmentReportEntry(BaseModel):
     name: str
+    start_date: str | None
     hours_used: float
+    unit_cost: float
     hours_idle: float
+    idle_reasons: str
     cost: float
 
 class TaskReportEntry(BaseModel):
     id: UUID
     name: str
+    weight: float
     status: str
     progress_percentage: float
-    budget: float | None = None
+    activities_total: int
+    activities_completed: int
     start_date: datetime | None = None
     end_date: datetime | None = None
+
+class DailyLogReportEntry(BaseModel):
+    date: str
+    submitted_by: str
+    status: str
+    acts_done: int
+    manpower_cost: float
+    material_cost: float
+    equipment_cost: float
+    total_cost: float
+
+class DailyLogSummary(BaseModel):
+    total: int
+    draft: int
+    submitted: int
+    consultant_approved: int
+    pm_approved: int
+    rejected: int
+    total_cost: float
 
 class ReportResponse(BaseModel):
     # Project info
@@ -73,8 +100,8 @@ class ReportResponse(BaseModel):
     planned_start_date: datetime | None = None
     planned_end_date: datetime | None = None
 
-    # Contractor
-    contractor_name: str | None = None
+    # Client
+    client_name: str | None = None
 
     # Report date range
     start_date: date
@@ -102,6 +129,10 @@ class ReportResponse(BaseModel):
     used_budget: float
     remaining_budget: float
     budget_spent_in_period: float
+
+    # Daily logs
+    daily_logs: list[DailyLogReportEntry]
+    daily_logs_summary: DailyLogSummary
 
     generated_at: datetime
 
@@ -167,20 +198,22 @@ async def generate_report(
         manpower_rows = list(mp_res.scalars().all())
 
     # Aggregate by worker_type
-    mp_agg: dict[str, dict] = defaultdict(lambda: {"count": 0, "hours": 0.0, "cost": 0.0})
+    mp_agg: dict[str, dict] = defaultdict(lambda: {"workers": 0, "hours": 0.0, "cost": 0.0})
     for mp in manpower_rows:
         wt = mp.worker_type or "unspecified"
-        mp_agg[wt]["count"] += 1
+        mp_agg[wt]["workers"] += int(mp.number_of_workers or 1)
         mp_agg[wt]["hours"] += float(mp.hours_worked or 0.0)
         mp_agg[wt]["cost"] += float(mp.cost or 0.0)
 
     # Classify into staff / technical / labor
     staff_entries, tech_entries, labor_entries = [], [], []
     for wt, data in mp_agg.items():
+        hrs = data["hours"]
         entry = ManpowerReportEntry(
             worker_type=wt,
-            total_workers=data["count"],
-            total_hours=round(data["hours"], 2),
+            total_workers=data["workers"],
+            total_hours=round(hrs, 2),
+            hourly_rate=round(data["cost"] / hrs, 2) if hrs > 0 else 0.0,
             total_cost=round(data["cost"], 2),
         )
         category = _classify_manpower(wt)
@@ -197,16 +230,22 @@ async def generate_report(
         mat_res = await db.execute(select(Material).where(Material.log_id.in_(log_ids)))
         material_rows = list(mat_res.scalars().all())
 
-    mat_agg: dict[str, dict] = defaultdict(lambda: {"qty": 0.0, "cost": 0.0, "unit": ""})
+    mat_agg: dict[str, dict] = defaultdict(lambda: {"qty": 0.0, "cost": 0.0, "unit": "", "supplier": None})
     for m in material_rows:
         key = m.name or "unspecified"
         mat_agg[key]["qty"] += float(m.quantity or 0.0)
         mat_agg[key]["cost"] += float(m.cost or 0.0)
         mat_agg[key]["unit"] = m.unit or mat_agg[key]["unit"]
+        mat_agg[key]["supplier"] = mat_agg[key]["supplier"] or m.supplier_name
 
     materials = [
         MaterialReportEntry(
-            name=name, quantity=round(d["qty"], 2), unit=d["unit"], cost=round(d["cost"], 2)
+            name=name,
+            supplier=d["supplier"],
+            quantity=round(d["qty"], 2),
+            unit=d["unit"],
+            unit_cost=round(d["cost"] / d["qty"], 2) if d["qty"] > 0 else 0.0,
+            cost=round(d["cost"], 2),
         )
         for name, d in sorted(mat_agg.items(), key=lambda x: x[1]["cost"], reverse=True)
     ]
@@ -223,22 +262,37 @@ async def generate_report(
         idle_res = await db.execute(select(EquipmentIdle).where(EquipmentIdle.equipment_id.in_(equip_ids)))
         idle_rows = list(idle_res.scalars().all())
 
+    log_date_map: dict[UUID, str] = {
+        l.id: (l.date.date().isoformat() if l.date else "") for l in logs
+    }
     idle_by_equip: dict[UUID, float] = defaultdict(float)
+    idle_reasons_by_equip: dict[UUID, list[str]] = defaultdict(list)
     for i in idle_rows:
         idle_by_equip[i.equipment_id] += float(i.hours_idle or 0.0)
+        if i.reason:
+            idle_reasons_by_equip[i.equipment_id].append(i.reason)
 
-    eq_agg: dict[str, dict] = defaultdict(lambda: {"hours": 0.0, "idle": 0.0, "cost": 0.0})
+    eq_agg: dict[str, dict] = defaultdict(
+        lambda: {"hours": 0.0, "idle": 0.0, "cost": 0.0, "start_date": None, "reasons": []}
+    )
     for e in equip_rows:
         name = e.name or "unspecified"
         eq_agg[name]["hours"] += float(e.hours_used or 0.0)
         eq_agg[name]["idle"] += idle_by_equip.get(e.id, 0.0)
         eq_agg[name]["cost"] += float(e.cost or 0.0)
+        eq_agg[name]["reasons"] += idle_reasons_by_equip.get(e.id, [])
+        log_date = log_date_map.get(e.log_id)
+        if log_date and (eq_agg[name]["start_date"] is None or log_date < eq_agg[name]["start_date"]):
+            eq_agg[name]["start_date"] = log_date
 
     equipment_entries = [
         EquipmentReportEntry(
             name=name,
+            start_date=d["start_date"],
             hours_used=round(d["hours"], 2),
+            unit_cost=round(d["cost"] / d["hours"], 2) if d["hours"] > 0 else 0.0,
             hours_idle=round(d["idle"], 2),
+            idle_reasons="; ".join(dict.fromkeys(d["reasons"])) or "—",
             cost=round(d["cost"], 2),
         )
         for name, d in sorted(eq_agg.items(), key=lambda x: x[1]["hours"], reverse=True)
@@ -248,11 +302,27 @@ async def generate_report(
     tasks_res = await db.execute(select(Task).where(Task.project_id == project_id))
     tasks = list(tasks_res.scalars().all())
 
+    task_ids = [t.id for t in tasks]
+    activities_res = await db.execute(
+        select(TaskActivity).where(TaskActivity.task_id.in_(task_ids))
+    ) if task_ids else None
+    all_activities = list(activities_res.scalars().all()) if activities_res else []
+    acts_by_task: dict[UUID, list[TaskActivity]] = defaultdict(list)
+    for a in all_activities:
+        acts_by_task[a.task_id].append(a)
+
     task_entries = [
         TaskReportEntry(
-            id=t.id, name=t.name, status=t.status,
-            progress_percentage=t.progress_percentage, budget=t.budget,
-            start_date=t.start_date, end_date=t.end_date,
+            id=t.id,
+            name=t.name,
+            weight=round(float(t.weight or 0), 2),
+            status=t.status,
+            progress_percentage=round(float(t.progress_percentage or 0), 2),
+            activities_total=len(acts_by_task[t.id]),
+            activities_completed=sum(1 for a in acts_by_task[t.id] if a.is_completed),
+            budget=t.budget,
+            start_date=t.start_date,
+            end_date=t.end_date,
         )
         for t in tasks
     ]
@@ -267,20 +337,83 @@ async def generate_report(
         + sum(float(e.cost or 0) for e in equip_rows)
     )
 
-    # ── Contractor name ──
-    contractor_name = None
-    if project.client:
-        contractor_name = project.client.name
+    # ── Client name ──
+    first_client = project.clients[0] if project.clients else None
+    client_name = first_client.name if first_client else None
+
+    # ── Project progress (computed live from tasks) ──
+    computed_progress = round(
+        sum((t.progress_percentage or 0) / 100.0 * (t.weight or 0) for t in tasks), 2
+    )
+
+    # ── Daily logs aggregation ──
+    mp_cost_by_log: dict = defaultdict(float)
+    mat_cost_by_log: dict = defaultdict(float)
+    eq_cost_by_log: dict = defaultdict(float)
+    for mp in manpower_rows:
+        mp_cost_by_log[mp.log_id] += float(mp.cost or 0)
+    for m in material_rows:
+        mat_cost_by_log[m.log_id] += float(m.cost or 0)
+    for e in equip_rows:
+        eq_cost_by_log[e.log_id] += float(e.cost or 0)
+
+    creator_ids = list({l.created_by_id for l in logs if l.created_by_id})
+    creators: dict = {}
+    if creator_ids:
+        u_res = await db.execute(select(User).where(User.id.in_(creator_ids)))
+        creators = {u.id: (u.full_name or u.email) for u in u_res.scalars().all()}
+
+    # Count completed activities per log
+    acts_by_log: dict[UUID, int] = defaultdict(int)
+    if log_ids:
+        dla_res = await db.execute(
+            select(DailyLogActivityModel).where(DailyLogActivityModel.log_id.in_(log_ids))
+        )
+        for dla in dla_res.scalars().all():
+            acts_by_log[dla.log_id] += 1
+
+    log_entries: list[DailyLogReportEntry] = []
+    status_counts: dict = {"draft": 0, "submitted": 0, "consultant_approved": 0, "pm_approved": 0, "rejected": 0}
+    total_log_cost = 0.0
+    for lg in sorted(logs, key=lambda x: x.date or datetime.min):
+        mp_c = round(mp_cost_by_log.get(lg.id, 0.0), 2)
+        mat_c = round(mat_cost_by_log.get(lg.id, 0.0), 2)
+        eq_c = round(eq_cost_by_log.get(lg.id, 0.0), 2)
+        day_cost = round(mp_c + mat_c + eq_c, 2)
+        total_log_cost += day_cost
+        st = (lg.status or "draft").lower()
+        if st in status_counts:
+            status_counts[st] += 1
+        log_entries.append(DailyLogReportEntry(
+            date=lg.date.date().isoformat() if lg.date else "—",
+            submitted_by=creators.get(lg.created_by_id, "—"),
+            status=st.replace("_", " ").title(),
+            acts_done=acts_by_log.get(lg.id, 0),
+            manpower_cost=mp_c,
+            material_cost=mat_c,
+            equipment_cost=eq_c,
+            total_cost=day_cost,
+        ))
+
+    daily_logs_summary = DailyLogSummary(
+        total=len(logs),
+        draft=status_counts["draft"],
+        submitted=status_counts["submitted"],
+        consultant_approved=status_counts["consultant_approved"],
+        pm_approved=status_counts["pm_approved"],
+        rejected=status_counts["rejected"],
+        total_cost=round(total_log_cost, 2),
+    )
 
     return ReportResponse(
         project_id=project.id,
         project_name=project.name,
         project_status=project.status,
         project_location=project.location,
-        project_progress=round(float(project.progress_percentage or 0), 2),
+        project_progress=computed_progress,
         planned_start_date=project.planned_start_date,
         planned_end_date=project.planned_end_date,
-        contractor_name=contractor_name,
+        client_name=client_name,
         start_date=start_date,
         end_date=end_date,
         total_days=total_days,
@@ -300,5 +433,7 @@ async def generate_report(
         used_budget=float(project.budget_spent or 0),
         remaining_budget=float((project.total_budget or 0) - (project.budget_spent or 0)),
         budget_spent_in_period=round(period_cost, 2),
+        daily_logs=log_entries,
+        daily_logs_summary=daily_logs_summary,
         generated_at=datetime.now(timezone.utc),
     )

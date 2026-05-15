@@ -509,7 +509,7 @@ export async function listLogManpower(logId: string) {
   return apiRequest<ManpowerItem[]>(`/daily-logs/${logId}/manpower`)
 }
 
-export async function addLogManpower(logId: string, body: { worker_type: string; hours_worked: number; cost: number }) {
+export async function addLogManpower(logId: string, body: { worker_type: string; number_of_workers: number; hours_worked: number; cost: number }) {
   return apiRequest<ManpowerItem>(`/daily-logs/${logId}/manpower`, { method: 'POST', body: JSON.stringify(body) })
 }
 
@@ -518,7 +518,7 @@ export async function listLogMaterials(logId: string) {
   return apiRequest<MaterialItem[]>(`/daily-logs/${logId}/materials`)
 }
 
-export async function addLogMaterial(logId: string, body: { name: string; quantity: number; unit: string; cost: number }) {
+export async function addLogMaterial(logId: string, body: { name: string; supplier_name?: string; quantity: number; unit: string; cost: number }) {
   return apiRequest<MaterialItem>(`/daily-logs/${logId}/materials`, { method: 'POST', body: JSON.stringify(body) })
 }
 

@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 logging.basicConfig(
@@ -32,6 +33,13 @@ async def lifespan(app: FastAPI):
     # For production, use Alembic migrations instead.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add new columns to pre-existing tables (safe to run repeatedly)
+        await conn.execute(text(
+            "ALTER TABLE materials ADD COLUMN IF NOT EXISTS supplier_name VARCHAR(255)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE manpower ADD COLUMN IF NOT EXISTS number_of_workers INTEGER DEFAULT 1"
+        ))
     load_ml_artifacts()
     yield
 

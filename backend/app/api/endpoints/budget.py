@@ -6,9 +6,9 @@ from sqlalchemy import select, func
 from app.api.dependencies import DbSession, get_current_active_user, require_project_role
 from app.models.user import User
 from app.models.commons import ProjectRole
-from app.models.system import BudgetItem
+from app.models.system import BudgetItem, BudgetPayment
 from app.models.project import Project
-from app.schemas.system import BudgetItemCreate, BudgetItemResponse, BudgetSummary
+from app.schemas.system import BudgetItemCreate, BudgetItemResponse, BudgetSummary, BudgetPaymentCreate, BudgetPaymentResponse
 from app.repositories.project import ProjectRepository
 
 router = APIRouter()
@@ -24,7 +24,7 @@ async def get_budget(
         raise HTTPException(status_code=404, detail="Project not found")
 
     result = await db.execute(
-        select(func.coalesce(func.sum(BudgetItem.amount), 0)).where(BudgetItem.project_id == project_id)
+        select(func.coalesce(func.sum(BudgetPayment.payment_amount), 0)).where(BudgetPayment.project_id == project_id)
     )
     total_received = result.scalar()
 
@@ -56,4 +56,50 @@ async def list_budget_items(
     _: User = Depends(get_current_active_user),
 ) -> Any:
     result = await db.execute(select(BudgetItem).where(BudgetItem.project_id == project_id))
+    return list(result.scalars().all())
+
+
+@router.post(
+    "/{project_id}/budget-payments",
+    response_model=BudgetPaymentResponse,
+    status_code=201,
+    summary="Record a client payment",
+    dependencies=[Depends(require_project_role([ProjectRole.PROJECT_MANAGER, ProjectRole.OFFICE_ENGINEER]))],
+)
+async def record_budget_payment(
+    *, db: DbSession, project_id: UUID, payment_in: BudgetPaymentCreate,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    project = await project_repo.get_by_id(db, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    payment = BudgetPayment(
+        project_id=project_id,
+        payment_amount=payment_in.payment_amount,
+        payment_date=payment_in.payment_date,
+        reference=payment_in.reference,
+        notes=payment_in.notes,
+        recorded_by=current_user.id,
+    )
+    db.add(payment)
+    await db.commit()
+    await db.refresh(payment)
+    return payment
+
+
+@router.get(
+    "/{project_id}/budget-payments",
+    response_model=List[BudgetPaymentResponse],
+    summary="List client payments for a project",
+)
+async def list_budget_payments(
+    project_id: UUID, db: DbSession,
+    _: User = Depends(get_current_active_user),
+) -> Any:
+    result = await db.execute(
+        select(BudgetPayment)
+        .where(BudgetPayment.project_id == project_id)
+        .order_by(BudgetPayment.created_at.desc())
+    )
     return list(result.scalars().all())
