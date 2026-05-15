@@ -8,6 +8,9 @@ class ManpowerBase(BaseModel):
     worker_type: str
     number_of_workers: int = 1
     hours_worked: float
+    overtime_hours: float = 0.0
+    hourly_rate: float = 0.0
+    overtime_rate: float = 0.0
     cost: float
 
 class ManpowerCreate(ManpowerBase):
@@ -21,10 +24,13 @@ class ManpowerResponse(ManpowerBase):
 # Materials
 class MaterialBase(BaseModel):
     name: str
+    supplier_id: UUID | None = None
     supplier_name: str | None = None
     quantity: float
     unit: str
+    unit_cost: float = 0.0
     cost: float
+    delivery_date: datetime | None = None
 
 class MaterialCreate(MaterialBase):
     pass
@@ -37,8 +43,13 @@ class MaterialResponse(MaterialBase):
 # Equipment
 class EquipmentBase(BaseModel):
     name: str
+    quantity: int = 1
+    start_date: datetime | None = None
     hours_used: float
+    unit_cost: float = 0.0
     cost: float
+    idle_hours: float = 0.0
+    idle_reason: str | None = None
 
 class EquipmentCreate(EquipmentBase):
     pass

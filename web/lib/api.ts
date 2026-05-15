@@ -509,7 +509,7 @@ export async function listLogManpower(logId: string) {
   return apiRequest<ManpowerItem[]>(`/daily-logs/${logId}/manpower`)
 }
 
-export async function addLogManpower(logId: string, body: { worker_type: string; number_of_workers: number; hours_worked: number; cost: number }) {
+export async function addLogManpower(logId: string, body: { worker_type: string; number_of_workers: number; hours_worked: number; overtime_hours: number; hourly_rate: number; overtime_rate: number; cost: number }) {
   return apiRequest<ManpowerItem>(`/daily-logs/${logId}/manpower`, { method: 'POST', body: JSON.stringify(body) })
 }
 
@@ -518,7 +518,7 @@ export async function listLogMaterials(logId: string) {
   return apiRequest<MaterialItem[]>(`/daily-logs/${logId}/materials`)
 }
 
-export async function addLogMaterial(logId: string, body: { name: string; supplier_name?: string; quantity: number; unit: string; cost: number }) {
+export async function addLogMaterial(logId: string, body: { name: string; supplier_id?: string; supplier_name?: string; quantity: number; unit: string; unit_cost: number; cost: number; delivery_date?: string }) {
   return apiRequest<MaterialItem>(`/daily-logs/${logId}/materials`, { method: 'POST', body: JSON.stringify(body) })
 }
 
@@ -527,7 +527,7 @@ export async function listLogEquipment(logId: string) {
   return apiRequest<EquipmentItem[]>(`/daily-logs/${logId}/equipment`)
 }
 
-export async function addLogEquipment(logId: string, body: { name: string; hours_used: number; cost: number }) {
+export async function addLogEquipment(logId: string, body: { name: string; quantity: number; start_date?: string; hours_used: number; unit_cost: number; cost: number; idle_hours: number; idle_reason?: string }) {
   return apiRequest<EquipmentItem>(`/daily-logs/${logId}/equipment`, { method: 'POST', body: JSON.stringify(body) })
 }
 

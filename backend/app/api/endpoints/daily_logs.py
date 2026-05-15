@@ -333,7 +333,16 @@ async def reject_log(
 
 @logs_router.post("/daily-logs/{log_id}/manpower", response_model=ManpowerResponse, status_code=201, summary="Add manpower entry")
 async def add_manpower(*, db: DbSession, log_id: UUID, manpower_in: ManpowerCreate, _: User = Depends(get_current_active_user)) -> Any:
-    obj = Manpower(log_id=log_id, worker_type=manpower_in.worker_type, number_of_workers=manpower_in.number_of_workers, hours_worked=manpower_in.hours_worked, cost=manpower_in.cost)
+    obj = Manpower(
+        log_id=log_id,
+        worker_type=manpower_in.worker_type,
+        number_of_workers=manpower_in.number_of_workers,
+        hours_worked=manpower_in.hours_worked,
+        overtime_hours=manpower_in.overtime_hours,
+        hourly_rate=manpower_in.hourly_rate,
+        overtime_rate=manpower_in.overtime_rate,
+        cost=manpower_in.cost
+    )
     db.add(obj); await db.commit(); await db.refresh(obj)
     return obj
 
@@ -347,7 +356,17 @@ async def list_manpower(log_id: UUID, db: DbSession, _: User = Depends(get_curre
 
 @logs_router.post("/daily-logs/{log_id}/materials", response_model=MaterialResponse, status_code=201, summary="Add material entry")
 async def add_material(*, db: DbSession, log_id: UUID, mat_in: MaterialCreate, _: User = Depends(get_current_active_user)) -> Any:
-    obj = Material(log_id=log_id, name=mat_in.name, supplier_name=mat_in.supplier_name, quantity=mat_in.quantity, unit=mat_in.unit, cost=mat_in.cost)
+    obj = Material(
+        log_id=log_id,
+        name=mat_in.name,
+        supplier_id=mat_in.supplier_id,
+        supplier_name=mat_in.supplier_name,
+        quantity=mat_in.quantity,
+        unit=mat_in.unit,
+        unit_cost=mat_in.unit_cost,
+        cost=mat_in.cost,
+        delivery_date=mat_in.delivery_date
+    )
     db.add(obj); await db.commit(); await db.refresh(obj)
     return obj
 
@@ -361,7 +380,17 @@ async def list_materials(log_id: UUID, db: DbSession, _: User = Depends(get_curr
 
 @logs_router.post("/daily-logs/{log_id}/equipment", response_model=EquipmentResponse, status_code=201, summary="Add equipment entry")
 async def add_equipment(*, db: DbSession, log_id: UUID, equip_in: EquipmentCreate, _: User = Depends(get_current_active_user)) -> Any:
-    obj = Equipment(log_id=log_id, name=equip_in.name, hours_used=equip_in.hours_used, cost=equip_in.cost)
+    obj = Equipment(
+        log_id=log_id,
+        name=equip_in.name,
+        quantity=equip_in.quantity,
+        start_date=equip_in.start_date,
+        hours_used=equip_in.hours_used,
+        unit_cost=equip_in.unit_cost,
+        cost=equip_in.cost,
+        idle_hours=equip_in.idle_hours,
+        idle_reason=equip_in.idle_reason
+    )
     db.add(obj); await db.commit(); await db.refresh(obj)
     return obj
 

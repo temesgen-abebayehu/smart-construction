@@ -33,9 +33,9 @@ interface EditLogPageProps {
     params: Promise<{ projectId: string; logId: string }>
 }
 
-type LaborEntry = { id: string; worker_type: string; hours_worked: number; cost: number }
-type MaterialEntry = { id: string; name: string; quantity: number; unit: string; cost: number }
-type EquipmentEntry = { id: string; name: string; hours_used: number; cost: number }
+type LaborEntry = { id: string; worker_type: string; number_of_workers: number; hours_worked: number; overtime_hours: number; hourly_rate: number; overtime_rate: number; cost: number }
+type MaterialEntry = { id: string; name: string; supplier_id?: string | null; supplier_name?: string | null; quantity: number; unit: string; unit_cost: number; cost: number; delivery_date?: string | null }
+type EquipmentEntry = { id: string; name: string; quantity: number; start_date?: string | null; hours_used: number; unit_cost: number; cost: number; idle_hours: number; idle_reason?: string | null }
 
 const statusConfig: Record<string, { label: string; className: string }> = {
     draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700' },
@@ -67,9 +67,9 @@ export default function EditLogPage({ params }: EditLogPageProps) {
     const [addType, setAddType] = useState<'labor' | 'material' | 'equipment' | null>(null)
     const [addingEntry, setAddingEntry] = useState(false)
 
-    const [hrForm, setHrForm] = useState({ labor_type: '', worker_count: '1', hours_worked: '8', hourly_rate: '', overtime_hours: '0', overtime_rate: '' })
+    const [hrForm, setHrForm] = useState({ labor_type: '', worker_count: '1', hours_worked: '8', overtime_hours: '0', hourly_rate: '', overtime_rate: '' })
     const [matForm, setMatForm] = useState({ supplier_id: '', material_type: '', quantity: '', unit: 'bags', unit_cost: '', delivery_date: new Date().toISOString().split('T')[0] })
-    const [eqForm, setEqForm] = useState({ type: '', operation_time: '', cost_per_unit: '', idle_hours: '0', idle_reason: '' })
+    const [eqForm, setEqForm] = useState({ type: '', quantity: '1', start_time: '08:00', operation_time: '', cost_per_unit: '', idle_hours: '0', idle_reason: '' })
 
     const [uploadingPhoto, setUploadingPhoto] = useState(false)
     const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null)
@@ -136,32 +136,50 @@ export default function EditLogPage({ params }: EditLogPageProps) {
             if (addType === 'labor') {
                 if (!hrForm.labor_type.trim() || !hrForm.hourly_rate) { toast.error('Labor type and hourly rate are required'); return }
                 const workerCount = Number(hrForm.worker_count) || 1
+                const hoursWorked = Number(hrForm.hours_worked) || 0
+                const overtimeHours = Number(hrForm.overtime_hours) || 0
+                const hourlyRate = Number(hrForm.hourly_rate)
+                const overtimeRate = Number(hrForm.overtime_rate) || (hourlyRate * 1.5)
                 await addLogManpower(logId, {
                     worker_type: hrForm.labor_type.trim(),
                     number_of_workers: workerCount,
-                    hours_worked: (Number(hrForm.hours_worked) + Number(hrForm.overtime_hours)) * workerCount,
+                    hours_worked: hoursWorked,
+                    overtime_hours: overtimeHours,
+                    hourly_rate: hourlyRate,
+                    overtime_rate: overtimeRate,
                     cost: calcHrCost(),
                 })
-                setHrForm({ labor_type: '', worker_count: '1', hours_worked: '8', hourly_rate: '', overtime_hours: '0', overtime_rate: '' })
+                setHrForm({ labor_type: '', worker_count: '1', hours_worked: '8', overtime_hours: '0', hourly_rate: '', overtime_rate: '' })
             } else if (addType === 'material') {
                 if (!matForm.material_type.trim() || !matForm.quantity || !matForm.unit_cost) { toast.error('Material type, quantity and unit cost are required'); return }
                 const supplierObj = matForm.supplier_id ? suppliers.find(s => s.id === matForm.supplier_id) : null
+                const unitCost = Number(matForm.unit_cost)
                 await addLogMaterial(logId, {
                     name: matForm.material_type.trim(),
+                    supplier_id: matForm.supplier_id || undefined,
                     supplier_name: supplierObj?.name || undefined,
                     quantity: Number(matForm.quantity),
                     unit: matForm.unit,
+                    unit_cost: unitCost,
                     cost: calcMatCost(),
+                    delivery_date: matForm.delivery_date || undefined,
                 })
                 setMatForm({ supplier_id: '', material_type: '', quantity: '', unit: 'bags', unit_cost: '', delivery_date: new Date().toISOString().split('T')[0] })
             } else if (addType === 'equipment') {
                 if (!eqForm.type.trim() || !eqForm.operation_time || !eqForm.cost_per_unit) { toast.error('Equipment type, operation time and cost are required'); return }
+                const unitCost = Number(eqForm.cost_per_unit)
+                const startDate = eqForm.start_time ? `${new Date().toISOString().split('T')[0]}T${eqForm.start_time}:00Z` : undefined
                 await addLogEquipment(logId, {
                     name: eqForm.type.trim(),
+                    quantity: Number(eqForm.quantity) || 1,
+                    start_date: startDate,
                     hours_used: Number(eqForm.operation_time),
+                    unit_cost: unitCost,
                     cost: calcEqCost(),
+                    idle_hours: Number(eqForm.idle_hours) || 0,
+                    idle_reason: eqForm.idle_reason.trim() || undefined,
                 })
-                setEqForm({ type: '', operation_time: '', cost_per_unit: '', idle_hours: '0', idle_reason: '' })
+                setEqForm({ type: '', quantity: '1', start_time: '08:00', operation_time: '', cost_per_unit: '', idle_hours: '0', idle_reason: '' })
             }
             setAddType(null)
             await loadAll()
@@ -283,9 +301,15 @@ export default function EditLogPage({ params }: EditLogPageProps) {
                             {labor.length === 0 ? <p className="text-sm text-muted-foreground">No labor records.</p> : (
                                 <div className="space-y-2">
                                     {labor.map((l, i) => (
-                                        <div key={i} className="rounded border p-3 text-sm space-y-0.5">
+                                        <div key={i} className="rounded border p-3 text-sm space-y-1">
                                             <div className="flex justify-between"><span className="font-medium capitalize">{l.worker_type}</span><span className="font-medium">ETB {l.cost.toLocaleString()}</span></div>
-                                            <p className="text-xs text-muted-foreground">Hours worked: {l.hours_worked}h</p>
+                                            <div className="grid grid-cols-2 gap-x-4 text-xs text-muted-foreground">
+                                                <div>No. of Workers: {l.number_of_workers}</div>
+                                                <div>Hourly Rate: ETB {l.hourly_rate.toLocaleString()}</div>
+                                                <div>Regular Hours: {l.hours_worked}h</div>
+                                                <div>Overtime Hours: {l.overtime_hours}h</div>
+                                                {l.overtime_hours > 0 && <div className="col-span-2">Overtime Rate: ETB {l.overtime_rate.toLocaleString()}/hr</div>}
+                                            </div>
                                         </div>
                                     ))}
                                     <p className="text-right text-sm font-medium pt-2 border-t">Total: ETB {totalLaborCost.toLocaleString()}</p>
@@ -303,12 +327,28 @@ export default function EditLogPage({ params }: EditLogPageProps) {
                         <CardContent>
                             {materials.length === 0 ? <p className="text-sm text-muted-foreground">No materials recorded.</p> : (
                                 <div className="space-y-2">
-                                    {materials.map((m, i) => (
-                                        <div key={i} className="rounded border p-3 text-sm space-y-0.5">
-                                            <div className="flex justify-between"><span className="font-medium">{m.name}</span><span className="font-medium">ETB {m.cost.toLocaleString()}</span></div>
-                                            <p className="text-xs text-muted-foreground">{m.quantity} {m.unit}</p>
-                                        </div>
-                                    ))}
+                                    {materials.map((m, i) => {
+                                        const supplier = m.supplier_id ? suppliers.find(s => s.id === m.supplier_id) : null
+                                        return (
+                                            <div key={i} className="rounded border p-3 text-sm space-y-1">
+                                                <div className="flex justify-between"><span className="font-medium">{m.name}</span><span className="font-medium">ETB {m.cost.toLocaleString()}</span></div>
+                                                <div className="grid grid-cols-2 gap-x-4 text-xs text-muted-foreground">
+                                                    {supplier && (
+                                                        <div className="col-span-2">
+                                                            Supplier: {supplier.name} {supplier.role ? `(${supplier.role})` : ''}
+                                                        </div>
+                                                    )}
+                                                    <div>Quantity: {m.quantity} {m.unit}</div>
+                                                    <div>Unit Cost: ETB {m.unit_cost.toLocaleString()}</div>
+                                                    {m.delivery_date && (
+                                                        <div className="col-span-2">
+                                                            Delivery: {new Date(m.delivery_date).toLocaleDateString()}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
                                     <p className="text-right text-sm font-medium pt-2 border-t">Total: ETB {totalMaterialCost.toLocaleString()}</p>
                                 </div>
                             )}
@@ -325,9 +365,22 @@ export default function EditLogPage({ params }: EditLogPageProps) {
                             {equipment.length === 0 ? <p className="text-sm text-muted-foreground">No equipment recorded.</p> : (
                                 <div className="space-y-2">
                                     {equipment.map((e, i) => (
-                                        <div key={i} className="rounded border p-3 text-sm space-y-0.5">
+                                        <div key={i} className="rounded border p-3 text-sm space-y-1">
                                             <div className="flex justify-between"><span className="font-medium">{e.name}</span><span className="font-medium">ETB {e.cost.toLocaleString()}</span></div>
-                                            <p className="text-xs text-muted-foreground">Hours used: {e.hours_used}h</p>
+                                            <div className="grid grid-cols-2 gap-x-4 text-xs text-muted-foreground">
+                                                <div>Quantity: {e.quantity}</div>
+                                                {e.start_date && (
+                                                    <div>Start: {new Date(e.start_date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</div>
+                                                )}
+                                                <div>Hours/Trip: {e.hours_used}h</div>
+                                                <div>Unit Cost: ETB {e.unit_cost.toLocaleString()}</div>
+                                                {e.idle_hours > 0 && (
+                                                    <>
+                                                        <div className="col-span-2 text-amber-600">Idle Hours: {e.idle_hours}h</div>
+                                                        {e.idle_reason && <div className="col-span-2 text-amber-600">Reason: {e.idle_reason}</div>}
+                                                    </>
+                                                )}
+                                            </div>
                                         </div>
                                     ))}
                                     <p className="text-right text-sm font-medium pt-2 border-t">Total: ETB {totalEquipmentCost.toLocaleString()}</p>

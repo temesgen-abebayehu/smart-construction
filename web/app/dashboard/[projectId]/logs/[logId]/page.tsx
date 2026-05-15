@@ -74,9 +74,9 @@ function checkItem(label: string, complete: boolean) {
   )
 }
 
-type LaborEntry = { id: string; worker_type: string; hours_worked: number; cost: number }
-type MaterialEntry = { id: string; name: string; quantity: number; unit: string; cost: number }
-type EquipmentEntry = { id: string; name: string; hours_used: number; cost: number }
+type LaborEntry = { id: string; worker_type: string; number_of_workers: number; hours_worked: number; overtime_hours: number; hourly_rate: number; overtime_rate: number; cost: number }
+type MaterialEntry = { id: string; name: string; supplier_id?: string | null; supplier_name?: string | null; quantity: number; unit: string; unit_cost: number; cost: number; delivery_date?: string | null }
+type EquipmentEntry = { id: string; name: string; quantity: number; start_date?: string | null; hours_used: number; unit_cost: number; cost: number; idle_hours: number; idle_reason?: string | null }
 type EquipmentIdleEntry = { id: string; equipment_id: string; reason: string; hours_idle: number }
 
 export default function LogDetailPage({ params }: LogDetailPageProps) {
@@ -219,23 +219,41 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
         const totalCost = (wc * hw * hr) + (wc * oh * or_)
         await addLogManpower(logId, {
           worker_type: formData.worker_type || 'general',
-          hours_worked: (hw + oh) * wc,
+          number_of_workers: wc,
+          hours_worked: hw,
+          overtime_hours: oh,
+          hourly_rate: hr,
+          overtime_rate: or_,
           cost: totalCost,
         })
       } else if (addType === 'material') {
         const unitCost = Number(formData.unit_cost) || Number(formData.cost) || 0
         const qty = Number(formData.quantity) || 0
+        const supplierObj = formData.supplier_id 
+          ? suppliers.find(s => s.id === formData.supplier_id) 
+          : null
         await addLogMaterial(logId, {
           name: formData.name || '',
+          supplier_id: formData.supplier_id || undefined,
+          supplier_name: supplierObj?.name || undefined,
           quantity: qty,
           unit: formData.unit || 'pcs',
+          unit_cost: unitCost,
           cost: formData.unit_cost ? qty * unitCost : unitCost,
+          delivery_date: formData.delivery_date || undefined,
         })
       } else if (addType === 'equipment') {
+        const unitCost = Number(formData.unit_cost) || 0
+        const hoursUsed = Number(formData.hours_used) || 0
         await addLogEquipment(logId, {
           name: formData.name || '',
-          hours_used: Number(formData.hours_used) || 0,
-          cost: Number(formData.cost) || 0,
+          quantity: Number(formData.quantity) || 1,
+          start_date: formData.start_date || undefined,
+          hours_used: hoursUsed,
+          unit_cost: unitCost,
+          cost: formData.unit_cost ? hoursUsed * unitCost : Number(formData.cost) || 0,
+          idle_hours: Number(formData.idle_hours) || 0,
+          idle_reason: formData.idle_reason || undefined,
         })
       } else if (addType === 'equipment_idle' && selectedEquipmentForIdle) {
         await addEquipmentIdle(selectedEquipmentForIdle, {
@@ -437,8 +455,12 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                         <span className="font-medium capitalize">{l.worker_type}</span>
                         <span className="font-medium">ETB {l.cost.toLocaleString()}</span>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        Hours worked: {l.hours_worked}h
+                      <div className="grid grid-cols-2 gap-x-4 text-xs text-muted-foreground">
+                        <div>No. of Workers: {l.number_of_workers}</div>
+                        <div>Hourly Rate: ETB {l.hourly_rate.toLocaleString()}</div>
+                        <div>Regular Hours: {l.hours_worked}h</div>
+                        <div>Overtime Hours: {l.overtime_hours}h</div>
+                        {l.overtime_hours > 0 && <div className="col-span-2">Overtime Rate: ETB {l.overtime_rate.toLocaleString()}/hr</div>}
                       </div>
                     </div>
                   ))}
@@ -463,17 +485,31 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                 <p className="text-sm text-muted-foreground">No materials recorded.</p>
               ) : (
                 <div className="space-y-2">
-                  {materials.map((m, i) => (
-                    <div key={i} className="rounded border p-3 text-sm space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{m.name}</span>
-                        <span className="font-medium">ETB {m.cost.toLocaleString()}</span>
+                  {materials.map((m, i) => {
+                    const supplier = m.supplier_id ? suppliers.find(s => s.id === m.supplier_id) : null
+                    return (
+                      <div key={i} className="rounded border p-3 text-sm space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">{m.name}</span>
+                          <span className="font-medium">ETB {m.cost.toLocaleString()}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-4 text-xs text-muted-foreground">
+                          {supplier && (
+                            <div className="col-span-2">
+                              Supplier: {supplier.name} {supplier.role ? `(${supplier.role})` : ''}
+                            </div>
+                          )}
+                          <div>Quantity: {m.quantity} {m.unit}</div>
+                          <div>Unit Cost: ETB {m.unit_cost.toLocaleString()}</div>
+                          {m.delivery_date && (
+                            <div className="col-span-2">
+                              Delivery: {new Date(m.delivery_date).toLocaleDateString()}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        Quantity: {m.quantity} {m.unit}
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                   <p className="text-right text-sm font-medium pt-2 border-t">Total: ETB {totalMaterialCost.toLocaleString()}</p>
                 </div>
               )}
@@ -497,7 +533,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                 <div className="space-y-2">
                   {equipment.map((e) => {
                     const idle = equipmentIdle.get(e.id) || []
-                    const totalIdleHours = idle.reduce((sum, i) => sum + i.hours_idle, 0)
+                    const totalIdleHours = idle.reduce((sum, i) => sum + i.hours_idle, 0) + (e.idle_hours || 0)
                     return (
                       <div key={e.id} className="space-y-2">
                         <div className="rounded border p-3 text-sm space-y-1">
@@ -505,10 +541,27 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                             <span className="font-medium">{e.name}</span>
                             <span className="font-medium">ETB {e.cost.toLocaleString()}</span>
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            Hours used: {e.hours_used}h
+                          <div className="grid grid-cols-2 gap-x-4 text-xs text-muted-foreground">
+                            <div>Quantity: {e.quantity}</div>
+                            {e.start_date && (
+                              <div>Start: {new Date(e.start_date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</div>
+                            )}
+                            <div>Hours/Trip: {e.hours_used}h</div>
+                            <div>Unit Cost: ETB {e.unit_cost.toLocaleString()}</div>
+                            {totalIdleHours > 0 && <div className="col-span-2 text-amber-600">Idle Hours: {totalIdleHours}h</div>}
                           </div>
                         </div>
+                        {e.idle_hours > 0 && e.idle_reason && (
+                          <div className="ml-4">
+                            <div className="flex items-start gap-2 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-2 text-xs">
+                              <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-amber-900 dark:text-amber-100">Idle: {e.idle_hours}h</p>
+                                <p className="text-amber-700 dark:text-amber-300">Reason: {e.idle_reason}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         {idle.length > 0 && (
                           <div className="ml-4 space-y-1">
                             {idle.map((i) => (
@@ -516,7 +569,7 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
                                 <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
                                 <div className="flex-1 min-w-0">
                                   <p className="font-medium text-amber-900 dark:text-amber-100">Idle: {i.hours_idle}h</p>
-                                  <p className="text-amber-700 dark:text-amber-300">{i.reason}</p>
+                                  <p className="text-amber-700 dark:text-amber-300">Reason: {i.reason}</p>
                                 </div>
                               </div>
                             ))}

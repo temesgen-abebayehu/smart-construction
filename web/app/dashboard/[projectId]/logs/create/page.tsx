@@ -308,12 +308,16 @@ export default function CreateLogPage({ params }: CreateLogPageProps) {
                     const workerCount = Number(entry.worker_count)
                     const hoursWorked = Number(entry.hours_worked)
                     const overtimeHours = Number(entry.overtime_hours) || 0
-                    const totalHours = (hoursWorked + overtimeHours) * workerCount
+                    const hourlyRate = Number(entry.hourly_rate)
+                    const overtimeRate = Number(entry.overtime_rate) || (hourlyRate * 1.5)
 
                     await addLogManpower(logId, {
                         worker_type: entry.labor_type.trim(),
                         number_of_workers: workerCount,
-                        hours_worked: totalHours,
+                        hours_worked: hoursWorked,
+                        overtime_hours: overtimeHours,
+                        hourly_rate: hourlyRate,
+                        overtime_rate: overtimeRate,
                         cost: total,
                     })
                 }
@@ -324,12 +328,16 @@ export default function CreateLogPage({ params }: CreateLogPageProps) {
                 if (entry.material_type.trim() && entry.quantity && entry.unit_cost) {
                     const total = calculateMaterialTotal(entry)
                     const supplierObj = entry.supplier_id ? suppliers.find(s => s.id === entry.supplier_id) : null
+                    const unitCost = Number(entry.unit_cost)
                     await addLogMaterial(logId, {
                         name: entry.material_type.trim(),
+                        supplier_id: entry.supplier_id || undefined,
                         supplier_name: supplierObj?.name || undefined,
                         quantity: Number(entry.quantity),
                         unit: entry.unit,
+                        unit_cost: unitCost,
                         cost: total,
+                        delivery_date: entry.delivery_date || undefined,
                     })
                 }
             }
@@ -338,10 +346,17 @@ export default function CreateLogPage({ params }: CreateLogPageProps) {
             for (const entry of equipment) {
                 if (entry.type.trim() && entry.operation_time && entry.cost_per_unit) {
                     const total = calculateEquipmentTotal(entry)
+                    const unitCost = Number(entry.cost_per_unit)
+                    const startDate = entry.start_time ? `${new Date().toISOString().split('T')[0]}T${entry.start_time}:00Z` : undefined
                     await addLogEquipment(logId, {
                         name: entry.type.trim(),
+                        quantity: Number(entry.quantity) || 1,
+                        start_date: startDate,
                         hours_used: Number(entry.operation_time),
+                        unit_cost: unitCost,
                         cost: total,
+                        idle_hours: Number(entry.idle_hours) || 0,
+                        idle_reason: entry.idle_reason.trim() || undefined,
                     })
                 }
             }

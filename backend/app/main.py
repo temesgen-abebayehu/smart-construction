@@ -38,7 +38,40 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE materials ADD COLUMN IF NOT EXISTS supplier_name VARCHAR(255)"
         ))
         await conn.execute(text(
+            "ALTER TABLE materials ADD COLUMN IF NOT EXISTS supplier_id UUID REFERENCES suppliers(id)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE materials ADD COLUMN IF NOT EXISTS delivery_date TIMESTAMP WITH TIME ZONE"
+        ))
+        await conn.execute(text(
             "ALTER TABLE manpower ADD COLUMN IF NOT EXISTS number_of_workers INTEGER DEFAULT 1"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE manpower ADD COLUMN IF NOT EXISTS overtime_hours FLOAT DEFAULT 0.0"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE manpower ADD COLUMN IF NOT EXISTS hourly_rate FLOAT DEFAULT 0.0"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE manpower ADD COLUMN IF NOT EXISTS overtime_rate FLOAT DEFAULT 0.0"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE materials ADD COLUMN IF NOT EXISTS unit_cost FLOAT DEFAULT 0.0"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE equipment ADD COLUMN IF NOT EXISTS quantity INTEGER DEFAULT 1"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE equipment ADD COLUMN IF NOT EXISTS start_date TIMESTAMP WITH TIME ZONE"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE equipment ADD COLUMN IF NOT EXISTS unit_cost FLOAT DEFAULT 0.0"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE equipment ADD COLUMN IF NOT EXISTS idle_hours FLOAT DEFAULT 0.0"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE equipment ADD COLUMN IF NOT EXISTS idle_reason TEXT"
         ))
     load_ml_artifacts()
     yield
