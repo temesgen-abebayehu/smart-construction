@@ -34,6 +34,7 @@ import {
   Settings,
   ChevronDown,
   DollarSign,
+  FileText,
   LayoutDashboard,
 } from 'lucide-react'
 import { useProjectRole } from '@/lib/project-role-context'

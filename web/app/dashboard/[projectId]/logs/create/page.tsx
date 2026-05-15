@@ -312,6 +312,7 @@ export default function CreateLogPage({ params }: CreateLogPageProps) {
 
                     await addLogManpower(logId, {
                         worker_type: entry.labor_type.trim(),
+                        number_of_workers: workerCount,
                         hours_worked: totalHours,
                         cost: total,
                     })
@@ -322,8 +323,10 @@ export default function CreateLogPage({ params }: CreateLogPageProps) {
             for (const entry of materials) {
                 if (entry.material_type.trim() && entry.quantity && entry.unit_cost) {
                     const total = calculateMaterialTotal(entry)
+                    const supplierObj = entry.supplier_id ? suppliers.find(s => s.id === entry.supplier_id) : null
                     await addLogMaterial(logId, {
                         name: entry.material_type.trim(),
+                        supplier_name: supplierObj?.name || undefined,
                         quantity: Number(entry.quantity),
                         unit: entry.unit,
                         cost: total,

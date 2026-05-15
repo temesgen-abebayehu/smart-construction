@@ -91,51 +91,76 @@ export default function ReportsPage({ params }: ReportsPageProps) {
     }
   }, [projectId, startDate, endDate, format])
 
+  const fmt = (n: number) => formatBudget(n)
+
   const downloadExcel = (report: ReportResponse) => {
     const rows: string[][] = []
-    rows.push(['Smart Construction Report'])
+    const d = (s: string | null) => s ? new Date(s).toLocaleDateString() : '—'
+
+    rows.push(['SMART CONSTRUCTION — PROJECT REPORT'])
     rows.push([`Project: ${report.project_name}`])
-    rows.push([`Period: ${report.start_date} to ${report.end_date}`])
+    rows.push([`Location: ${report.project_location || 'N/A'}`])
+    rows.push([`Client: ${report.client_name || 'N/A'}`])
+    rows.push([`Period: ${report.start_date} to ${report.end_date} (${report.total_days} days)`])
+    rows.push([`Status: ${report.project_status}`, `Progress: ${report.project_progress}%`])
     rows.push([])
 
-    rows.push(['=== BUDGET ==='])
-    rows.push(['Total Budget', 'Used', 'Remaining', 'Period Spend'])
-    rows.push([String(report.total_budget), String(report.used_budget), String(report.remaining_budget), String(report.budget_spent_in_period)])
-    rows.push([])
-
-    rows.push(['=== TASKS ==='])
-    rows.push(['Name', 'Status', 'Progress %', 'Start', 'End'])
-    report.tasks.forEach(t => {
-      rows.push([t.name, t.status, String(t.progress_percentage), t.start_date || '', t.end_date || ''])
-    })
+    rows.push(['=== BUDGET SUMMARY ==='])
+    rows.push(['Total Budget', 'Budget Spend', 'Cumulative Spend', 'Remaining'])
+    rows.push([String(report.total_budget), String(report.budget_spent_in_period), String(report.used_budget), String(report.remaining_budget)])
     rows.push([])
 
     rows.push(['=== MANPOWER ==='])
-    rows.push(['Category', 'Type', 'Workers', 'Hours', 'Cost'])
-    const manpowerSections = [
+    rows.push(['Worker Type', 'No. of Workers', 'Hours Worked', 'Hourly Rate', 'Cost'])
+    const mpSections = [
       { label: 'Staff', data: report.manpower?.staff || [] },
       { label: 'Technical', data: report.manpower?.technical || [] },
       { label: 'Labor', data: report.manpower?.labor || [] },
     ]
-    manpowerSections.forEach(s => {
+    let totalMpWorkers = 0, totalMpHours = 0, totalMpCost = 0
+    mpSections.forEach(s => {
       s.data.forEach(m => {
-        rows.push([s.label, m.worker_type, String(m.total_workers), String(m.total_hours), String(m.total_cost)])
+        rows.push([m.worker_type, String(m.total_workers), String(m.total_hours), String(m.hourly_rate), String(m.total_cost)])
+        totalMpWorkers += m.total_workers; totalMpHours += m.total_hours; totalMpCost += m.total_cost
       })
     })
+    rows.push(['TOTAL', String(totalMpWorkers), String(totalMpHours), '', String(totalMpCost)])
     rows.push([])
 
     rows.push(['=== MATERIALS ==='])
-    rows.push(['Name', 'Quantity', 'Unit', 'Cost'])
+    rows.push(['Material Type', 'Supplier', 'Quantity', 'Unit', 'Unit Cost', 'Total Cost'])
+    let totalMatCost = 0
       ; (report.materials || []).forEach(m => {
-        rows.push([m.name, String(m.quantity), m.unit, String(m.cost)])
+        rows.push([m.name, m.supplier || '—', String(m.quantity), m.unit, String(m.unit_cost), String(m.cost)])
+        totalMatCost += m.cost
       })
+    rows.push(['TOTAL', '', '', '', '', String(totalMatCost)])
     rows.push([])
 
     rows.push(['=== EQUIPMENT ==='])
-    rows.push(['Name', 'Hours Used', 'Hours Idle', 'Cost'])
+    rows.push(['Equipment Type', 'Start Date', 'Hours / Trip', 'Unit Cost', 'Idle Hours', 'Idle Reason', 'Total Cost'])
+    let totalEqCost = 0
       ; (report.equipment || []).forEach(e => {
-        rows.push([e.name, String(e.hours_used), String(e.hours_idle), String(e.cost)])
+        rows.push([e.name, e.start_date || '—', String(e.hours_used), String(e.unit_cost), String(e.hours_idle), e.idle_reasons, String(e.cost)])
+        totalEqCost += e.cost
       })
+    rows.push(['TOTAL', '', '', '', '', '', String(totalEqCost)])
+    rows.push([])
+
+    rows.push(['=== TASKS ==='])
+    rows.push(['#', 'Task Name', 'Weight %', 'Status', 'Progress %', 'Total Activities', 'Activities Done', 'Start', 'End'])
+    report.tasks.forEach((t, i) => {
+      rows.push([String(i + 1), t.name, String(t.weight), t.status, String(t.progress_percentage), String(t.activities_total), String(t.activities_completed), d(t.start_date), d(t.end_date)])
+    })
+    rows.push([])
+
+    rows.push(['=== DAILY LOGS ==='])
+    rows.push([`Total: ${report.daily_logs_summary.total}`, `Draft: ${report.daily_logs_summary.draft}`, `Submitted: ${report.daily_logs_summary.submitted}`, `Consultant OK: ${report.daily_logs_summary.consultant_approved}`, `PM Approved: ${report.daily_logs_summary.pm_approved}`, `Rejected: ${report.daily_logs_summary.rejected}`])
+    rows.push(['Date', 'Submitted By', 'Status', 'Acts Done', 'Manpower Cost', 'Material Cost', 'Equipment Cost', 'Total Cost'])
+    report.daily_logs.forEach(l => {
+      rows.push([l.date, l.submitted_by, l.status, String(l.acts_done), String(l.manpower_cost), String(l.material_cost), String(l.equipment_cost), String(l.total_cost)])
+    })
+    rows.push(['TOTAL', '', '', '', '', '', '', String(report.daily_logs_summary.total_cost)])
 
     const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
@@ -149,192 +174,171 @@ export default function ReportsPage({ params }: ReportsPageProps) {
   const downloadPDF = (report: ReportResponse) => {
     const printWindow = window.open('', '_blank')
     if (!printWindow) {
-      toast.error('Please allow popups to download PDF')
+      toast.error('Please allow popups to open the print dialog')
       return
     }
 
-    const allManpower = [
+    const allMp = [
       ...(report.manpower?.staff || []),
       ...(report.manpower?.technical || []),
       ...(report.manpower?.labor || []),
     ]
-    const totalManpowerCost = allManpower.reduce((s, m) => s + m.total_cost, 0)
-    const totalManpowerHours = allManpower.reduce((s, m) => s + m.total_hours, 0)
-    const totalMaterialCost = (report.materials || []).reduce((s, m) => s + m.cost, 0)
-    const totalEquipmentCost = (report.equipment || []).reduce((s, e) => s + e.cost, 0)
+    const totalMpWorkers = allMp.reduce((s, m) => s + m.total_workers, 0)
+    const totalMpHours = allMp.reduce((s, m) => s + m.total_hours, 0)
+    const totalMpCost = allMp.reduce((s, m) => s + m.total_cost, 0)
+    const totalMatCost = (report.materials || []).reduce((s, m) => s + m.cost, 0)
+    const totalEqHours = (report.equipment || []).reduce((s, e) => s + e.hours_used, 0)
+    const totalEqCost = (report.equipment || []).reduce((s, e) => s + e.cost, 0)
+    const d = (s: string | null) => s ? new Date(s).toLocaleDateString() : '—'
+    const mpSections = [
+      { label: 'Staff', data: report.manpower?.staff || [] },
+      { label: 'Technical', data: report.manpower?.technical || [] },
+      { label: 'Labor', data: report.manpower?.labor || [] },
+    ]
 
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Project Report - ${report.project_name}</title>
-        <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }
-          h1 { font-size: 24px; margin-bottom: 10px; }
-          h2 { font-size: 18px; margin-top: 20px; margin-bottom: 10px; border-bottom: 2px solid #333; padding-bottom: 5px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-          th { background-color: #f4f4f4; font-weight: bold; }
-          .header { margin-bottom: 20px; }
-          .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
-          .summary-card { border: 1px solid #ddd; padding: 10px; border-radius: 4px; }
-          .summary-card h3 { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 5px; }
-          .summary-card p { font-size: 18px; font-weight: bold; }
-          @media print {
-            body { padding: 10px; }
-            button { display: none; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>${report.project_name}</h1>
-          <p><strong>Location:</strong> ${report.project_location}</p>
-          <p><strong>Contractor:</strong> ${report.contractor_name || 'N/A'}</p>
-          <p><strong>Period:</strong> ${new Date(report.start_date).toLocaleDateString()} - ${new Date(report.end_date).toLocaleDateString()}</p>
-          <p><strong>Status:</strong> ${report.project_status.replace('_', ' ').toUpperCase()} | <strong>Progress:</strong> ${report.project_progress.toFixed(1)}%</p>
-        </div>
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Project Report — ${report.project_name}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:18px}
+    h1{font-size:20px;font-weight:bold;margin-bottom:4px}
+    h2{font-size:13px;font-weight:bold;margin:18px 0 6px;background:#1e3a5f;color:#fff;padding:4px 8px;border-radius:2px}
+    .meta{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
+    .meta-item{border:1px solid #ddd;border-radius:3px;padding:6px 10px}
+    .meta-item .label{font-size:9px;color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+    .meta-item .value{font-size:13px;font-weight:bold}
+    .info{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;margin-bottom:12px;font-size:11px}
+    .info span{color:#555}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px;font-size:10.5px}
+    th{background:#f0f4f8;border:1px solid #c9d4de;padding:5px 6px;text-align:left;font-weight:bold;font-size:10px;text-transform:uppercase}
+    td{border:1px solid #ddd;padding:4px 6px}
+    tr:nth-child(even) td{background:#fafbfc}
+    .total-row td{font-weight:bold;background:#eef2f7!important;border-top:2px solid #99aec4}
+    .status-completed{color:#16a34a;font-weight:600}
+    .status-in_progress{color:#d97706;font-weight:600}
+    .status-pending{color:#6b7280}
+    .page-break{page-break-before:always}
+    @media print{
+      body{padding:10px}
+      h2{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .meta-item,.total-row td,.status-completed,.status-in_progress{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    }
+  </style>
+</head>
+<body>
+  <h1>${report.project_name}</h1>
+  <div class="info">
+    <div><span>Location:</span> ${report.project_location || '—'}</div>
+    <div><span>Client:</span> ${report.client_name || '—'}</div>
+    <div><span>Report Period:</span> ${d(report.start_date)} – ${d(report.end_date)} (${report.total_days} days)</div>
+    <div><span>Planned Start:</span> ${report.planned_start_date ? d(report.planned_start_date) : '—'}</div>
+    <div><span>Status:</span> ${report.project_status.replace(/_/g, ' ').toUpperCase()}</div>
+    <div><span>Planned End:</span> ${report.planned_end_date ? d(report.planned_end_date) : '—'}</div>
+  </div>
 
-        <div class="summary">
-          <div class="summary-card">
-            <h3>Total Budget</h3>
-            <p>${formatBudget(report.total_budget)}</p>
-          </div>
-          <div class="summary-card">
-            <h3>Period Spend</h3>
-            <p>${formatBudget(report.budget_spent_in_period)}</p>
-          </div>
-          <div class="summary-card">
-            <h3>Tasks</h3>
-            <p>${report.tasks_completed}/${report.tasks_total}</p>
-          </div>
-          <div class="summary-card">
-            <h3>Progress</h3>
-            <p>${report.project_progress.toFixed(1)}%</p>
-          </div>
-        </div>
+  <div class="meta">
+    <div class="meta-item"><div class="label">Total Contract Value</div><div class="value">${fmt(report.total_budget)}</div></div>
+    <div class="meta-item"><div class="label">Budget Spend</div><div class="value">${fmt(report.budget_spent_in_period)}</div></div>
+    <div class="meta-item"><div class="label">Cumulative Spend</div><div class="value">${fmt(report.used_budget)}</div></div>
+    <div class="meta-item"><div class="label">Remaining Budget</div><div class="value">${fmt(report.remaining_budget)}</div></div>
+    <div class="meta-item"><div class="label">Physical Progress</div><div class="value">${report.project_progress.toFixed(2)}%</div></div>
+    <div class="meta-item"><div class="label">Tasks (Done / Total)</div><div class="value">${report.tasks_completed} / ${report.tasks_total}</div></div>
+  </div>
 
-        <h2>Manpower Summary</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Category</th>
-              <th>Type</th>
-              <th>Workers</th>
-              <th>Hours</th>
-              <th>Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${[
-        { label: 'Staff', data: report.manpower?.staff || [] },
-        { label: 'Technical', data: report.manpower?.technical || [] },
-        { label: 'Labor', data: report.manpower?.labor || [] },
-      ].flatMap(section =>
-        section.data.map(m => `
-                <tr>
-                  <td>${section.label}</td>
-                  <td>${m.worker_type}</td>
-                  <td>${m.total_workers}</td>
-                  <td>${m.total_hours}</td>
-                  <td>${formatBudget(m.total_cost)}</td>
-                </tr>
-              `).join('')
-      ).join('')}
-            <tr style="font-weight: bold; background-color: #f4f4f4;">
-              <td colspan="3">Total</td>
-              <td>${totalManpowerHours.toLocaleString()}</td>
-              <td>${formatBudget(totalManpowerCost)}</td>
-            </tr>
-          </tbody>
-        </table>
+  <h2>Manpower</h2>
+  <table>
+    <thead><tr><th>Worker Type</th><th>No. of Workers</th><th>Hours Worked</th><th>Hourly Rate</th><th>Cost</th></tr></thead>
+    <tbody>
+      ${mpSections.flatMap(s => s.data.map(m => `
+      <tr>
+        <td>${m.worker_type}</td><td>${m.total_workers}</td>
+        <td>${m.total_hours.toLocaleString()}</td><td>${fmt(m.hourly_rate)}</td><td>${fmt(m.total_cost)}</td>
+      </tr>`)).join('')}
+      <tr class="total-row"><td>Total</td><td>${totalMpWorkers}</td><td>${totalMpHours.toLocaleString()}</td><td></td><td>${fmt(totalMpCost)}</td></tr>
+    </tbody>
+  </table>
 
-        <h2>Materials</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Material</th>
-              <th>Quantity</th>
-              <th>Unit</th>
-              <th>Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${(report.materials || []).map(m => `
-              <tr>
-                <td>${m.name}</td>
-                <td>${m.quantity}</td>
-                <td>${m.unit}</td>
-                <td>${formatBudget(m.cost)}</td>
-              </tr>
-            `).join('')}
-            <tr style="font-weight: bold; background-color: #f4f4f4;">
-              <td colspan="3">Total</td>
-              <td>${formatBudget(totalMaterialCost)}</td>
-            </tr>
-          </tbody>
-        </table>
+  <h2>Materials</h2>
+  <table>
+    <thead><tr><th>Material Type</th><th>Supplier</th><th>Quantity</th><th>Unit</th><th>Unit Cost</th><th>Total Cost</th></tr></thead>
+    <tbody>
+      ${(report.materials || []).map(m => `
+      <tr>
+        <td>${m.name}</td><td>${m.supplier || '—'}</td><td>${m.quantity.toLocaleString()}</td>
+        <td>${m.unit || '—'}</td><td>${fmt(m.unit_cost)}</td><td>${fmt(m.cost)}</td>
+      </tr>`).join('')}
+      <tr class="total-row"><td colspan="5">Total</td><td>${fmt(totalMatCost)}</td></tr>
+    </tbody>
+  </table>
 
-        <h2>Equipment</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Equipment</th>
-              <th>Hours Used</th>
-              <th>Hours Idle</th>
-              <th>Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${(report.equipment || []).map(e => `
-              <tr>
-                <td>${e.name}</td>
-                <td>${e.hours_used}</td>
-                <td>${e.hours_idle}</td>
-                <td>${formatBudget(e.cost)}</td>
-              </tr>
-            `).join('')}
-            <tr style="font-weight: bold; background-color: #f4f4f4;">
-              <td colspan="3">Total</td>
-              <td>${formatBudget(totalEquipmentCost)}</td>
-            </tr>
-          </tbody>
-        </table>
+  <h2>Equipment</h2>
+  <table>
+    <thead><tr><th>Equipment Type</th><th>Start Date</th><th>Hours / Trip</th><th>Unit Cost</th><th>Idle Hours</th><th>Idle Reason</th><th>Total Cost</th></tr></thead>
+    <tbody>
+      ${(report.equipment || []).map(e => `
+      <tr>
+        <td>${e.name}</td><td>${e.start_date || '—'}</td><td>${e.hours_used.toLocaleString()}</td>
+        <td>${fmt(e.unit_cost)}</td><td>${e.hours_idle.toLocaleString()}</td><td>${e.idle_reasons}</td><td>${fmt(e.cost)}</td>
+      </tr>`).join('')}
+      <tr class="total-row"><td colspan="2">Total</td><td>${totalEqHours.toLocaleString()}</td><td></td><td></td><td></td><td>${fmt(totalEqCost)}</td></tr>
+    </tbody>
+  </table>
 
-        <h2>Tasks</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Task</th>
-              <th>Status</th>
-              <th>Progress</th>
-              <th>Start</th>
-              <th>End</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${report.tasks.map(t => `
-              <tr>
-                <td>${t.name}</td>
-                <td>${t.status.replace('_', ' ')}</td>
-                <td>${t.progress_percentage}%</td>
-                <td>${t.start_date ? new Date(t.start_date).toLocaleDateString() : '—'}</td>
-                <td>${t.end_date ? new Date(t.end_date).toLocaleDateString() : '—'}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
+  <h2>Tasks</h2>
+  <table>
+    <thead><tr><th>#</th><th>Task Name</th><th>Weight %</th><th>Status</th><th>Progress %</th><th>Total Acts.</th><th>Acts. Done</th><th>Start Date</th><th>End Date</th></tr></thead>
+    <tbody>
+      ${report.tasks.map((t, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${t.name}</td>
+        <td>${t.weight}%</td>
+        <td class="status-${t.status}">${t.status.replace(/_/g, ' ')}</td>
+        <td>${t.progress_percentage}%</td>
+        <td>${t.activities_total}</td>
+        <td>${t.activities_completed}</td>
+        <td>${d(t.start_date)}</td>
+        <td>${d(t.end_date)}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
 
-        <script>
-          window.onload = function() {
-            window.print();
-          }
-        </script>
-      </body>
-      </html>
-    `)
+  <h2>Daily Logs</h2>
+  <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:8px">
+    <div class="meta-item"><div class="label">Total Logs</div><div class="value">${report.daily_logs_summary.total}</div></div>
+    <div class="meta-item"><div class="label">Draft</div><div class="value">${report.daily_logs_summary.draft}</div></div>
+    <div class="meta-item"><div class="label">Submitted</div><div class="value">${report.daily_logs_summary.submitted}</div></div>
+    <div class="meta-item"><div class="label">Consultant OK</div><div class="value">${report.daily_logs_summary.consultant_approved}</div></div>
+    <div class="meta-item"><div class="label">PM Approved</div><div class="value">${report.daily_logs_summary.pm_approved}</div></div>
+    <div class="meta-item"><div class="label">Rejected</div><div class="value">${report.daily_logs_summary.rejected}</div></div>
+  </div>
+  <table>
+    <thead><tr><th>Date</th><th>Submitted By</th><th>Status</th><th>Acts Done</th><th>Manpower Cost</th><th>Material Cost</th><th>Equipment Cost</th><th>Total Cost</th></tr></thead>
+    <tbody>
+      ${report.daily_logs.map(l => `
+      <tr>
+        <td>${l.date}</td><td>${l.submitted_by}</td><td>${l.status}</td><td>${l.acts_done}</td>
+        <td>${fmt(l.manpower_cost)}</td><td>${fmt(l.material_cost)}</td><td>${fmt(l.equipment_cost)}</td>
+        <td>${fmt(l.total_cost)}</td>
+      </tr>`).join('')}
+      <tr class="total-row"><td colspan="7">Total</td><td>${fmt(report.daily_logs_summary.total_cost)}</td></tr>
+    </tbody>
+  </table>
+
+  <p style="margin-top:16px;font-size:9px;color:#888;border-top:1px solid #ddd;padding-top:6px">
+    Generated on ${new Date().toLocaleString()} &nbsp;|&nbsp; Smart Construction Management System
+  </p>
+</body>
+</html>`)
+
     printWindow.document.close()
+    setTimeout(() => {
+      printWindow.focus()
+      printWindow.print()
+    }, 300)
   }
 
   return (
@@ -364,9 +368,6 @@ export default function ReportsPage({ params }: ReportsPageProps) {
               </Button>
               <Button variant="outline" size="sm" onClick={setThisMonth}>
                 This Month
-              </Button>
-              <Button variant="outline" size="sm" onClick={setLastMonth}>
-                Last Month
               </Button>
             </div>
           </div>

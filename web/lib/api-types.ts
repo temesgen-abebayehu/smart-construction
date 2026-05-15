@@ -389,6 +389,7 @@ export interface ReportManpowerGroup {
   worker_type: string
   total_workers: number
   total_hours: number
+  hourly_rate: number
   total_cost: number
 }
 
@@ -398,7 +399,9 @@ export interface ReportResponse {
   project_status: string
   project_location: string
   project_progress: number
-  contractor_name: string | null
+  client_name: string | null
+  planned_start_date: string | null
+  planned_end_date: string | null
   start_date: string
   end_date: string
   total_days: number
@@ -407,9 +410,9 @@ export interface ReportResponse {
     technical: ReportManpowerGroup[]
     labor: ReportManpowerGroup[]
   }
-  materials: { name: string; quantity: number; unit: string; cost: number }[]
-  equipment: { name: string; hours_used: number; hours_idle: number; cost: number }[]
-  tasks: { id: string; name: string; status: string; progress_percentage: number; start_date: string | null; end_date: string | null }[]
+  materials: { name: string; supplier: string | null; quantity: number; unit: string; unit_cost: number; cost: number }[]
+  equipment: { name: string; start_date: string | null; hours_used: number; unit_cost: number; hours_idle: number; idle_reasons: string; cost: number }[]
+  tasks: { id: string; name: string; weight: number; status: string; progress_percentage: number; activities_total: number; activities_completed: number; start_date: string | null; end_date: string | null }[]
   tasks_total: number
   tasks_completed: number
   tasks_in_progress: number
@@ -418,6 +421,25 @@ export interface ReportResponse {
   used_budget: number
   remaining_budget: number
   budget_spent_in_period: number
+  daily_logs: {
+    date: string
+    submitted_by: string
+    status: string
+    acts_done: number
+    manpower_cost: number
+    material_cost: number
+    equipment_cost: number
+    total_cost: number
+  }[]
+  daily_logs_summary: {
+    total: number
+    draft: number
+    submitted: number
+    consultant_approved: number
+    pm_approved: number
+    rejected: number
+    total_cost: number
+  }
 }
 
 /* ── Admin ── */

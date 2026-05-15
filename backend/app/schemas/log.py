@@ -6,6 +6,7 @@ from app.models.commons import LogStatus
 # Daily Log Sub-Entities — Manpower
 class ManpowerBase(BaseModel):
     worker_type: str
+    number_of_workers: int = 1
     hours_worked: float
     cost: float
 
@@ -20,6 +21,7 @@ class ManpowerResponse(ManpowerBase):
 # Materials
 class MaterialBase(BaseModel):
     name: str
+    supplier_name: str | None = None
     quantity: float
     unit: str
     cost: float

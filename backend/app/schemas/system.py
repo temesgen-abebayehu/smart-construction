@@ -20,6 +20,24 @@ class BudgetSummary(BaseModel):
     total_received: float
     remaining: float
 
+# Budget Payment
+class BudgetPaymentCreate(BaseModel):
+    payment_amount: float
+    payment_date: str
+    reference: str | None = None
+    notes: str | None = None
+
+class BudgetPaymentResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    payment_amount: float
+    payment_date: str
+    reference: str | None = None
+    notes: str | None = None
+    recorded_by: UUID
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
 # Audit Log
 class AuditLogResponse(BaseModel):
     id: UUID

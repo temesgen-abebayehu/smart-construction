@@ -51,8 +51,8 @@ class Project(Base):
     fiscal_year_start_month = Column(Integer, nullable=False, server_default="1")
     week_starts_on = Column(Integer, nullable=False, server_default="0")  # 0=Mon, 6=Sun
 
-    clients = relationship("Client", back_populates="project", cascade="all, delete-orphan")
-    suppliers = relationship("Supplier", back_populates="project", cascade="all, delete-orphan")
+    clients = relationship("Client", back_populates="project", cascade="all, delete-orphan", lazy="selectin")
+    suppliers = relationship("Supplier", back_populates="project", cascade="all, delete-orphan", lazy="selectin")
 
     owner_id = Column(SQL_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     owner = relationship("User", foreign_keys=[owner_id], lazy="selectin")
