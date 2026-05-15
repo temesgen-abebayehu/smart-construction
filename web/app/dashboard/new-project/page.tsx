@@ -172,7 +172,7 @@ export default function NewProjectPage() {
             </Link>
             <div className="flex items-center gap-2">
               <Building2 className="h-6 w-6" />
-              <span className="font-bold text-lg">ConstructPro</span>
+              <span className="font-bold text-lg">c-plan</span>
             </div>
           </div>
         </div>

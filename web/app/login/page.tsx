@@ -50,9 +50,9 @@ function LoginForm() {
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12">
         <div className="flex items-center gap-2 text-primary-foreground">
           <Building2 className="h-10 w-10" />
-          <span className="font-bold text-2xl">ConstructPro</span>
+          <span className="font-bold text-2xl">c-plan</span>
         </div>
-        
+
         <div className="space-y-6">
           <h1 className="text-4xl font-bold text-primary-foreground text-balance">
             Manage your construction projects with ease
@@ -61,19 +61,19 @@ function LoginForm() {
             Track progress, manage teams, and predict risks all in one platform designed for construction professionals.
           </p>
         </div>
-        
+
         <p className="text-sm text-primary-foreground/60">
-          &copy; {new Date().getFullYear()} ConstructPro. All rights reserved.
+          &copy; {new Date().getFullYear()} c-plan. All rights reserved.
         </p>
       </div>
-      
+
       {/* Right Panel - Login Form */}
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
         <Card className="w-full max-w-md border-0 shadow-lg">
           <CardHeader className="space-y-1 text-center">
             <div className="flex items-center justify-center gap-2 mb-4 lg:hidden">
               <Building2 className="h-8 w-8 text-primary" />
-              <span className="font-bold text-xl text-foreground">ConstructPro</span>
+              <span className="font-bold text-xl text-foreground">c-plan</span>
             </div>
             <CardTitle className="text-2xl">Welcome back</CardTitle>
             <CardDescription>
@@ -87,7 +87,7 @@ function LoginForm() {
                   {error}
                 </div>
               )}
-              
+
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -99,7 +99,7 @@ function LoginForm() {
                   disabled={isLoading}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
                 <div className="relative">
@@ -121,7 +121,7 @@ function LoginForm() {
                   </button>
                 </div>
               </div>
-              
+
               <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? (
                   <>
@@ -138,12 +138,12 @@ function LoginForm() {
                   Forgot password?
                 </Link>
                 <div className="flex items-center justify-center gap-2 mt-2">
-                <p className="text-muted-foreground">
-                  {"Don't have an account? "}
-                  <Link href="/signup" className="text-accent hover:underline font-medium">
-                    Sign up
-                  </Link>
-                </p>
+                  <p className="text-muted-foreground">
+                    {"Don't have an account? "}
+                    <Link href="/signup" className="text-accent hover:underline font-medium">
+                      Sign up
+                    </Link>
+                  </p>
                 </div>
               </div>
             </form>

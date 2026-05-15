@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { Building2, Menu, X } from 'lucide-react'
+import { Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
+import { SiteLogo } from '@/components/site-logo'
 
 interface HeaderProps {
   onOpenDashboard: () => void
@@ -19,10 +20,7 @@ export function Header({ onOpenDashboard }: HeaderProps) {
       <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <div className="flex items-center gap-2">
-            <Building2 className="h-8 w-8" />
-            <span className="font-bold text-xl">ConstructPro</span>
-          </div>
+          <SiteLogo showText className="text-primary-foreground" textClassName="text-xl" imageClassName="h-15 w-15" size={40} />
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-8">
@@ -44,15 +42,15 @@ export function Header({ onOpenDashboard }: HeaderProps) {
                 <span className="text-sm text-primary-foreground/80 max-w-[180px] truncate inline-block">
                   Welcome, {user?.full_name}
                 </span>
-                <Button 
-                  variant="secondary" 
+                <Button
+                  variant="secondary"
                   size="sm"
                   onClick={onOpenDashboard}
                 >
                   Open Dashboard
                 </Button>
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   size="sm"
                   className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
                   onClick={logout}
@@ -63,8 +61,8 @@ export function Header({ onOpenDashboard }: HeaderProps) {
             ) : (
               <>
                 <Link href="/login">
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="sm"
                     className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
                   >
@@ -94,22 +92,22 @@ export function Header({ onOpenDashboard }: HeaderProps) {
         {mobileMenuOpen && (
           <div className="md:hidden py-4 border-t border-primary-foreground/20">
             <div className="flex flex-col gap-4">
-              <Link 
-                href="#features" 
+              <Link
+                href="#features"
                 className="text-sm text-primary-foreground/80 hover:text-primary-foreground"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Features
               </Link>
-              <Link 
-                href="#about" 
+              <Link
+                href="#about"
                 className="text-sm text-primary-foreground/80 hover:text-primary-foreground"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 About
               </Link>
-              <Link 
-                href="#contact" 
+              <Link
+                href="#contact"
                 className="text-sm text-primary-foreground/80 hover:text-primary-foreground"
                 onClick={() => setMobileMenuOpen(false)}
               >
@@ -118,8 +116,8 @@ export function Header({ onOpenDashboard }: HeaderProps) {
               <div className="flex gap-2 pt-4 border-t border-primary-foreground/20">
                 {isAuthenticated ? (
                   <>
-                    <Button 
-                      variant="secondary" 
+                    <Button
+                      variant="secondary"
                       size="sm"
                       className="flex-1"
                       onClick={() => {
@@ -129,8 +127,8 @@ export function Header({ onOpenDashboard }: HeaderProps) {
                     >
                       Open Dashboard
                     </Button>
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       size="sm"
                       className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
                       onClick={() => {
@@ -144,8 +142,8 @@ export function Header({ onOpenDashboard }: HeaderProps) {
                 ) : (
                   <>
                     <Link href="/login" className="flex-1">
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         size="sm"
                         className="w-full text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
                       >

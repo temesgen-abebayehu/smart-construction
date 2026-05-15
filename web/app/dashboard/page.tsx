@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/lib/auth-context'
+import { SiteLogo } from '@/components/site-logo'
 import { ProjectSelectionModal } from '@/components/project-selection-modal'
 import { AnnouncementBanner } from '@/components/announcement-banner'
 import {
@@ -238,8 +239,7 @@ export default function DashboardProjectListPage() {
       <header className="border-b border-border bg-card">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            <Building2 className="h-7 w-7 text-primary" />
-            <span className="font-bold text-xl text-foreground">ConstructPro</span>
+            <SiteLogo imageClassName="h-12 w-12" textClassName="text-xl text-foreground" />
           </Link>
           <div className="flex items-center gap-4">
             {/* Profile Dropdown */}
@@ -350,17 +350,7 @@ export default function DashboardProjectListPage() {
                     </CardContent>
                   </Card>
 
-                  {/* Contractors */}
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <CardTitle className="text-sm font-medium">Contractors</CardTitle>
-                      <Truck className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">{stats.total_contractors}</div>
-                      <p className="text-xs text-muted-foreground">Registered</p>
-                    </CardContent>
-                  </Card>
+
 
                   {/* Suppliers */}
                   <Card>

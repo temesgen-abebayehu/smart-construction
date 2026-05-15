@@ -65,7 +65,7 @@ function SignupForm() {
       phone_number: formData.phone_number || undefined,
       password: formData.password,
     })
-    
+
     if (result.success) {
       router.push('/login')
     } else {
@@ -79,9 +79,9 @@ function SignupForm() {
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12">
         <div className="flex items-center gap-2 text-primary-foreground">
           <Building2 className="h-10 w-10" />
-          <span className="font-bold text-2xl">ConstructPro</span>
+          <span className="font-bold text-2xl">c-plan</span>
         </div>
-        
+
         <div className="space-y-6">
           <h1 className="text-4xl font-bold text-primary-foreground text-balance">
             Join thousands of construction professionals
@@ -104,19 +104,19 @@ function SignupForm() {
             </li>
           </ul>
         </div>
-        
+
         <p className="text-sm text-primary-foreground/60">
-          &copy; {new Date().getFullYear()} ConstructPro. All rights reserved.
+          &copy; {new Date().getFullYear()} c-plan. All rights reserved.
         </p>
       </div>
-      
+
       {/* Right Panel - Signup Form */}
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
         <Card className="w-full max-w-md border-0 shadow-lg">
           <CardHeader className="space-y-1 text-center">
             <div className="flex items-center justify-center gap-2 mb-4 lg:hidden">
               <Building2 className="h-8 w-8 text-primary" />
-              <span className="font-bold text-xl text-foreground">ConstructPro</span>
+              <span className="font-bold text-xl text-foreground">c-plan</span>
             </div>
             <CardTitle className="text-2xl">Create an account</CardTitle>
             <CardDescription>
@@ -130,7 +130,7 @@ function SignupForm() {
                   {error}
                 </div>
               )}
-              
+
               <div className="space-y-2">
                 <Label htmlFor="full_name">Full Name *</Label>
                 <Input
@@ -143,7 +143,7 @@ function SignupForm() {
                   disabled={isLoading}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="email">Email *</Label>
                 <Input
@@ -156,7 +156,7 @@ function SignupForm() {
                   disabled={isLoading}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone Number</Label>
                 <Input
@@ -164,12 +164,12 @@ function SignupForm() {
                   name="phone_number"
                   type="tel"
                   placeholder="+251 91 123 4567"
-                  value={formData.phone_number}   
+                  value={formData.phone_number}
                   onChange={handleChange}
                   disabled={isLoading}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="password">Password *</Label>
                 <div className="relative">
@@ -192,7 +192,7 @@ function SignupForm() {
                   </button>
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="confirm_password">Confirm Password *</Label>
                 <Input
@@ -205,7 +205,7 @@ function SignupForm() {
                   disabled={isLoading}
                 />
               </div>
-              
+
               <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? (
                   <>
@@ -216,7 +216,7 @@ function SignupForm() {
                   'Create account'
                 )}
               </Button>
-              
+
               <p className="text-center text-sm text-muted-foreground">
                 Already have an account?{' '}
                 <Link href="/login" className="text-accent hover:underline font-medium">
