@@ -106,6 +106,9 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
   const [selectedEquipmentForIdle, setSelectedEquipmentForIdle] = useState<string | null>(null)
   const [suppliers, setSuppliers] = useState<SupplierItem[]>([])
 
+  // Track edit-before-resubmit for rejected logs
+  const [hasBeenEdited, setHasBeenEdited] = useState(false)
+
   // Photo upload
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null)
@@ -193,6 +196,13 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
     loadData()
   }, [projectId, logId])
 
+  useEffect(() => {
+    const key = `log_edited_${logId}`
+    if (sessionStorage.getItem(key) === '1') {
+      setHasBeenEdited(true)
+    }
+  }, [logId])
+
   const handleAction = async (action: () => Promise<unknown>) => {
     setActionLoading(true)
     try {
@@ -229,8 +239,8 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
       } else if (addType === 'material') {
         const unitCost = Number(formData.unit_cost) || Number(formData.cost) || 0
         const qty = Number(formData.quantity) || 0
-        const supplierObj = formData.supplier_id 
-          ? suppliers.find(s => s.id === formData.supplier_id) 
+        const supplierObj = formData.supplier_id
+          ? suppliers.find(s => s.id === formData.supplier_id)
           : null
         await addLogMaterial(logId, {
           name: formData.name || '',
@@ -356,7 +366,8 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
 
   if (!project || !log) return null
 
-  const canSubmit = (log.status === 'draft' || log.status === 'rejected') && userRole === 'site_engineer'
+  const canSubmit = log.status === 'draft' && userRole === 'site_engineer'
+  const canResubmit = log.status === 'rejected' && userRole === 'site_engineer' && hasBeenEdited
   const canConsultantApprove = log.status === 'submitted' && userRole === 'consultant'
   const canPmApprove = log.status === 'consultant_approved' && userRole === 'project_manager'
   const canReject = (
@@ -820,7 +831,21 @@ export default function LogDetailPage({ params }: LogDetailPageProps) {
               )}
               {canSubmit && (
                 <Button className="w-full mt-2" disabled={actionLoading} onClick={() => handleAction(() => submitLog(logId))}>
-                  {log.status === 'rejected' ? 'Re-submit Log' : 'Submit for Review'}
+                  Submit for Review
+                </Button>
+              )}
+              {log.status === 'rejected' && userRole === 'site_engineer' && !hasBeenEdited && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Edit the log first, then you can re-submit.
+                </p>
+              )}
+              {canResubmit && (
+                <Button className="w-full mt-2" disabled={actionLoading} onClick={() => {
+                  sessionStorage.removeItem(`log_edited_${logId}`)
+                  setHasBeenEdited(false)
+                  handleAction(() => submitLog(logId))
+                }}>
+                  Re-submit Log
                 </Button>
               )}
               {canConsultantApprove && (

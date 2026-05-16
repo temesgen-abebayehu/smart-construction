@@ -20,9 +20,9 @@ from app.models.log import (
 from app.models.task import TaskDependency, Task
 from app.schemas.log import (
     DailyLogCreate, DailyLogResponse, DailyLogReject,
-    ManpowerCreate, ManpowerResponse,
-    MaterialCreate, MaterialResponse,
-    EquipmentCreate, EquipmentResponse,
+    ManpowerCreate, ManpowerUpdate, ManpowerResponse,
+    MaterialCreate, MaterialUpdate, MaterialResponse,
+    EquipmentCreate, EquipmentUpdate, EquipmentResponse,
     EquipmentIdleCreate, EquipmentIdleResponse,
     DailyLogPhotoResponse,
     DailyLogActivityCreate, DailyLogActivityResponse,
@@ -351,6 +351,23 @@ async def list_manpower(log_id: UUID, db: DbSession, _: User = Depends(get_curre
     result = await db.execute(select(Manpower).where(Manpower.log_id == log_id))
     return list(result.scalars().all())
 
+@logs_router.patch("/manpower/{manpower_id}", response_model=ManpowerResponse, summary="Update manpower entry")
+async def update_manpower(manpower_id: UUID, body: ManpowerUpdate, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
+    obj = await db.get(Manpower, manpower_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Manpower entry not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(obj, field, value)
+    db.add(obj); await db.commit(); await db.refresh(obj)
+    return obj
+
+@logs_router.delete("/manpower/{manpower_id}", status_code=204, summary="Delete manpower entry")
+async def delete_manpower(manpower_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> None:
+    obj = await db.get(Manpower, manpower_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Manpower entry not found")
+    await db.delete(obj); await db.commit()
+
 
 # ── Sub-Entities: Materials ──
 
@@ -375,6 +392,23 @@ async def list_materials(log_id: UUID, db: DbSession, _: User = Depends(get_curr
     result = await db.execute(select(Material).where(Material.log_id == log_id))
     return list(result.scalars().all())
 
+@logs_router.patch("/materials/{material_id}", response_model=MaterialResponse, summary="Update material entry")
+async def update_material(material_id: UUID, body: MaterialUpdate, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
+    obj = await db.get(Material, material_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Material entry not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(obj, field, value)
+    db.add(obj); await db.commit(); await db.refresh(obj)
+    return obj
+
+@logs_router.delete("/materials/{material_id}", status_code=204, summary="Delete material entry")
+async def delete_material(material_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> None:
+    obj = await db.get(Material, material_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Material entry not found")
+    await db.delete(obj); await db.commit()
+
 
 # ── Sub-Entities: Equipment ──
 
@@ -398,6 +432,23 @@ async def add_equipment(*, db: DbSession, log_id: UUID, equip_in: EquipmentCreat
 async def list_equipment(log_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
     result = await db.execute(select(Equipment).where(Equipment.log_id == log_id))
     return list(result.scalars().all())
+
+@logs_router.patch("/equipment/{equipment_id}", response_model=EquipmentResponse, summary="Update equipment entry")
+async def update_equipment_entry(equipment_id: UUID, body: EquipmentUpdate, db: DbSession, _: User = Depends(get_current_active_user)) -> Any:
+    obj = await db.get(Equipment, equipment_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Equipment entry not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(obj, field, value)
+    db.add(obj); await db.commit(); await db.refresh(obj)
+    return obj
+
+@logs_router.delete("/equipment/{equipment_id}", status_code=204, summary="Delete equipment entry")
+async def delete_equipment_entry(equipment_id: UUID, db: DbSession, _: User = Depends(get_current_active_user)) -> None:
+    obj = await db.get(Equipment, equipment_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Equipment entry not found")
+    await db.delete(obj); await db.commit()
 
 
 # ── Sub-Entities: Equipment Idle ──

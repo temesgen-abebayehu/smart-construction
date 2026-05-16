@@ -271,10 +271,6 @@ export default function CreateLogPage({ params }: CreateLogPageProps) {
         const hasMaterial = materials.some(m => m.material_type.trim() && m.quantity && m.unit_cost)
         const hasEquipment = equipment.some(e => e.type.trim() && e.operation_time && e.cost_per_unit)
 
-        if (!saveAsDraft && !hasHumanResource && !hasMaterial && !hasEquipment) {
-            toast.error('Please add at least one human resource, material, or equipment entry')
-            return
-        }
 
         setCreating(true)
         try {
@@ -1044,7 +1040,7 @@ export default function CreateLogPage({ params }: CreateLogPageProps) {
                                 disabled={creating || selectedTaskIds.size === 0 || selectedActivities.size === 0}
                             >
                                 {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                Create Daily Log
+                                Save as Draft
                             </Button>
 
                             <Button
@@ -1056,14 +1052,6 @@ export default function CreateLogPage({ params }: CreateLogPageProps) {
                                 Clear
                             </Button>
 
-                            <Button
-                                variant="outline"
-                                className="w-full"
-                                onClick={() => handleCreate(true)}
-                                disabled={creating || selectedTaskIds.size === 0}
-                            >
-                                Save as Draft
-                            </Button>
                         </CardContent>
                     </Card>
                 </div>

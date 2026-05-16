@@ -27,6 +27,7 @@ import {
   CheckCircle2,
   GitBranch,
   Loader2,
+  Pencil,
   PencilLine,
   Plus,
   Save,
@@ -74,6 +75,10 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   const [newActName, setNewActName] = useState('')
   const [newActPct, setNewActPct] = useState('')
   const [addingAct, setAddingAct] = useState(false)
+  const [editingActId, setEditingActId] = useState<string | null>(null)
+  const [editActName, setEditActName] = useState('')
+  const [editActPct, setEditActPct] = useState('')
+  const [savingAct, setSavingAct] = useState(false)
 
   // Editable fields
   const [editName, setEditName] = useState('')
@@ -87,6 +92,8 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
 
   const canEdit = userRole === 'project_manager'
   const canEditProgress = userRole === 'project_manager' || userRole === 'site_engineer'
+  const usedActPct = activities.reduce((s, a) => s + a.percentage, 0)
+  const remainingActPct = parseFloat((100 - usedActPct).toFixed(2))
 
   useEffect(() => {
     let cancelled = false
@@ -467,123 +474,118 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
             </CardHeader>
             <CardContent className="space-y-3">
               {activities.map((act) => (
-                <div key={act.id} className="flex items-center justify-between rounded-lg border p-2.5">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <button
-                      type="button"
-                      className={`grid h-5 w-5 shrink-0 place-items-center rounded border transition-colors ${act.is_completed
-                        ? 'border-emerald-500 bg-emerald-500 text-white'
-                        : 'border-slate-300 hover:border-emerald-400'
-                        }`}
-                      onClick={async () => {
-                        try {
-                          await updateTaskActivity(taskId, act.id, { is_completed: !act.is_completed })
-                          setActivities(prev => prev.map(a => a.id === act.id ? { ...a, is_completed: !a.is_completed } : a))
-                          // Reload task to get updated progress
-                          const t = await getTask(taskId)
-                          setTask(t)
-                        } catch (e) {
-                          toast.error(e instanceof Error ? e.message : 'Failed to update')
-                        }
-                      }}
-                    >
-                      {act.is_completed && <CheckCircle2 className="h-3 w-3" />}
-                    </button>
-                    <span className={`text-sm truncate ${act.is_completed ? 'line-through text-muted-foreground' : ''}`}>{act.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Badge variant="outline" className="text-[10px]">{act.percentage}%</Badge>
-                    {canEdit && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                <div key={act.id} className="space-y-1">
+                  <div className="flex items-center justify-between rounded-lg border p-2.5">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <button
+                        type="button"
+                        className={`grid h-5 w-5 shrink-0 place-items-center rounded border transition-colors ${act.is_completed ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 hover:border-emerald-400'}`}
                         onClick={async () => {
                           try {
-                            await deleteTaskActivity(taskId, act.id)
-                            setActivities(prev => prev.filter(a => a.id !== act.id))
+                            await updateTaskActivity(taskId, act.id, { is_completed: !act.is_completed })
+                            setActivities(prev => prev.map(a => a.id === act.id ? { ...a, is_completed: !a.is_completed } : a))
                             const t = await getTask(taskId)
                             setTask(t)
-                            toast.success('Activity removed')
                           } catch (e) {
-                            toast.error(e instanceof Error ? e.message : 'Failed')
+                            toast.error(e instanceof Error ? e.message : 'Failed to update')
                           }
                         }}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
+                        {act.is_completed && <CheckCircle2 className="h-3 w-3" />}
+                      </button>
+                      <span className={`text-sm truncate ${act.is_completed ? 'line-through text-muted-foreground' : ''}`}>{act.name}</span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Badge variant="outline" className="text-[10px]">{act.percentage}%</Badge>
+                      {canEdit && (
+                        <>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground"
+                            onClick={() => { setEditingActId(act.id); setEditActName(act.name); setEditActPct(String(act.percentage)) }}>
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={async () => {
+                              try {
+                                await deleteTaskActivity(taskId, act.id)
+                                setActivities(prev => prev.filter(a => a.id !== act.id))
+                                const t = await getTask(taskId)
+                                setTask(t)
+                                toast.success('Activity removed')
+                              } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') }
+                            }}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
+                  {editingActId === act.id && (
+                    <div className="space-y-2 rounded-lg border bg-muted/30 p-2">
+                      <div className="grid grid-cols-[1fr_80px] gap-2">
+                        <Input className="h-7 text-sm" value={editActName} onChange={e => setEditActName(e.target.value)} placeholder="Activity name" />
+                        <Input className="h-7 text-sm" type="number" min={1} max={100} value={editActPct} onChange={e => setEditActPct(e.target.value)} placeholder="%" />
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditingActId(null)}>Cancel</Button>
+                        <Button size="sm" className="h-7 px-2 text-xs" disabled={savingAct || !editActName.trim()}
+                          onClick={async () => {
+                            setSavingAct(true)
+                            try {
+                              const updated = await updateTaskActivity(taskId, act.id, {
+                                name: editActName.trim(),
+                                percentage: Number(editActPct) || act.percentage,
+                              })
+                              setActivities(prev => prev.map(a => a.id === act.id ? updated : a))
+                              const t = await getTask(taskId)
+                              setTask(t)
+                              setEditingActId(null)
+                              toast.success('Activity updated')
+                            } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') }
+                            finally { setSavingAct(false) }
+                          }}>
+                          {savingAct ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
-
               {activities.length === 0 && (
                 <p className="text-xs text-muted-foreground text-center py-2">No activities. Add activities to track progress.</p>
               )}
-
-              {canEdit && (
+              {canEdit && usedActPct >= 100 && (
+                <p className="text-xs text-center text-muted-foreground rounded-lg border border-dashed py-2">
+                  100% allocated — delete an activity to add a new one.
+                </p>
+              )}
+              {canEdit && usedActPct < 100 && (
                 <div className="rounded-lg border p-3 space-y-2">
                   <div className="grid grid-cols-[1fr_80px] gap-2">
-                    <Input
-                      placeholder="Activity name"
-                      value={newActName}
-                      onChange={(e) => setNewActName(e.target.value)}
-                      className="h-8 text-sm"
-                    />
-                    <Input
-                      type="number"
-                      min={1}
-                      max={100}
-                      placeholder="%"
-                      value={newActPct}
-                      onChange={(e) => setNewActPct(e.target.value)}
-                      className="h-8 text-sm"
-                    />
+                    <Input placeholder="Activity name" value={newActName} onChange={(e) => setNewActName(e.target.value)} className="h-8 text-sm" />
+                    <Input type="number" min={1} max={remainingActPct} placeholder="%" value={newActPct} onChange={(e) => setNewActPct(e.target.value)} className="h-8 text-sm" />
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Leave percentage empty to auto-distribute equally among all activities
-                  </p>
-                  <Button
-                    size="sm"
-                    className="w-full gap-1"
-                    disabled={addingAct || !newActName.trim()}
+                  <p className="text-xs text-muted-foreground">Leave % empty to use remaining ({remainingActPct}%)</p>
+                  <Button size="sm" className="w-full gap-1" disabled={addingAct || !newActName.trim()}
                     onClick={async () => {
                       setAddingAct(true)
                       try {
-                        // If percentage not provided, calculate equal distribution
                         let percentage = newActPct ? Number(newActPct) : null
-
                         if (percentage === null) {
-                          // Auto-distribute: 100 / (existing + 1)
-                          const totalActivities = activities.length + 1
-                          percentage = Math.floor(100 / totalActivities)
-
-                          // Update existing activities to equal distribution
-                          for (const act of activities) {
-                            await updateTaskActivity(taskId, act.id, { percentage })
-                          }
+                          percentage = Math.max(0, parseFloat((100 - activities.reduce((s, a) => s + a.percentage, 0)).toFixed(2)))
                         }
-
-                        const created = await addTaskActivity(taskId, {
-                          name: newActName.trim(),
-                          percentage,
-                        })
+                        const created = await addTaskActivity(taskId, { name: newActName.trim(), percentage })
                         setActivities(prev => [...prev, created])
                         setNewActName('')
                         setNewActPct('')
-
-                        // Reload task to get updated progress
                         const t = await getTask(taskId)
                         setTask(t)
-
                         toast.success('Activity added')
                       } catch (e) {
                         toast.error(e instanceof Error ? e.message : 'Failed')
                       } finally {
                         setAddingAct(false)
                       }
-                    }}
-                  >
+                    }}>
                     {addingAct ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                     Add Activity
                   </Button>
@@ -783,6 +785,6 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
           )}
         </div>
       </div>
-    </div>
+    </div >
   )
 }

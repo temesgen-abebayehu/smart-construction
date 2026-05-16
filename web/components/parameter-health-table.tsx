@@ -21,7 +21,6 @@ interface ParameterHealthTableProps {
         cost_deviation?: number | null
         time_deviation?: number | null
         equipment_utilization_rate?: number | null
-        material_shortage_alert?: number | null
     }
 }
 
@@ -58,6 +57,8 @@ function getStatusBadge(status: 'ok' | 'warning' | 'critical') {
 export function ParameterHealthTable({ features }: ParameterHealthTableProps) {
     const parameters: ParameterRow[] = []
     const taskProgress = features.task_progress || 0
+    let criticalCount = 0
+    let warningCount = 0
 
     // Only show relevant parameters based on project stage
 
@@ -144,18 +145,34 @@ export function ParameterHealthTable({ features }: ParameterHealthTableProps) {
         })
     }
 
-    // 6. Material Shortage - only show if there's an actual shortage
-    if (features.material_shortage_alert === 1) {
+    // 6. Material Consumption - stage-aware consumption signal
+    if (features.material_usage != null) {
+        const val = features.material_usage
+        const status = val < 20 ? 'warning' : val <= 150 ? 'ok' : 'critical'
         parameters.push({
-            name: 'Material Availability',
-            current: 'Shortage',
-            healthy: 'Available',
-            status: 'critical',
-            deviation: 'Action required',
+            name: 'Material Consumption',
+            current: `${val.toFixed(0)} units/log`,
+            healthy: '20-150 units/log',
+            status,
+            deviation: val < 20 ? 'Low material flow' : val > 150 ? 'Heavy consumption' : 'Normal',
         })
     }
 
-    // 7. Weather - informational only, never critical
+    // 7. Machinery Status - execution-stage readiness
+    if (features.machinery_status != null) {
+        const val = features.machinery_status
+        const active = val === 1
+        const status = active ? 'ok' : taskProgress > 15 ? 'critical' : 'warning'
+        parameters.push({
+            name: 'Machinery Availability',
+            current: active ? 'Active' : 'Idle / unavailable',
+            healthy: 'Active during execution',
+            status,
+            deviation: active ? 'Ready for work' : 'May slow production',
+        })
+    }
+
+    // 8. Weather - informational only, never critical
     if (features.temperature != null) {
         const val = features.temperature
         const tooHot = val > 35
@@ -184,6 +201,11 @@ export function ParameterHealthTable({ features }: ParameterHealthTableProps) {
         })
     }
 
+    for (const param of parameters) {
+        if (param.status === 'critical') criticalCount += 1
+        if (param.status === 'warning') warningCount += 1
+    }
+
     if (parameters.length === 0) {
         return (
             <div className="rounded-lg border bg-muted/30 p-8 text-center">
@@ -195,7 +217,30 @@ export function ParameterHealthTable({ features }: ParameterHealthTableProps) {
     }
 
     return (
-        <div className="rounded-lg border">
+        <div className="space-y-4">
+            <div className="rounded-lg border bg-card p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <p className="text-sm font-semibold">Parameter Health Summary</p>
+                        <p className="text-xs text-muted-foreground">
+                            Derived from the current ML feature set and adjusted for the project stage.
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-full bg-green-100 px-3 py-1 font-medium text-green-700">
+                            {parameters.length - warningCount - criticalCount} Healthy
+                        </span>
+                        <span className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-700">
+                            {warningCount} Watch
+                        </span>
+                        <span className="rounded-full bg-red-100 px-3 py-1 font-medium text-red-700">
+                            {criticalCount} Critical
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="rounded-lg border">
             <Table>
                 <TableHeader>
                     <TableRow>
@@ -225,6 +270,7 @@ export function ParameterHealthTable({ features }: ParameterHealthTableProps) {
                     ))}
                 </TableBody>
             </Table>
+            </div>
         </div>
     )
 }

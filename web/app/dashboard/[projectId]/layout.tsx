@@ -7,6 +7,7 @@ import { ProjectRoleProvider } from '@/lib/project-role-context'
 import { DashboardSidebar } from '@/components/dashboard/sidebar'
 import { DashboardHeader } from '@/components/dashboard/header'
 import { FooterBar } from '@/components/shared/footer-bar'
+import { AnnouncementBanner } from '@/components/announcement-banner'
 import { fetchProjectRole } from '@/lib/api'
 import type { ProjectListItem } from '@/lib/api-types'
 import type { ProjectRole } from '@/lib/domain'
@@ -30,29 +31,29 @@ export default function DashboardLayout({ children, params }: DashboardLayoutPro
   useEffect(() => {
     if (!isAuthenticated) return
     let cancelled = false
-    ;(async () => {
-      setDataLoading(true)
-      setLoadError(false)
-      try {
-        const result = await fetchProjectRole(projectId, user!.id)
-        if (cancelled) return
-        if (result) {
-          setProjectRow(result.project)
-          setUserRole(result.role)
-          setLoadError(false)
-        } else {
-          setProjectRow(null)
-          setLoadError(true)
+      ; (async () => {
+        setDataLoading(true)
+        setLoadError(false)
+        try {
+          const result = await fetchProjectRole(projectId, user!.id)
+          if (cancelled) return
+          if (result) {
+            setProjectRow(result.project)
+            setUserRole(result.role)
+            setLoadError(false)
+          } else {
+            setProjectRow(null)
+            setLoadError(true)
+          }
+        } catch {
+          if (!cancelled) {
+            setProjectRow(null)
+            setLoadError(true)
+          }
+        } finally {
+          if (!cancelled) setDataLoading(false)
         }
-      } catch {
-        if (!cancelled) {
-          setProjectRow(null)
-          setLoadError(true)
-        }
-      } finally {
-        if (!cancelled) setDataLoading(false)
-      }
-    })()
+      })()
     return () => {
       cancelled = true
     }
@@ -115,6 +116,7 @@ export default function DashboardLayout({ children, params }: DashboardLayoutPro
             projectName={projectRow.name}
             userRole={userRole}
           />
+          <AnnouncementBanner />
           <main className="flex-1 overflow-auto p-6">{children}</main>
           <FooterBar />
         </div>

@@ -16,6 +16,15 @@ class ManpowerBase(BaseModel):
 class ManpowerCreate(ManpowerBase):
     pass
 
+class ManpowerUpdate(BaseModel):
+    worker_type: str | None = None
+    number_of_workers: int | None = None
+    hours_worked: float | None = None
+    overtime_hours: float | None = None
+    hourly_rate: float | None = None
+    overtime_rate: float | None = None
+    cost: float | None = None
+
 class ManpowerResponse(ManpowerBase):
     id: UUID
     log_id: UUID
@@ -35,6 +44,16 @@ class MaterialBase(BaseModel):
 class MaterialCreate(MaterialBase):
     pass
 
+class MaterialUpdate(BaseModel):
+    name: str | None = None
+    supplier_id: UUID | None = None
+    supplier_name: str | None = None
+    quantity: float | None = None
+    unit: str | None = None
+    unit_cost: float | None = None
+    cost: float | None = None
+    delivery_date: datetime | None = None
+
 class MaterialResponse(MaterialBase):
     id: UUID
     log_id: UUID
@@ -53,6 +72,16 @@ class EquipmentBase(BaseModel):
 
 class EquipmentCreate(EquipmentBase):
     pass
+
+class EquipmentUpdate(BaseModel):
+    name: str | None = None
+    quantity: int | None = None
+    start_date: datetime | None = None
+    hours_used: float | None = None
+    unit_cost: float | None = None
+    cost: float | None = None
+    idle_hours: float | None = None
+    idle_reason: str | None = None
 
 class EquipmentResponse(EquipmentBase):
     id: UUID

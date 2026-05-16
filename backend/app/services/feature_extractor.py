@@ -6,19 +6,36 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import Project
-from app.models.task import Task
 from app.models.log import DailyLog, Manpower, Material, Equipment, EquipmentIdle
 from app.services.weather import get_weather
 
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Feature contract — must match feature_names.json shipped with the model.
+# Units below are the units the model was trained on (see
+# construction_ml_training.ipynb, Cell 2).
+#
+#   cost_deviation              percentage points  (-30..+50)
+#   time_deviation              fraction           (-0.3..+0.5)
+#   task_progress               %                  (0..100)
+#   equipment_utilization_rate  %                  (0..100)
+#   worker_count                avg workers/day    (0..80)
+#   material_usage              avg units/log      (0..200)
+#   temperature                 °C                 (15..40)
+#   humidity                    %                  (20..80)
+#   machinery_status            binary             (0/1)
+# ---------------------------------------------------------------------------
+
+
 async def _load_log_aggregates(
     db: AsyncSession, project_id: UUID
-) -> tuple[list[Manpower], list[Material], list[Equipment], list[EquipmentIdle]]:
-    """Pull all daily-log sub-entities (manpower, materials, equipment, idle) for a project."""
+) -> tuple[list[DailyLog], list[Manpower], list[Material], list[Equipment], list[EquipmentIdle]]:
+    """Pull all daily logs and their sub-entities (manpower, materials, equipment, idle)."""
     logs_res = await db.execute(select(DailyLog).where(DailyLog.project_id == project_id))
-    log_ids = [l.id for l in logs_res.scalars().all()]
+    logs = list(logs_res.scalars().all())
+    log_ids = [l.id for l in logs]
     logger.info("feature_extractor: found %d daily logs", len(log_ids))
 
     manpower: list[Manpower] = []
@@ -36,16 +53,19 @@ async def _load_log_aggregates(
         idle = list((await db.execute(select(EquipmentIdle).where(EquipmentIdle.equipment_id.in_(equip_ids)))).scalars().all())
 
     logger.info(
-        "feature_extractor: aggregated manpower=%d materials=%d equipment=%d idle=%d",
-        len(manpower), len(materials), len(equipment), len(idle),
+        "feature_extractor: aggregated logs=%d manpower=%d materials=%d equipment=%d idle=%d",
+        len(logs), len(manpower), len(materials), len(equipment), len(idle),
     )
-    return manpower, materials, equipment, idle
+    return logs, manpower, materials, equipment, idle
 
 
-def _compute_time_deviation(project: Project, task_progress: float) -> float | None:
-    """0–1 ratio of how far behind expected progress; None if dates missing."""
+def _compute_time_deviation(project: Project, task_progress: float) -> float:
+    """Schedule deviation as a fraction: expected_progress_fraction - actual_progress_fraction.
+    Range used during training: -0.3..+0.5 (positive = behind schedule).
+    Returns 0.0 when planned dates are missing.
+    """
     if not (project.planned_start_date and project.planned_end_date):
-        return None
+        return 0.0
     start = project.planned_start_date
     end = project.planned_end_date
     if start.tzinfo is None:
@@ -54,123 +74,101 @@ def _compute_time_deviation(project: Project, task_progress: float) -> float | N
         end = end.replace(tzinfo=timezone.utc)
     planned_total = (end - start).days
     if planned_total <= 0:
-        return None
-    elapsed = max(0, (datetime.now(timezone.utc) - start).days)
-    expected = min(elapsed / planned_total, 1.0)
-    actual = task_progress / 100.0
-    return max(0.0, expected - actual)
+        return 0.0
+    elapsed = (datetime.now(timezone.utc) - start).days
+    expected = max(0.0, min(elapsed / planned_total, 1.0))
+    actual = max(0.0, min(task_progress / 100.0, 1.0))
+    # Allow negative (ahead of schedule) and positive (behind).
+    return expected - actual
 
 
 async def build_features(db: AsyncSession, project: Project) -> dict:
     """
-    Build the 10-feature dict the ML model expects.
-    
-    Research-based approach for early-stage projects:
-    - Planning phase (0 logs): Use industry baseline values for planning
-    - Mobilization (1-4 logs): Blend actual + baseline values
-    - Execution (5+ logs): Use actual values
-    
-    Industry baselines from construction risk management research:
-    - Planning phase typically has LOW operational risk
-    - Risk comes from planning quality, not operational metrics
-    - Operational metrics should reflect "not yet applicable" state
+    Build the 9-feature dict the ML model expects.
+
+    All formulas here are aligned with the training notebook
+    (construction_ml_training.ipynb). If you change a unit or formula
+    here, you MUST retrain and ship a new feature_names.json.
     """
     logger.info("feature_extractor.build_features: project_id=%s location=%r", project.id, project.location)
 
-    manpower, materials, equipment, idle = await _load_log_aggregates(db, project.id)
-    
-    # Count approved logs to determine project stage
-    approved_logs_res = await db.execute(
-        select(DailyLog).where(
-            DailyLog.project_id == project.id,
-            DailyLog.status == "pm_approved"
-        )
-    )
-    approved_logs_count = len(list(approved_logs_res.scalars().all()))
+    logs, manpower, materials, equipment, idle = await _load_log_aggregates(db, project.id)
+
+    # Approved logs are the canonical denominator for "per-day average" metrics.
+    approved_logs = [l for l in logs if str(getattr(l, "status", "")) == "pm_approved"]
+    approved_count = len(approved_logs)
+    approved_log_ids = {l.id for l in approved_logs}
+
     task_progress = float(project.progress_percentage or 0.0)
-    
-    logger.info(
-        "feature_extractor: project stage - approved_logs=%d, progress=%.1f%%",
-        approved_logs_count, task_progress
-    )
 
-    # Get weather data
+    # --- Weather (training range 15-40°C, 20-80%) -------------------------
     weather = await get_weather(project.location)
-    temperature = weather["temperature"] if weather else None
-    humidity = weather["humidity"] if weather else None
+    temperature = weather["temperature"] if weather else 27.5  # imputer median fallback
+    humidity = weather["humidity"] if weather else 50.0
+    temperature = max(15.0, min(40.0, float(temperature)))
+    humidity = max(20.0, min(80.0, float(humidity)))
 
-    # Calculate raw operational metrics
-    material_usage_raw = sum((m.quantity or 0.0) for m in materials)
-    worker_count_raw = len(manpower)
+    # --- worker_count: AVG workers per day across approved logs -----------
+    # Training expects an average headcount, NOT a row count of manpower
+    # entries. Use Manpower.number_of_workers and group by log.
+    worker_count = 0.0
+    if approved_count > 0:
+        approved_manpower = [m for m in manpower if m.log_id in approved_log_ids]
+        total_workers = sum(int(m.number_of_workers or 0) for m in approved_manpower)
+        worker_count = total_workers / approved_count
+    worker_count = max(0.0, min(80.0, worker_count))
+
+    # --- material_usage: AVG quantity per approved log --------------------
+    # Training expects a per-day rate, not a cumulative sum. This keeps the
+    # value bounded regardless of how long the project has been running.
+    material_usage = 0.0
+    if approved_count > 0:
+        approved_materials = [m for m in materials if m.log_id in approved_log_ids]
+        total_qty = sum(float(m.quantity or 0.0) for m in approved_materials)
+        material_usage = total_qty / approved_count
+    material_usage = max(0.0, min(200.0, material_usage))
+
+    # --- equipment_utilization_rate: 0..100 (no longer clamped to 50) -----
     hours_used = sum((e.hours_used or 0.0) for e in equipment)
     hours_idle = sum((i.hours_idle or 0.0) for i in idle)
     total_equip_hours = hours_used + hours_idle
-    
-    # Calculate financial metrics (always use actual)
-    cost_deviation = None
+    if total_equip_hours > 0:
+        equipment_utilization_rate = (hours_used / total_equip_hours) * 100.0
+    else:
+        # No equipment recorded → fall back to imputer median (75 in training).
+        equipment_utilization_rate = 75.0
+    equipment_utilization_rate = max(0.0, min(100.0, equipment_utilization_rate))
+
+    # --- machinery_status: binary -----------------------------------------
+    machinery_status = 1 if hours_used > 0 else 0
+
+    # --- cost_deviation: percentage points (budget% - progress%) ----------
+    # Training range: -30..+50. Positive = spending faster than progressing.
+    cost_deviation = 0.0
     if project.total_budget and project.total_budget > 0:
         budget_pct = (float(project.budget_spent or 0.0) / float(project.total_budget)) * 100.0
         cost_deviation = budget_pct - task_progress
+    cost_deviation = max(-30.0, min(50.0, cost_deviation))
 
+    # --- time_deviation: fraction -----------------------------------------
+    # Training range: -0.3..+0.5. Positive = behind schedule.
     time_deviation = _compute_time_deviation(project, task_progress)
-
-    # Stage-based feature preparation
-    if approved_logs_count == 0:
-        # PLANNING PHASE: Project hasn't started operations
-        # Use median values from model training data (imputer medians)
-        # This tells the model "typical planning phase project"
-        logger.info("feature_extractor: PLANNING phase - using training data medians")
-        
-        # Let imputer handle these (None = use training median)
-        worker_count = None
-        equipment_utilization_rate = None
-        material_usage = None
-        machinery_status = None
-        material_shortage_alert = None
-        
-        # Override task_progress to reflect planning stage
-        # Planning phase projects are typically 0-5% (setup/mobilization prep)
-        if task_progress < 5.0:
-            task_progress = max(1.0, task_progress)  # At least 1% to show project exists
-            
-    elif approved_logs_count < 5:
-        # MOBILIZATION PHASE: Early operations, partial data
-        logger.info("feature_extractor: MOBILIZATION phase - blending actual + baseline")
-        
-        # Use actual values if available, otherwise let imputer fill
-        worker_count = float(worker_count_raw) if worker_count_raw > 0 else None
-        equipment_utilization_rate = (
-            (hours_used / total_equip_hours) * 100.0 if total_equip_hours > 0 else None
-        )
-        material_usage = material_usage_raw if material_usage_raw > 0 else None
-        machinery_status = 1.0 if hours_used > 0 else None
-        material_shortage_alert = None
-        
-    else:
-        # EXECUTION PHASE: Active project, use actual data
-        logger.info("feature_extractor: EXECUTION phase - using actual data")
-        
-        worker_count = float(worker_count_raw)
-        equipment_utilization_rate = (
-            (hours_used / total_equip_hours) * 100.0 if total_equip_hours > 0 else None
-        )
-        material_usage = material_usage_raw
-        machinery_status = 1.0 if hours_used > 0 else 0.0
-        material_shortage_alert = None  # Would need actual shortage detection logic
+    time_deviation = max(-0.3, min(0.5, time_deviation))
 
     features = {
-        "temperature": temperature,
-        "humidity": humidity,
-        "material_usage": material_usage,
-        "machinery_status": machinery_status,
-        "worker_count": worker_count,
-        "task_progress": task_progress,
         "cost_deviation": cost_deviation,
         "time_deviation": time_deviation,
+        "task_progress": task_progress,
         "equipment_utilization_rate": equipment_utilization_rate,
-        "material_shortage_alert": material_shortage_alert,
+        "worker_count": worker_count,
+        "material_usage": material_usage,
+        "temperature": temperature,
+        "humidity": humidity,
+        "machinery_status": float(machinery_status),
     }
-    
-    logger.info("feature_extractor.build_features: final features=%s", features)
-    logger.info("feature_extractor: None values will be filled by imputer with training medians")
+
+    logger.info(
+        "feature_extractor.build_features: approved_logs=%d features=%s",
+        approved_count, features,
+    )
     return features
