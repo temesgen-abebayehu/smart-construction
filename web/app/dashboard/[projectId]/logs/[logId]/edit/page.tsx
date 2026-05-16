@@ -18,6 +18,9 @@ import {
     getLog, updateDailyLog,
     listLogManpower, listLogMaterials, listLogEquipment, listLogPhotos,
     addLogManpower, addLogMaterial, addLogEquipment, deleteLogPhoto,
+    deleteLogManpower, updateLogManpower,
+    deleteLogMaterial, updateLogMaterial,
+    deleteLogEquipment, updateLogEquipment,
     listLogCompletedActivities, addLogCompletedActivity, removeLogCompletedActivity,
     listTaskActivities, getTask, listSuppliers,
 } from '@/lib/api'
@@ -25,7 +28,7 @@ import { getApiBaseUrl } from '@/lib/api-client'
 import { getAccessToken } from '@/lib/auth-storage'
 import type { LogDetailResponse, DailyLogPhoto, TaskListItem, TaskActivityItem, SupplierItem } from '@/lib/api-types'
 import {
-    ArrowLeft, CheckCircle2, Image as ImageIcon, Loader2, Package, Plus, Save, Trash2, Truck, Upload, Users,
+    ArrowLeft, CheckCircle2, Image as ImageIcon, Loader2, Package, Pencil, Plus, Save, Trash2, Truck, Upload, Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -73,6 +76,14 @@ export default function EditLogPage({ params }: EditLogPageProps) {
 
     const [uploadingPhoto, setUploadingPhoto] = useState(false)
     const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null)
+
+    // Delete / Edit state for sub-entries
+    const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null)
+    const [savingEdit, setSavingEdit] = useState(false)
+    const [editDialog, setEditDialog] = useState<{ type: 'labor' | 'material' | 'equipment'; id: string } | null>(null)
+    const [editHrForm, setEditHrForm] = useState({ labor_type: '', worker_count: '1', hours_worked: '8', overtime_hours: '0', hourly_rate: '', overtime_rate: '' })
+    const [editMatForm, setEditMatForm] = useState({ supplier_id: '', material_type: '', quantity: '', unit: 'bags', unit_cost: '', delivery_date: '' })
+    const [editEqForm, setEditEqForm] = useState({ type: '', quantity: '1', start_time: '08:00', operation_time: '', cost_per_unit: '', idle_hours: '0', idle_reason: '' })
 
     const loadAll = async () => {
         setLoading(true)
@@ -191,6 +202,106 @@ export default function EditLogPage({ params }: EditLogPageProps) {
         }
     }
 
+    const openEditDialog = (type: 'labor' | 'material' | 'equipment', id: string) => {
+        if (type === 'labor') {
+            const entry = labor.find(l => l.id === id)
+            if (!entry) return
+            setEditHrForm({
+                labor_type: entry.worker_type,
+                worker_count: String(entry.number_of_workers),
+                hours_worked: String(entry.hours_worked),
+                overtime_hours: String(entry.overtime_hours),
+                hourly_rate: String(entry.hourly_rate),
+                overtime_rate: String(entry.overtime_rate),
+            })
+        } else if (type === 'material') {
+            const entry = materials.find(m => m.id === id)
+            if (!entry) return
+            setEditMatForm({
+                supplier_id: entry.supplier_id ?? '',
+                material_type: entry.name,
+                quantity: String(entry.quantity),
+                unit: entry.unit,
+                unit_cost: String(entry.unit_cost),
+                delivery_date: entry.delivery_date ? entry.delivery_date.split('T')[0] : '',
+            })
+        } else {
+            const entry = equipment.find(e => e.id === id)
+            if (!entry) return
+            setEditEqForm({
+                type: entry.name,
+                quantity: String(entry.quantity),
+                start_time: entry.start_date ? new Date(entry.start_date).toTimeString().slice(0, 5) : '08:00',
+                operation_time: String(entry.hours_used),
+                cost_per_unit: String(entry.unit_cost),
+                idle_hours: String(entry.idle_hours),
+                idle_reason: entry.idle_reason ?? '',
+            })
+        }
+        setEditDialog({ type, id })
+    }
+
+    const handleDeleteEntry = async (type: 'labor' | 'material' | 'equipment', id: string) => {
+        if (!confirm('Delete this entry?')) return
+        setDeletingEntryId(id)
+        try {
+            if (type === 'labor') await deleteLogManpower(id)
+            else if (type === 'material') await deleteLogMaterial(id)
+            else await deleteLogEquipment(id)
+            await loadAll()
+            toast.success('Entry deleted')
+        } catch { toast.error('Failed to delete entry') }
+        finally { setDeletingEntryId(null) }
+    }
+
+    const handleSaveEdit = async () => {
+        if (!editDialog) return
+        setSavingEdit(true)
+        try {
+            if (editDialog.type === 'labor') {
+                const wc = Number(editHrForm.worker_count) || 1
+                const hw = Number(editHrForm.hours_worked) || 0
+                const hr = Number(editHrForm.hourly_rate) || 0
+                const oh = Number(editHrForm.overtime_hours) || 0
+                const or_ = Number(editHrForm.overtime_rate) || (hr * 1.5)
+                await updateLogManpower(editDialog.id, {
+                    worker_type: editHrForm.labor_type.trim(),
+                    number_of_workers: wc, hours_worked: hw,
+                    overtime_hours: oh, hourly_rate: hr,
+                    overtime_rate: or_, cost: (wc * hw * hr) + (wc * oh * or_),
+                })
+            } else if (editDialog.type === 'material') {
+                const supplierObj = editMatForm.supplier_id ? suppliers.find(s => s.id === editMatForm.supplier_id) : null
+                const qty = Number(editMatForm.quantity) || 0
+                const uc = Number(editMatForm.unit_cost) || 0
+                await updateLogMaterial(editDialog.id, {
+                    name: editMatForm.material_type.trim(),
+                    supplier_id: editMatForm.supplier_id || undefined,
+                    supplier_name: supplierObj?.name || undefined,
+                    quantity: qty, unit: editMatForm.unit,
+                    unit_cost: uc, cost: qty * uc,
+                    delivery_date: editMatForm.delivery_date || undefined,
+                })
+            } else {
+                const qty = Number(editEqForm.quantity) || 1
+                const ot = Number(editEqForm.operation_time) || 0
+                const cpu = Number(editEqForm.cost_per_unit) || 0
+                const startDate = editEqForm.start_time ? `${new Date().toISOString().split('T')[0]}T${editEqForm.start_time}:00Z` : undefined
+                await updateLogEquipment(editDialog.id, {
+                    name: editEqForm.type.trim(), quantity: qty,
+                    start_date: startDate, hours_used: ot,
+                    unit_cost: cpu, cost: ot * cpu,
+                    idle_hours: Number(editEqForm.idle_hours) || 0,
+                    idle_reason: editEqForm.idle_reason.trim() || undefined,
+                })
+            }
+            setEditDialog(null)
+            await loadAll()
+            toast.success('Entry updated')
+        } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to update entry') }
+        finally { setSavingEdit(false) }
+    }
+
     const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
         if (!file) return
@@ -224,6 +335,9 @@ export default function EditLogPage({ params }: EditLogPageProps) {
         setSaving(true)
         try {
             await updateDailyLog(logId, { notes: notes.trim() || undefined })
+            if (log.status === 'rejected') {
+                sessionStorage.setItem(`log_edited_${logId}`, '1')
+            }
             toast.success('Log updated successfully')
             router.push(`/dashboard/${projectId}/logs/${logId}`)
         } catch (e) {
@@ -300,9 +414,16 @@ export default function EditLogPage({ params }: EditLogPageProps) {
                         <CardContent>
                             {labor.length === 0 ? <p className="text-sm text-muted-foreground">No labor records.</p> : (
                                 <div className="space-y-2">
-                                    {labor.map((l, i) => (
-                                        <div key={i} className="rounded border p-3 text-sm space-y-1">
-                                            <div className="flex justify-between"><span className="font-medium capitalize">{l.worker_type}</span><span className="font-medium">ETB {l.cost.toLocaleString()}</span></div>
+                                    {labor.map((l) => (
+                                        <div key={l.id} className="rounded border p-3 text-sm space-y-1">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="font-medium capitalize">{l.worker_type}</span>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="font-medium mr-1">ETB {l.cost.toLocaleString()}</span>
+                                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog('labor', l.id)}><Pencil className="h-3.5 w-3.5" /></Button>
+                                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" disabled={deletingEntryId === l.id} onClick={() => handleDeleteEntry('labor', l.id)}>{deletingEntryId === l.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}</Button>
+                                                </div>
+                                            </div>
                                             <div className="grid grid-cols-2 gap-x-4 text-xs text-muted-foreground">
                                                 <div>No. of Workers: {l.number_of_workers}</div>
                                                 <div>Hourly Rate: ETB {l.hourly_rate.toLocaleString()}</div>
@@ -327,11 +448,18 @@ export default function EditLogPage({ params }: EditLogPageProps) {
                         <CardContent>
                             {materials.length === 0 ? <p className="text-sm text-muted-foreground">No materials recorded.</p> : (
                                 <div className="space-y-2">
-                                    {materials.map((m, i) => {
+                                    {materials.map((m) => {
                                         const supplier = m.supplier_id ? suppliers.find(s => s.id === m.supplier_id) : null
                                         return (
-                                            <div key={i} className="rounded border p-3 text-sm space-y-1">
-                                                <div className="flex justify-between"><span className="font-medium">{m.name}</span><span className="font-medium">ETB {m.cost.toLocaleString()}</span></div>
+                                            <div key={m.id} className="rounded border p-3 text-sm space-y-1">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="font-medium">{m.name}</span>
+                                                    <div className="flex items-center gap-1">
+                                                        <span className="font-medium mr-1">ETB {m.cost.toLocaleString()}</span>
+                                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog('material', m.id)}><Pencil className="h-3.5 w-3.5" /></Button>
+                                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" disabled={deletingEntryId === m.id} onClick={() => handleDeleteEntry('material', m.id)}>{deletingEntryId === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}</Button>
+                                                    </div>
+                                                </div>
                                                 <div className="grid grid-cols-2 gap-x-4 text-xs text-muted-foreground">
                                                     {supplier && (
                                                         <div className="col-span-2">
@@ -364,9 +492,16 @@ export default function EditLogPage({ params }: EditLogPageProps) {
                         <CardContent>
                             {equipment.length === 0 ? <p className="text-sm text-muted-foreground">No equipment recorded.</p> : (
                                 <div className="space-y-2">
-                                    {equipment.map((e, i) => (
-                                        <div key={i} className="rounded border p-3 text-sm space-y-1">
-                                            <div className="flex justify-between"><span className="font-medium">{e.name}</span><span className="font-medium">ETB {e.cost.toLocaleString()}</span></div>
+                                    {equipment.map((e) => (
+                                        <div key={e.id} className="rounded border p-3 text-sm space-y-1">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="font-medium">{e.name}</span>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="font-medium mr-1">ETB {e.cost.toLocaleString()}</span>
+                                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog('equipment', e.id)}><Pencil className="h-3.5 w-3.5" /></Button>
+                                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" disabled={deletingEntryId === e.id} onClick={() => handleDeleteEntry('equipment', e.id)}>{deletingEntryId === e.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}</Button>
+                                                </div>
+                                            </div>
                                             <div className="grid grid-cols-2 gap-x-4 text-xs text-muted-foreground">
                                                 <div>Quantity: {e.quantity}</div>
                                                 {e.start_date && (
@@ -613,6 +748,110 @@ export default function EditLogPage({ params }: EditLogPageProps) {
                         <Button variant="outline" onClick={() => setAddType(null)}>Cancel</Button>
                         <Button onClick={handleAddEntry} disabled={addingEntry}>
                             {addingEntry && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Add
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Edit Entry Dialog */}
+            <Dialog open={!!editDialog} onOpenChange={(open) => { if (!open) setEditDialog(null) }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {editDialog?.type === 'labor' && 'Edit Human Resource'}
+                            {editDialog?.type === 'material' && 'Edit Material'}
+                            {editDialog?.type === 'equipment' && 'Edit Equipment'}
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="space-y-3 py-2">
+                        {editDialog?.type === 'labor' && (
+                            <>
+                                <div className="space-y-1.5">
+                                    <Label>Labor Type *</Label>
+                                    <Input placeholder="e.g. Mason, Carpenter, Laborer" value={editHrForm.labor_type} onChange={(e) => setEditHrForm(p => ({ ...p, labor_type: e.target.value }))} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5"><Label>Worker Count</Label><Input type="number" min="1" value={editHrForm.worker_count} onChange={(e) => setEditHrForm(p => ({ ...p, worker_count: e.target.value }))} /></div>
+                                    <div className="space-y-1.5"><Label>Hourly Rate (ETB) *</Label><Input type="number" step="0.01" value={editHrForm.hourly_rate} onChange={(e) => setEditHrForm(p => ({ ...p, hourly_rate: e.target.value }))} /></div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5"><Label>Regular Hours</Label><Input type="number" step="0.5" value={editHrForm.hours_worked} onChange={(e) => setEditHrForm(p => ({ ...p, hours_worked: e.target.value }))} /></div>
+                                    <div className="space-y-1.5"><Label>Overtime Hours</Label><Input type="number" step="0.5" value={editHrForm.overtime_hours} onChange={(e) => setEditHrForm(p => ({ ...p, overtime_hours: e.target.value }))} /></div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label>Overtime Rate (ETB/hr)</Label>
+                                    <Input type="number" step="0.01" placeholder="Default 1.5×" value={editHrForm.overtime_rate} onChange={(e) => setEditHrForm(p => ({ ...p, overtime_rate: e.target.value }))} />
+                                </div>
+                            </>
+                        )}
+
+                        {editDialog?.type === 'material' && (
+                            <>
+                                {suppliers.length > 0 && (
+                                    <div className="space-y-1.5">
+                                        <Label>Supplier (Optional)</Label>
+                                        <Select value={editMatForm.supplier_id || 'none'} onValueChange={(v) => setEditMatForm(p => ({ ...p, supplier_id: v === 'none' ? '' : v }))}>
+                                            <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="none">No supplier</SelectItem>
+                                                {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
+                                <div className="space-y-1.5">
+                                    <Label>Material Type *</Label>
+                                    <Input placeholder="e.g. Cement, Rebar, Sand" value={editMatForm.material_type} onChange={(e) => setEditMatForm(p => ({ ...p, material_type: e.target.value }))} />
+                                </div>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <div className="space-y-1.5">
+                                        <Label>Quantity *</Label>
+                                        <Input type="number" min="0" value={editMatForm.quantity} onChange={(e) => setEditMatForm(p => ({ ...p, quantity: e.target.value }))} />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>Unit</Label>
+                                        <Select value={editMatForm.unit} onValueChange={(v) => setEditMatForm(p => ({ ...p, unit: v }))}>
+                                            <SelectTrigger><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                {['bags', 'kg', 'ton', 'm3', 'm2', 'm', 'pcs', 'liters'].map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>Unit Cost (ETB) *</Label>
+                                        <Input type="number" min="0" step="0.01" value={editMatForm.unit_cost} onChange={(e) => setEditMatForm(p => ({ ...p, unit_cost: e.target.value }))} />
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label>Delivery Date</Label>
+                                    <Input type="date" value={editMatForm.delivery_date} onChange={(e) => setEditMatForm(p => ({ ...p, delivery_date: e.target.value }))} />
+                                </div>
+                            </>
+                        )}
+
+                        {editDialog?.type === 'equipment' && (
+                            <>
+                                <div className="space-y-1.5">
+                                    <Label>Equipment Type *</Label>
+                                    <Input placeholder="e.g. Excavator, Compactor, Crane" value={editEqForm.type} onChange={(e) => setEditEqForm(p => ({ ...p, type: e.target.value }))} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5"><Label>Operation Time (hrs) *</Label><Input type="number" min="0" step="0.5" value={editEqForm.operation_time} onChange={(e) => setEditEqForm(p => ({ ...p, operation_time: e.target.value }))} /></div>
+                                    <div className="space-y-1.5"><Label>Cost/hr (ETB) *</Label><Input type="number" min="0" step="0.01" value={editEqForm.cost_per_unit} onChange={(e) => setEditEqForm(p => ({ ...p, cost_per_unit: e.target.value }))} /></div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5"><Label>Idle Hours</Label><Input type="number" min="0" step="0.5" value={editEqForm.idle_hours} onChange={(e) => setEditEqForm(p => ({ ...p, idle_hours: e.target.value }))} /></div>
+                                    <div className="space-y-1.5"><Label>Idle Reason</Label><Input placeholder="Reason for idle" value={editEqForm.idle_reason} onChange={(e) => setEditEqForm(p => ({ ...p, idle_reason: e.target.value }))} /></div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEditDialog(null)}>Cancel</Button>
+                        <Button onClick={handleSaveEdit} disabled={savingEdit}>
+                            {savingEdit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save
                         </Button>
                     </DialogFooter>
                 </DialogContent>

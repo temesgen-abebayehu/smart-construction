@@ -291,6 +291,7 @@ function normalizeClientRow(raw: unknown): ClientListItem {
   const r = raw as Record<string, unknown>
   return {
     id: String(r.id ?? ''),
+    project_id: String(r.project_id ?? ''),
     name: String(r.name ?? ''),
     contact_email: (r.contact_email as string | null | undefined) ?? null,
   }
@@ -529,6 +530,30 @@ export async function listLogEquipment(logId: string) {
 
 export async function addLogEquipment(logId: string, body: { name: string; quantity: number; start_date?: string; hours_used: number; unit_cost: number; cost: number; idle_hours: number; idle_reason?: string }) {
   return apiRequest<EquipmentItem>(`/daily-logs/${logId}/equipment`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function updateLogManpower(manpowerId: string, body: Partial<{ worker_type: string; number_of_workers: number; hours_worked: number; overtime_hours: number; hourly_rate: number; overtime_rate: number; cost: number }>) {
+  return apiRequest<ManpowerItem>(`/manpower/${manpowerId}`, { method: 'PATCH', body: JSON.stringify(body) })
+}
+
+export async function deleteLogManpower(manpowerId: string) {
+  return apiRequest<void>(`/manpower/${manpowerId}`, { method: 'DELETE' })
+}
+
+export async function updateLogMaterial(materialId: string, body: Partial<{ name: string; supplier_id: string; supplier_name: string; quantity: number; unit: string; unit_cost: number; cost: number; delivery_date: string }>) {
+  return apiRequest<MaterialItem>(`/materials/${materialId}`, { method: 'PATCH', body: JSON.stringify(body) })
+}
+
+export async function deleteLogMaterial(materialId: string) {
+  return apiRequest<void>(`/materials/${materialId}`, { method: 'DELETE' })
+}
+
+export async function updateLogEquipment(equipmentId: string, body: Partial<{ name: string; quantity: number; start_date: string; hours_used: number; unit_cost: number; cost: number; idle_hours: number; idle_reason: string }>) {
+  return apiRequest<EquipmentItem>(`/equipment/${equipmentId}`, { method: 'PATCH', body: JSON.stringify(body) })
+}
+
+export async function deleteLogEquipment(equipmentId: string) {
+  return apiRequest<void>(`/equipment/${equipmentId}`, { method: 'DELETE' })
 }
 
 // Equipment Idle
