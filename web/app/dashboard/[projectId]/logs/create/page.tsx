@@ -107,7 +107,22 @@ export default function CreateLogPage({ params }: CreateLogPageProps) {
                     limit: 100,
                     assigned_to: user?.id,
                 })
-                setTasks(res.data.filter(t => t.status !== 'completed'))
+
+                const taskRows = res.data.filter(t => t.status !== 'completed')
+                const taskIdsWithActivities = new Set<string>()
+
+                await Promise.all(taskRows.map(async (task) => {
+                    try {
+                        const activities = await listTaskActivities(task.id)
+                        if (activities.some(a => !a.is_completed)) {
+                            taskIdsWithActivities.add(task.id)
+                        }
+                    } catch {
+                        // ignore activity load errors for filtering
+                    }
+                }))
+
+                setTasks(taskRows.filter(task => taskIdsWithActivities.has(task.id)))
 
                 // Load suppliers for this project
                 const suppliersData = await listSuppliers(projectId, { limit: 100 })
@@ -426,7 +441,7 @@ export default function CreateLogPage({ params }: CreateLogPageProps) {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {tasks.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">No tasks assigned to you</p>
+                                <p className="text-sm text-muted-foreground">No assigned tasks with activities</p>
                             ) : (
                                 <div className="space-y-2 max-h-64 overflow-y-auto rounded-lg border p-3">
                                     {tasks.map((task) => (

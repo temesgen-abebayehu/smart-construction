@@ -22,10 +22,11 @@ import {
     deleteLogMaterial, updateLogMaterial,
     deleteLogEquipment, updateLogEquipment,
     listLogCompletedActivities, addLogCompletedActivity, removeLogCompletedActivity,
-    listTaskActivities, getTask, listSuppliers,
+    listTaskActivities, listProjectTasks, getTask, listSuppliers,
 } from '@/lib/api'
 import { getApiBaseUrl } from '@/lib/api-client'
 import { getAccessToken } from '@/lib/auth-storage'
+import { useAuth } from '@/lib/auth-context'
 import type { LogDetailResponse, DailyLogPhoto, TaskListItem, TaskActivityItem, SupplierItem } from '@/lib/api-types'
 import {
     ArrowLeft, CheckCircle2, Image as ImageIcon, Loader2, Package, Pencil, Plus, Save, Trash2, Truck, Upload, Users,
@@ -51,6 +52,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
 export default function EditLogPage({ params }: EditLogPageProps) {
     const { projectId, logId } = use(params)
     const router = useRouter()
+    const { user } = useAuth()
 
     const [log, setLog] = useState<LogDetailResponse | null>(null)
     const [notes, setNotes] = useState('')
@@ -64,7 +66,7 @@ export default function EditLogPage({ params }: EditLogPageProps) {
     const [suppliers, setSuppliers] = useState<SupplierItem[]>([])
 
     const [task, setTask] = useState<TaskListItem | null>(null)
-    const [availableActivities, setAvailableActivities] = useState<TaskActivityItem[]>([])
+    const [taskGroups, setTaskGroups] = useState<{ task: TaskListItem; activities: TaskActivityItem[] }[]>([])
     const [completedActivityIds, setCompletedActivityIds] = useState<Set<string>>(new Set())
 
     const [addType, setAddType] = useState<'labor' | 'material' | 'equipment' | null>(null)
@@ -109,15 +111,56 @@ export default function EditLogPage({ params }: EditLogPageProps) {
 
             if (logData.task_id) {
                 try {
-                    const [taskData, acts, completedActs] = await Promise.all([
+                    const [taskData, completedActs, allTasksRes] = await Promise.all([
                         getTask(logData.task_id),
-                        listTaskActivities(logData.task_id),
                         listLogCompletedActivities(logId),
+                        listProjectTasks(projectId, {
+                            limit: 200,
+                            assigned_to: user?.id,
+                        }),
                     ])
                     setTask(taskData)
-                    setAvailableActivities(acts)
-                    setCompletedActivityIds(new Set((completedActs as any[]).map(a => a.task_activity_id)))
-                } catch { setTask(null); setAvailableActivities([]); setCompletedActivityIds(new Set()) }
+                    const completedIds = new Set((completedActs as any[]).map(a => a.task_activity_id))
+                    setCompletedActivityIds(completedIds)
+
+                    const allTasks = Array.isArray(allTasksRes) ? allTasksRes : (allTasksRes as any).data ?? []
+                    const groups: { task: TaskListItem; activities: TaskActivityItem[] }[] = []
+                    
+                    // Filter tasks to only include those with incomplete activities (same as create page)
+                    const tasksWithIncompleteActivities = new Set<string>()
+                    await Promise.all(
+                        allTasks.map(async (t: TaskListItem) => {
+                            if (t.status === 'completed') return // Skip completed tasks
+                            const acts = await listTaskActivities(t.id).catch(() => [])
+                            // Check if task has any incomplete activities
+                            if (acts.some((a: TaskActivityItem) => !a.is_completed)) {
+                                tasksWithIncompleteActivities.add(t.id)
+                            }
+                        })
+                    )
+                    
+                    // Build groups with activities: incomplete ones + ones completed in this log
+                    await Promise.all(
+                        allTasks
+                            .filter((t: TaskListItem) => tasksWithIncompleteActivities.has(t.id))
+                            .map(async (t: TaskListItem) => {
+                                const acts = await listTaskActivities(t.id).catch(() => [])
+                                // Include: (1) incomplete activities, (2) activities completed in THIS log
+                                const relevantActivities = acts.filter((activity: TaskActivityItem) => 
+                                    !activity.is_completed || completedIds.has(activity.id)
+                                )
+                                if (relevantActivities.length > 0) {
+                                    groups.push({ task: t, activities: relevantActivities })
+                                }
+                            })
+                    )
+                    
+                    // Sort: current log's task first, then alphabetically
+                    groups.sort((a, b) =>
+                        a.task.id === logData.task_id ? -1 : b.task.id === logData.task_id ? 1 : a.task.title.localeCompare(b.task.title)
+                    )
+                    setTaskGroups(groups)
+                } catch { setTask(null); setTaskGroups([]); setCompletedActivityIds(new Set()) }
             }
         } catch {
             toast.error('Failed to load log')
@@ -565,46 +608,58 @@ export default function EditLogPage({ params }: EditLogPageProps) {
                     </Card>
 
                     {/* Activities grouped by task */}
-                    {task && availableActivities.length > 0 && (
+                    {taskGroups.length > 0 && (
                         <Card>
                             <CardHeader>
                                 <CardTitle className="text-base flex items-center gap-2"><CheckCircle2 className="h-4 w-4" />Activities</CardTitle>
                                 <p className="text-sm text-muted-foreground">{completedActivityIds.size} completed in this log</p>
                             </CardHeader>
                             <CardContent className="space-y-3">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{task.title}</p>
-                                <div className="space-y-1">
-                                    {availableActivities.map((activity) => {
-                                        const isCompleted = completedActivityIds.has(activity.id)
-                                        return (
-                                            <div key={activity.id} className="flex items-center justify-between rounded-lg border p-2.5">
-                                                <div className="flex items-center gap-3 min-w-0">
-                                                    <button
-                                                        type="button"
-                                                        className={`grid h-5 w-5 shrink-0 place-items-center rounded border transition-colors ${isCompleted ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 hover:border-emerald-400'}`}
-                                                        onClick={async () => {
-                                                            try {
-                                                                if (isCompleted) {
-                                                                    await removeLogCompletedActivity(logId, activity.id)
-                                                                    setCompletedActivityIds(prev => { const n = new Set(prev); n.delete(activity.id); return n })
-                                                                    toast.success('Activity unmarked')
-                                                                } else {
-                                                                    await addLogCompletedActivity(logId, activity.id)
-                                                                    setCompletedActivityIds(prev => new Set(prev).add(activity.id))
-                                                                    toast.success('Activity marked complete')
-                                                                }
-                                                            } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to update') }
-                                                        }}
-                                                    >
-                                                        {isCompleted && <CheckCircle2 className="h-3 w-3" />}
-                                                    </button>
-                                                    <span className={`text-sm truncate ${isCompleted ? 'font-medium' : ''}`}>{activity.name}</span>
-                                                </div>
-                                                <Badge variant="outline" className="text-[10px] shrink-0">{activity.percentage}%</Badge>
-                                            </div>
-                                        )
-                                    })}
-                                </div>
+                                {taskGroups.map(({ task: grpTask, activities }) => (
+                                    <div key={grpTask.id} className="space-y-2">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{grpTask.title}</p>
+                                        <div className="space-y-1">
+                                            {activities.map((activity) => {
+                                                const isCompletedInThisLog = completedActivityIds.has(activity.id)
+                                                return (
+                                                    <div key={activity.id} className="flex items-center justify-between rounded-lg border p-2.5">
+                                                        <div className="flex items-center gap-3 min-w-0">
+                                                            <button
+                                                                type="button"
+                                                                className={`grid h-5 w-5 shrink-0 place-items-center rounded border transition-colors ${isCompletedInThisLog ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 hover:border-emerald-400'}`}
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        if (isCompletedInThisLog) {
+                                                                            // Remove from this log
+                                                                            await removeLogCompletedActivity(logId, activity.id)
+                                                                            setCompletedActivityIds(prev => {
+                                                                                const updated = new Set(prev)
+                                                                                updated.delete(activity.id)
+                                                                                return updated
+                                                                            })
+                                                                            toast.success('Activity unmarked')
+                                                                        } else {
+                                                                            // Add to this log
+                                                                            await addLogCompletedActivity(logId, activity.id)
+                                                                            setCompletedActivityIds(prev => new Set(prev).add(activity.id))
+                                                                            toast.success('Activity marked complete')
+                                                                        }
+                                                                    } catch (e) {
+                                                                        toast.error(e instanceof Error ? e.message : 'Failed to update')
+                                                                    }
+                                                                }}
+                                                            >
+                                                                {isCompletedInThisLog && <CheckCircle2 className="h-3 w-3" />}
+                                                            </button>
+                                                            <span className={`text-sm truncate ${isCompletedInThisLog ? 'font-medium' : ''}`}>{activity.name}</span>
+                                                        </div>
+                                                        <Badge variant="outline" className="text-[10px] shrink-0">{activity.percentage}%</Badge>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
                             </CardContent>
                         </Card>
                     )}
