@@ -23,14 +23,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/components/ui/table'
 import { useAuth } from '@/lib/auth-context'
 import {
     listAllAnnouncements,
@@ -39,7 +31,7 @@ import {
     deleteAnnouncement,
 } from '@/lib/api'
 import type { AnnouncementItem } from '@/lib/api-types'
-import { Loader2, Plus, Edit, Trash2, Megaphone, ArrowLeft } from 'lucide-react'
+import { Loader2, Plus, Edit, Trash2, ArrowLeft } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
 export default function AdminAnnouncementsPage() {
@@ -52,7 +44,6 @@ export default function AdminAnnouncementsPage() {
     const [dialogOpen, setDialogOpen] = useState(false)
     const [editingAnnouncement, setEditingAnnouncement] = useState<AnnouncementItem | null>(null)
     const [formData, setFormData] = useState({
-        title: '',
         content: '',
         priority: 'normal',
         expires_at: '',
@@ -90,7 +81,6 @@ export default function AdminAnnouncementsPage() {
         if (announcement) {
             setEditingAnnouncement(announcement)
             setFormData({
-                title: announcement.title,
                 content: announcement.content,
                 priority: announcement.priority,
                 expires_at: announcement.expires_at
@@ -100,7 +90,6 @@ export default function AdminAnnouncementsPage() {
         } else {
             setEditingAnnouncement(null)
             setFormData({
-                title: '',
                 content: '',
                 priority: 'normal',
                 expires_at: '',
@@ -110,19 +99,21 @@ export default function AdminAnnouncementsPage() {
     }
 
     const handleSave = async () => {
-        if (!formData.title || !formData.content) {
+        if (!formData.content) {
             toast({
                 title: 'Error',
-                description: 'Title and content are required',
+                description: 'Content is required',
                 variant: 'destructive',
             })
             return
         }
 
+        const derivedTitle = formData.content.trim().split(/\s+/).slice(0, 6).join(' ') || 'Announcement'
+
         setSaving(true)
         try {
             const payload = {
-                title: formData.title,
+                title: derivedTitle,
                 content: formData.content,
                 priority: formData.priority,
                 expires_at: formData.expires_at || undefined,
@@ -241,118 +232,68 @@ export default function AdminAnnouncementsPage() {
                     <CardTitle>All Announcements</CardTitle>
                     <CardDescription>Manage announcements visible to all users</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                    {error && (
-                        <div className="p-4 border border-destructive/20 bg-destructive/5 rounded-lg text-sm text-destructive">
+                <CardContent>
+                    {error ? (
+                        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
                             {error}
                         </div>
-                    )}
-
-                    <div className="border rounded-lg">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Title</TableHead>
-                                    <TableHead>Priority</TableHead>
-                                    <TableHead>Status</TableHead>
-                                    <TableHead>Created</TableHead>
-                                    <TableHead>Expires</TableHead>
-                                    <TableHead className="text-right">Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {loading ? (
-                                    <TableRow>
-                                        <TableCell colSpan={6} className="text-center py-8">
-                                            <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-                                        </TableCell>
-                                    </TableRow>
-                                ) : announcements.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                                            No announcements yet
-                                        </TableCell>
-                                    </TableRow>
-                                ) : (
-                                    announcements.map((announcement) => (
-                                        <TableRow key={announcement.id}>
-                                            <TableCell className="font-medium max-w-xs">
-                                                <div className="truncate">{announcement.title}</div>
-                                                <div className="text-xs text-muted-foreground truncate">
-                                                    {announcement.content.substring(0, 60)}
-                                                    {announcement.content.length > 60 ? '...' : ''}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>{getPriorityBadge(announcement.priority)}</TableCell>
-                                            <TableCell>
-                                                {announcement.is_active ? (
-                                                    <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                                        Active
-                                                    </Badge>
-                                                ) : (
-                                                    <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
-                                                        Inactive
-                                                    </Badge>
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                {new Date(announcement.created_at).toLocaleDateString('en-US', {
+                    ) : loading ? (
+                        <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        </div>
+                    ) : announcements.length === 0 ? (
+                        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                            No announcements yet.
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {announcements.map((announcement) => (
+                                <div key={announcement.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm">
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate font-bold text-foreground">{announcement.content}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        {getPriorityBadge(announcement.priority)}
+                                        {announcement.is_active ? (
+                                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Active</Badge>
+                                        ) : (
+                                            <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">Inactive</Badge>
+                                        )}
+                                        <Badge variant="outline" className="text-[10px]">
+                                            {announcement.expires_at
+                                                ? new Date(announcement.expires_at).toLocaleDateString('en-US', {
                                                     month: 'short',
                                                     day: 'numeric',
                                                     year: 'numeric',
-                                                })}
-                                            </TableCell>
-                                            <TableCell>
-                                                {announcement.expires_at
-                                                    ? new Date(announcement.expires_at).toLocaleDateString('en-US', {
-                                                        month: 'short',
-                                                        day: 'numeric',
-                                                        year: 'numeric',
-                                                    })
-                                                    : '—'}
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => handleToggleActive(announcement)}
-                                                    >
-                                                        {announcement.is_active ? 'Deactivate' : 'Activate'}
-                                                    </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        onClick={() => handleOpenDialog(announcement)}
-                                                    >
-                                                        <Edit className="h-4 w-4" />
-                                                    </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        onClick={() => handleDelete(announcement.id)}
-                                                        className="text-destructive hover:text-destructive"
-                                                    >
-                                                        <Trash2 className="h-4 w-4" />
-                                                    </Button>
-                                                </div>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                )}
-                            </TableBody>
-                        </Table>
-                    </div>
+                                                })
+                                                : 'No expiry'}
+                                        </Badge>
+                                        <Button variant="ghost" size="icon" onClick={() => handleToggleActive(announcement)}>
+                                            {announcement.is_active ? '—' : '+'}
+                                        </Button>
+                                        <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(announcement)}>
+                                            <Edit className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => handleDelete(announcement.id)}
+                                            className="text-destructive hover:text-destructive"
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
-            {/* Create/Edit Dialog */}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-xl">
                     <DialogHeader>
-                        <DialogTitle>
-                            {editingAnnouncement ? 'Edit Announcement' : 'Create Announcement'}
-                        </DialogTitle>
+                        <DialogTitle>{editingAnnouncement ? 'Edit Announcement' : 'Create Announcement'}</DialogTitle>
                         <DialogDescription>
                             {editingAnnouncement
                                 ? 'Update the announcement details'
@@ -362,23 +303,13 @@ export default function AdminAnnouncementsPage() {
 
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <Label htmlFor="title">Title</Label>
-                            <Input
-                                id="title"
-                                value={formData.title}
-                                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                                placeholder="Announcement title"
-                            />
-                        </div>
-
-                        <div className="space-y-2">
                             <Label htmlFor="content">Content</Label>
                             <Textarea
                                 id="content"
                                 value={formData.content}
                                 onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                                 placeholder="Announcement content"
-                                rows={5}
+                                rows={4}
                             />
                         </div>
 
@@ -420,7 +351,7 @@ export default function AdminAnnouncementsPage() {
                         <Button onClick={handleSave} disabled={saving}>
                             {saving ? (
                                 <>
-                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                     Saving...
                                 </>
                             ) : editingAnnouncement ? (
